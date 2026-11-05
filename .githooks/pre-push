@@ -1,0 +1,21 @@
+#!/bin/sh
+# Barrera 2: revisa TODOS los commits que se van a subir (no solo el último).
+set -e
+ROOT=$(git rev-parse --show-toplevel)
+. "$ROOT/.githooks/_gitleaks.sh"
+REFS=$(cat)
+
+echo "[pre-push] check-secrets (commits a subir)…"
+printf '%s\n' "$REFS" | node "$ROOT/scripts/check-secrets.mjs" --push \
+  || { echo "[pre-push] BLOQUEADO por check-secrets."; exit 1; }
+
+echo "[pre-push] check-secrets (árbol completo)…"
+node "$ROOT/scripts/check-secrets.mjs" --all || { echo "[pre-push] BLOQUEADO por check-secrets."; exit 1; }
+
+if GL=$(find_gitleaks); then
+  echo "[pre-push] gitleaks (historial completo)…"
+  "$GL" git --redact --no-banner --config "$ROOT/.gitleaks.toml" "$ROOT" \
+    || { echo "[pre-push] BLOQUEADO por gitleaks."; exit 1; }
+else
+  echo "[pre-push] AVISO: gitleaks no está instalado. Solo se ha usado check-secrets."
+fi

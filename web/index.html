@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loot Arena</title>
+  <meta name="description" content="Mini-RPG por turnos: vence enemigos y consigue objetos NFT (ERC-721) en Sepolia.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">⚔️</span>
+      <div>
+        <h1>Loot Arena</h1>
+        <p class="tagline">Lucha, gana, saquea. Tu botín es tuyo: NFT en Sepolia.</p>
+      </div>
+    </div>
+    <div class="wallet">
+      <span id="net-badge" class="badge">Cargando…</span>
+      <span id="addr" class="addr" hidden></span>
+      <button id="btn-connect" class="btn btn-gold" type="button">🦊 Conectar MetaMask</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" role="alert" hidden></div>
+
+  <main class="layout">
+    <section class="panel arena-panel" aria-labelledby="t-arena">
+      <div class="panel-head">
+        <h2 id="t-arena">La Arena</h2>
+        <span id="arena-level" class="chip">Nivel de arena 1</span>
+      </div>
+
+      <div class="arena">
+        <div class="fighter" id="f-jugador">
+          <div class="avatar" aria-hidden="true">🤺</div>
+          <div class="f-name">Tu héroe</div>
+          <div class="hp" aria-label="Vida del héroe"><div class="hp-fill"></div><span class="hp-text"></span></div>
+          <div class="f-stats"></div>
+        </div>
+        <div class="vs" aria-hidden="true">VS</div>
+        <div class="fighter enemy vacio" id="f-enemigo">
+          <div class="avatar" aria-hidden="true">❔</div>
+          <div class="f-name">Arena vacía</div>
+          <div class="hp" aria-label="Vida del enemigo"><div class="hp-fill"></div><span class="hp-text"></span></div>
+          <div class="f-stats">Pulsa Explorar para encontrar un rival</div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="btn-explorar" class="btn btn-gold" type="button">🧭 Explorar</button>
+        <button id="btn-atacar" class="btn btn-red" type="button" disabled>⚔️ Atacar</button>
+        <button id="btn-defender" class="btn btn-blue" type="button" disabled>🛡️ Defender</button>
+        <button id="btn-huir" class="btn btn-ghost" type="button" disabled>🏃 Huir</button>
+      </div>
+
+      <div id="resultado" class="resultado" aria-live="polite" hidden></div>
+
+      <h3 class="sub">Crónica del combate</h3>
+      <ol id="log" class="log" aria-live="polite"></ol>
+    </section>
+
+    <aside class="side">
+      <section class="panel" aria-labelledby="t-heroe">
+        <div class="panel-head"><h2 id="t-heroe">Tu héroe</h2><span id="victorias" class="chip">0 victorias</span></div>
+        <div class="stats" id="stats"></div>
+        <h3 class="sub">Equipo</h3>
+        <ul class="slots" id="slots"></ul>
+      </section>
+
+      <section class="panel" aria-labelledby="t-inv">
+        <div class="panel-head">
+          <h2 id="t-inv">Inventario</h2>
+          <button id="btn-refrescar" class="btn btn-small btn-ghost" type="button" disabled title="Volver a leer de la cadena">↻ Refrescar</button>
+        </div>
+        <p id="inv-estado" class="inv-estado"></p>
+        <div id="inventario" class="inventario"></div>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <span id="contrato-info"></span>
+  </footer>
+
+  <dialog id="dlg-transfer" class="dialog">
+    <form id="form-transfer" method="dialog">
+      <h3>Transferir objeto</h3>
+      <p id="tr-item" class="tr-item"></p>
+      <label for="tr-to">Dirección de destino</label>
+      <input id="tr-to" name="to" placeholder="0x…" autocomplete="off" spellcheck="false">
+      <p id="tr-error" class="form-error" aria-live="assertive"></p>
+      <p class="hint">Se enviará con <code>safeTransferFrom</code>. La operación es irreversible y requiere gas.</p>
+      <div class="dialog-actions">
+        <button type="button" id="tr-cancel" class="btn btn-ghost">Cancelar</button>
+        <button type="submit" class="btn btn-gold">Transferir</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts" class="toasts"></div>
+</body>
+</html>

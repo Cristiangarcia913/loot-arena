@@ -1,0 +1,22 @@
+{
+  "name": "loot-arena-server",
+  "version": "1.0.0",
+  "description": "Servidor de Loot Arena: lógica de drops y acuñación de objetos NFT (ERC-721) en Sepolia",
+  "type": "module",
+  "main": "src/index.js",
+  "private": true,
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test",
+    "sync-abi": "node scripts/sync-abi.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.4",
+    "express": "^4.21.2"
+  }
+}

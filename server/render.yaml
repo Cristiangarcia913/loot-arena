@@ -1,0 +1,32 @@
+# Blueprint de Render para el servidor de Loot Arena.
+# Ubicación: server/render.yaml. Al crear el Blueprint en Render, pon "Blueprint Path" = server/render.yaml.
+# Render resuelve rootDir respecto a la RAÍZ del repo, así que este mismo archivo funciona sin
+# cambios si se mueve a la raíz (/render.yaml; en ese caso Render lo detecta solo).
+# Los secretos (sync: false) se piden en el panel al crear el Blueprint; nunca se guardan aquí.
+services:
+  - type: web
+    name: loot-arena-cg913
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: RPC_URL
+        value: https://ethereum-sepolia-rpc.publicnode.com
+      - key: PRIVATE_KEY
+        sync: false
+      - key: CONTRACT_ADDRESS
+        value: "0x32B89E29fACa1b1418B5802b6a2C7de71f3AdA2f"
+      - key: ALLOWED_ORIGIN
+        value: https://cristiangarcia913.github.io
+      - key: DROP_CHANCE
+        value: "0.6"
+      - key: TRUST_PROXY
+        value: "1"
+      # PORT lo inyecta Render automáticamente; no hace falta definirlo.

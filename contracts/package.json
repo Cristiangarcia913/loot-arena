@@ -1,0 +1,22 @@
+{
+  "name": "loot-arena-contracts",
+  "version": "1.0.0",
+  "description": "Contrato GameItem (ERC-721) de Loot Arena",
+  "private": true,
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "node": "hardhat node",
+    "deploy:localhost": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
+    "mint:localhost": "hardhat run scripts/mint-demo.js --network localhost"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "dotenv": "^18.0.9",
+    "hardhat": "^2.29.1"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.6.1"
+  }
+}

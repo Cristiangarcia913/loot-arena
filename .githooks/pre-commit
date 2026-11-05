@@ -1,0 +1,16 @@
+#!/bin/sh
+# Barrera 1: escáner propio + gitleaks sobre lo que va en el commit.
+set -e
+ROOT=$(git rev-parse --show-toplevel)
+. "$ROOT/.githooks/_gitleaks.sh"
+
+echo "[pre-commit] check-secrets (staged)…"
+node "$ROOT/scripts/check-secrets.mjs" || { echo "[pre-commit] BLOQUEADO por check-secrets."; exit 1; }
+
+if GL=$(find_gitleaks); then
+  echo "[pre-commit] gitleaks (staged)…"
+  "$GL" git --pre-commit --staged --redact --no-banner --config "$ROOT/.gitleaks.toml" "$ROOT" \
+    || { echo "[pre-commit] BLOQUEADO por gitleaks."; exit 1; }
+else
+  echo "[pre-commit] AVISO: gitleaks no está instalado (winget install Gitleaks.Gitleaks). Solo se ha usado check-secrets."
+fi

@@ -1,0 +1,10 @@
+{
+  "localhost": {
+    "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "chainId": 31337
+  },
+  "sepolia": {
+    "address": "0x32B89E29fACa1b1418B5802b6a2C7de71f3AdA2f",
+    "chainId": 11155111
+  }
+}

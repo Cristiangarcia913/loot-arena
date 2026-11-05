@@ -1,0 +1,40 @@
+# Configuración de gitleaks para Loot Arena.
+# Usa las reglas por defecto de gitleaks y añade reglas específicas de Web3.
+title = "loot-arena gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "eth-private-key-context"
+description = "Clave privada Ethereum (64 hex) junto a PRIVATE_KEY/mnemonic/secret"
+regex = '''(?i)(?:private[_\s-]?key|secret|signer|deployer|pk)\s*[:=]\s*["']?(?:0x)?([0-9a-f]{64})\b'''
+secretGroup = 1
+keywords = ["private", "secret", "signer", "deployer", "pk"]
+
+[[rules]]
+id = "alchemy-rpc-url"
+description = "URL RPC de Alchemy con API key"
+regex = '''alchemy(?:api)?\.(?:com|io)/v2/([A-Za-z0-9_-]{20,})'''
+secretGroup = 1
+keywords = ["alchemy"]
+
+[[rules]]
+id = "infura-rpc-url"
+description = "URL RPC de Infura con API key"
+regex = '''infura\.io/v3/([A-Za-z0-9]{20,})'''
+secretGroup = 1
+keywords = ["infura"]
+
+[[rules]]
+id = "etherscan-api-key"
+description = "API key de Etherscan"
+regex = '''(?i)(?:etherscan|api[_-]?key)[^\n]{0,40}?\b([A-Z0-9]{34})\b'''
+secretGroup = 1
+keywords = ["etherscan", "api_key", "apikey", "api-key"]
+
+[allowlist]
+description = "Valores públicos conocidos"
+# Placeholders de los .env.example / README (TU_API_KEY, 0xTU_CLAVE_PRIVADA, …).
+regexes = ['''^(0x)?TU_[A-Z0-9_]*$''']
+paths = ['''(^|/)package-lock\.json$''']
