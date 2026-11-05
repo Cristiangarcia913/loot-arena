@@ -8,6 +8,8 @@ import * as Sk from "./skills.js";
 import * as W from "./wallet.js";
 import * as FX from "./fx.js";
 import * as T from "./tienda.js";
+import * as R from "./router.js";
+import * as ENG from "./enganche.js";
 import { reclamarBotin } from "./api.js";
 import { crearContrato, hayCodigo, leerInventario, transferir, enlacesExplorador } from "./chain.js";
 import { $, h, enlace, acortar, toast, esperar } from "./ui.js";
@@ -29,6 +31,8 @@ const S = {
   // Expedición: serie de combates hasta caer o huir. Las pociones normales no se recargan entre combates.
   expedicion: null, // { pociones, pocionesExtra, extraGastadas }
   reclamando: false,
+  desafio: null, // { rng } mientras se juega el desafío diario
+  pocionesRegalo: 0, // pociones ganadas en misiones/pase para la próxima expedición
   transfiriendo: new Set(),
   links: { tx: () => null, token: () => null },
 };
@@ -212,7 +216,10 @@ async function montarEconomia() {
       fx: FX,
       inventario: inventarioConEquipo(),
       getEquipados: equipados,
-      onVendido: async () => { await cargarInventario(); },
+      onVendido: async (ids, pago) => {
+        ENG.registrarEvento({ tipo: "venta", cantidad: ids?.length ?? 1, oro: pago ? Number(pago.oro / 10n ** 18n) : 0 });
+        await cargarInventario();
+      },
       onCambioApariencia: (ap) => FX.actualizarHeroe(equipados(), ap),
     });
   } catch (e) {
@@ -221,6 +228,73 @@ async function montarEconomia() {
   if (id !== montajeEco) return;
   FX.actualizarHeroe(equipados(), T.aparienciaGuardada(S.cuenta));
   renderInventario();
+  try {
+    await ENG.montarEnganche({
+      provider: signer ? S.provider : null,
+      signer,
+      cuenta: signer ? S.cuenta : null,
+      cfg: S.cfg,
+      ethers: S.ethers ?? undefined,
+      fx: FX,
+      serverUrl: S.cfg.serverUrl,
+      onAviso: (seccion, hay, n) => R.marcarAviso(seccion, hay, n),
+      onRecompensa: aplicarRecompensa,
+      onJugarDesafio: jugarDesafio,
+      onCambioTitulo: pintarTitulo,
+    });
+  } catch (e) {
+    console.warn("[enganche]", e);
+  }
+  if (id !== montajeEco) return;
+  pintarTitulo(ENG.tituloActivo());
+  ENG.registrarEvento({ tipo: "inventario", items: S.inventario });
+  ENG.registrarEvento({ tipo: "nivel", valor: P.infoXp(S.progreso).nivel });
+}
+
+/** Premios locales que da el enganche (misiones, pase, recompensa diaria). */
+function aplicarRecompensa(r) {
+  if (r.tipo === "xp" && r.xp > 0) {
+    const antes = P.infoXp(S.progreso).nivel;
+    S.progreso = P.sumarXp(P.sanearProgreso(S.progreso), r.xp).progreso;
+    guardarProgreso();
+    renderHeroe();
+    const nv = P.infoXp(S.progreso).nivel;
+    if (nv > antes) { FX.subidaDeNivel(nv); ENG.registrarEvento({ tipo: "nivel", valor: nv }); }
+    toast(`✨ +${r.xp} XP${r.fuente === "pase" ? " del pase" : " por la misión"}`, "ok", 3500);
+  } else if (r.tipo === "pociones" && r.cantidad > 0) {
+    if (S.expedicion) S.expedicion.pociones += r.cantidad;
+    else S.pocionesRegalo += r.cantidad;
+    toast(`🧪 +${r.cantidad} poción(es) para tu expedición`, "ok", 3500);
+    renderBotones();
+  } else if (r.tipo === "diario") {
+    T.refrescarSaldo?.();
+  }
+}
+
+function pintarTitulo(titulo) {
+  const el = $("#heroe-titulo");
+  if (el) el.textContent = titulo?.texto ? `«${titulo.texto}»` : "";
+}
+
+/** El jugador acepta el desafío diario desde la sección Misiones. */
+function jugarDesafio(desafio, ayuda) {
+  if (enCurso() || S.animando) return toast("Termina primero el combate actual.", "info");
+  const r = ayuda.crearCombate({ ...statsHeroe(), pociones: C.POCIONES_POR_EXPEDICION });
+  if (!r?.combate) return toast("No se pudo preparar el desafío.", "error");
+  S.desafio = { rng: r.rng ?? Math.random, desafio };
+  S.combate = r.combate;
+  R.irA("arena");
+  $("#resultado").hidden = true;
+  $("#log").replaceChildren();
+  añadirLog(S.combate.log);
+  FX.revivir("heroe");
+  FX.actualizarHeroe(equipados());
+  FX.mostrarEstado("heroe", []);
+  FX.mostrarEnemigo(S.combate.enemigo);
+  FX.mostrarIntencion(C.intencionEnemigo(S.combate));
+  FX.anunciar("DESAFÍO DIARIO", desafio?.nombre ?? desafio?.titulo ?? "Un intento al día");
+  renderLuchadores();
+  renderBotones();
 }
 
 // ───────────────────────── Equipo e inventario ─────────────────────────
@@ -276,6 +350,7 @@ async function cargarInventario() {
 
 function alCambiarInventario() {
   T.actualizarInventario(inventarioConEquipo());
+  ENG.registrarEvento({ tipo: "inventario", items: S.inventario });
   FX.actualizarHeroe(equipados());
   renderInventario();
   renderHeroe();
@@ -491,7 +566,8 @@ async function animarEvento(ev, c) {
 // ───────────────────────── Combate: flujo ─────────────────────────
 
 function nuevaExpedicion() {
-  S.expedicion = { pociones: C.POCIONES_POR_EXPEDICION, pocionesExtra: T.pocionesExtra(), extraGastadas: 0 };
+  S.expedicion = { pociones: C.POCIONES_POR_EXPEDICION + S.pocionesRegalo, pocionesExtra: T.pocionesExtra(), extraGastadas: 0 };
+  S.pocionesRegalo = 0;
 }
 
 async function terminarExpedicion() {
@@ -535,7 +611,7 @@ async function accion(tipo) {
   renderBotones();
   let res;
   try {
-    res = C.turnoJugador(S.combate, tipo);
+    res = C.turnoJugador(S.combate, tipo, S.desafio?.rng ?? Math.random);
   } catch (e) {
     S.animando = false;
     renderBotones();
@@ -570,6 +646,8 @@ function resultado(...contenido) {
 
 async function alTerminar(fin) {
   const c = S.combate;
+  if (S.desafio) return terminarDesafioActual(fin);
+  ENG.registrarCombate(c);
   const restantes = C.pocionesRestantes(c);
   if (S.expedicion) {
     S.expedicion.pociones = restantes.pociones;
@@ -587,8 +665,9 @@ async function alTerminar(fin) {
     S.progreso = r.progreso;
     guardarProgreso();
     renderHeroe();
-    if (r.subioNivel) FX.subidaDeNivel(P.infoXp(S.progreso).nivel);
-    else if (P.infoXp(S.progreso).nivel !== nivelAntes) FX.subidaDeNivel(P.infoXp(S.progreso).nivel);
+    const nivelAhora = P.infoXp(S.progreso).nivel;
+    if (r.subioNivel || nivelAhora !== nivelAntes) { FX.subidaDeNivel(nivelAhora); ENG.registrarEvento({ tipo: "nivel", valor: nivelAhora }); }
+    ENG.registrarEvento({ tipo: "racha", valor: r.racha });
     // El botín se pide ya (el servidor tarda unos segundos en mintear) mientras se ve el resumen.
     const botin = pedirBotin(c.enemigo);
     const eleccion = await FX.mostrarResultado({ tipo: "victoria", ...resumen, xp: r.xp, racha: r.racha });
@@ -604,6 +683,27 @@ async function alTerminar(fin) {
   renderBotones();
   const eleccion = await FX.mostrarResultado({ tipo: fin, ...resumen, racha: 0 });
   if (fin === "derrota") resultado(h("div", { class: "res res-derrota" }, h("strong", {}, "☠️ Derrota. "), "Tu racha se rompe y la expedición termina. Mejora tu equipo, compra pociones en la tienda y vuelve a Explorar."));
+  if (eleccion === "otra") explorar();
+}
+
+/** Fin del desafío diario: no da botín del servidor; puntúa en el enganche y da XP si se gana. */
+async function terminarDesafioActual(fin) {
+  const c = S.combate;
+  S.desafio = null;
+  const r = ENG.terminarDesafio(c);
+  let xp = null;
+  if (fin === "victoria") {
+    const v = P.aplicarVictoria(S.progreso, c.enemigo);
+    S.progreso = v.progreso;
+    xp = v.xp;
+    guardarProgreso();
+  }
+  renderHeroe();
+  const res = r.ok ? r.resultado : null;
+  resultado(h("div", { class: `res ${fin === "victoria" ? "res-drop" : "res-derrota"}` },
+    h("strong", {}, fin === "victoria" ? "🏅 ¡Desafío superado! " : "⚔️ Desafío terminado. "),
+    res ? `Puntuación: ${res.puntuacion}${res.mejorPersonal ? " (¡récord personal!)" : ""}. Vuelve mañana para un desafío nuevo.` : (r.motivo ?? "")));
+  const eleccion = await FX.mostrarResultado({ tipo: fin === "victoria" ? "victoria" : fin, ...c.resumen, enemigo: `Desafío · ${c.enemigo.nombre}`, xp: xp ?? undefined });
   if (eleccion === "otra") explorar();
 }
 
@@ -629,6 +729,7 @@ async function mostrarBotin(r, eleccionPrevia) {
       resultado(h("div", { class: "res res-drop" },
         h("div", {}, h("strong", {}, "🎁 ¡Botín! "), `«${r.item.nombre}», ${E.rareza(r.item.rareza).nombre.toLowerCase()}. Ya es tuyo en la blockchain.`),
         urlTx ? h("div", { class: "res-links" }, enlace(urlTx, "Ver transacción de minteo ↗")) : null));
+      ENG.registrarEvento({ tipo: "botin", item: r.item });
       eleccion = await FX.revelarBotin(r.item);
       await cargarInventario();
       if (r.txHash && S.provider && !S.inventario.some((it) => it.tokenId === r.tokenId)) {

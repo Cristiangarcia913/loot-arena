@@ -73,7 +73,7 @@ async function main() {
   const mercado = await desplegar("Mercado", [gameItemAddr, await oro.getAddress(), await cosmeticos.getAddress()]);
   const mercadoAddr = await mercado.getAddress();
 
-  await esperar(await oro.setMinter(mercadoAddr, await nonce()), "LootGold.setMinter(mercado)");
+  await esperar(await oro.setMinter(mercadoAddr, true, await nonce()), "LootGold.setMinter(mercado)");
   await esperar(await cosmeticos.setMinter(mercadoAddr, await nonce()), "LootCosmetics.setMinter(mercado)");
   if (cajaEth > 0n) {
     await esperar(await deployer.sendTransaction({ to: mercadoAddr, value: cajaEth, ...(await nonce()) }), `recargar caja con ${ethers.formatEther(cajaEth)} ETH`);

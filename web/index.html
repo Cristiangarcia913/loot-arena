@@ -9,9 +9,10 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/tienda.css">
+  <link rel="stylesheet" href="css/enganche.css">
   <script type="module" src="js/main.js"></script>
 </head>
-<body>
+<body class="app">
   <!-- Portada -->
   <div id="pantalla-portada" class="pantalla pantalla-portada">
     <div class="portada-brasas" aria-hidden="true"></div>
@@ -25,12 +26,17 @@
     </div>
   </div>
 
+  <a class="saltar" href="#secciones">Saltar al contenido</a>
+
   <header class="topbar">
-    <div class="brand">
+    <a class="brand" href="#/arena" aria-label="Loot Arena: ir a la arena">
       <span class="logo" aria-hidden="true">⚔️</span>
-      <div>
-        <h1>Loot Arena</h1>
-        <p class="tagline">Lucha, gana, saquea. Tu botín es tuyo: NFT en Sepolia.</p>
+      <span class="brand-nombre">Loot Arena</span>
+    </a>
+    <div class="cab-heroe" title="Nivel y experiencia del héroe">
+      <span id="hero-nivel" class="chip chip-nivel">Nv. 1</span>
+      <div id="hero-xp" class="xp" role="progressbar" aria-label="Experiencia" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="xp-fill"></div><span class="xp-text">0 XP</span>
       </div>
     </div>
     <div class="wallet">
@@ -38,106 +44,160 @@
       <span id="net-badge" class="badge">Cargando…</span>
       <span id="addr" class="addr" hidden></span>
       <button id="btn-sonido" class="btn btn-icono" type="button" aria-pressed="false" aria-label="Silenciar">🔊</button>
-      <button id="btn-connect" class="btn btn-gold" type="button">🦊 Conectar MetaMask</button>
+      <button id="btn-connect" class="btn btn-gold btn-small" type="button">🦊 Conectar</button>
     </div>
   </header>
 
   <div id="banner" class="banner" role="alert" hidden></div>
 
-  <main class="layout">
-    <section class="panel arena-panel" aria-labelledby="t-arena">
-      <div class="panel-head">
-        <h2 id="t-arena">La Arena</h2>
-        <div class="chips">
-          <span id="racha" class="chip chip-racha" hidden>🔥 Racha 0</span>
-          <span id="arena-level" class="chip">Nivel de arena 1</span>
-        </div>
-      </div>
+  <div class="app-cuerpo">
+    <nav id="menu" class="menu" aria-label="Secciones">
+      <a class="menu-item" href="#/arena" data-ir="arena"><span class="menu-ico" aria-hidden="true">⚔️</span><span class="menu-txt">Arena</span><span class="insignia" hidden></span></a>
+      <a class="menu-item" href="#/heroe" data-ir="heroe"><span class="menu-ico" aria-hidden="true">🧝</span><span class="menu-txt">Héroe</span><span class="insignia" hidden></span></a>
+      <a class="menu-item" href="#/inventario" data-ir="inventario"><span class="menu-ico" aria-hidden="true">🎒</span><span class="menu-txt">Inventario</span><span class="insignia" hidden></span></a>
+      <a class="menu-item" href="#/mercado" data-ir="mercado"><span class="menu-ico" aria-hidden="true">🏪</span><span class="menu-txt">Mercado</span><span class="insignia" hidden></span></a>
+      <a class="menu-item" href="#/misiones" data-ir="misiones"><span class="menu-ico" aria-hidden="true">📜</span><span class="menu-txt">Misiones</span><span class="insignia" hidden></span></a>
+      <a class="menu-item" href="#/logros" data-ir="logros"><span class="menu-ico" aria-hidden="true">🏅</span><span class="menu-txt">Logros</span><span class="insignia" hidden></span></a>
+      <a class="menu-item" href="#/ranking" data-ir="ranking"><span class="menu-ico" aria-hidden="true">🏆</span><span class="menu-txt">Ranking</span><span class="insignia" hidden></span></a>
+      <div class="menu-pie"><span id="contrato-info"></span></div>
+    </nav>
 
-      <div id="escena" class="arena escena">
-        <div class="fighter" id="f-jugador" data-lado="heroe">
-          <div class="f-hud">
-            <div class="f-name">Tu héroe</div>
-            <div class="hp" aria-label="Vida del héroe"><div class="hp-fill"></div><span class="hp-text"></span></div>
-            <div class="f-stats"></div>
-            <div class="estados" role="list" aria-label="Estados del héroe"></div>
-          </div>
-          <div class="retrato">
-            <div class="sprite"></div>
-            <div class="avatar" aria-hidden="true">🤺</div>
-          </div>
-        </div>
-        <div class="vs" aria-hidden="true">VS</div>
-        <div class="fighter enemy vacio" id="f-enemigo" data-lado="enemigo">
-          <div class="f-hud">
-            <div class="f-name">Arena vacía</div>
-            <div class="hp" aria-label="Vida del enemigo"><div class="hp-fill"></div><span class="hp-text"></span></div>
-            <div class="f-stats">Pulsa Explorar para encontrar un rival</div>
-            <div class="estados" role="list" aria-label="Estados del enemigo"></div>
-          </div>
-          <div class="retrato">
-            <div class="intencion" hidden aria-live="polite"></div>
-            <div class="sprite"></div>
-            <div class="avatar" aria-hidden="true">❔</div>
+    <main id="secciones" class="secciones">
+      <!-- ⚔️ Arena -->
+      <section id="seccion-arena" class="seccion seccion-arena" data-seccion="arena" aria-labelledby="t-arena" tabindex="-1">
+        <div class="seccion-head">
+          <h2 id="t-arena">La Arena</h2>
+          <div class="chips">
+            <span id="jefe-en" class="chip chip-jefe" hidden>👑 Jefe en 5</span>
+            <span id="racha" class="chip chip-racha" hidden>🔥 Racha 0</span>
+            <span id="arena-level" class="chip">Nivel de arena 1</span>
           </div>
         </div>
-      </div>
 
-      <div class="actions">
-        <button id="btn-explorar" class="btn btn-gold" type="button">🧭 Explorar</button>
-        <button id="btn-atacar" class="btn btn-red" type="button" disabled>⚔️ Atacar</button>
-        <button id="btn-defender" class="btn btn-blue" type="button" disabled>🛡️ Defender</button>
-        <div id="skills" class="skills" role="group" aria-label="Habilidades"></div>
-        <button id="btn-pocion" class="btn btn-verde" type="button" disabled>🧪 Poción</button>
-        <button id="btn-huir" class="btn btn-ghost" type="button" disabled>🏃 Huir</button>
-      </div>
-
-      <div id="resultado" class="resultado" aria-live="polite" hidden></div>
-
-      <h3 class="sub">Crónica del combate</h3>
-      <ol id="log" class="log" aria-live="polite"></ol>
-    </section>
-
-    <aside class="side">
-      <section class="panel" aria-labelledby="t-heroe">
-        <div class="panel-head">
-          <h2 id="t-heroe">Tu héroe</h2>
-          <div class="chips"><span id="hero-nivel" class="chip chip-nivel">Nv. 1</span><span id="victorias" class="chip">0 victorias</span></div>
+        <div id="escena" class="arena escena">
+          <div class="fighter" id="f-jugador" data-lado="heroe">
+            <div class="f-hud">
+              <div class="f-name">Tu héroe</div>
+              <div class="hp" aria-label="Vida del héroe"><div class="hp-fill"></div><span class="hp-text"></span></div>
+              <div class="f-stats"></div>
+              <div class="estados" role="list" aria-label="Estados del héroe"></div>
+            </div>
+            <div class="retrato">
+              <div class="sprite"></div>
+              <div class="avatar" aria-hidden="true">🤺</div>
+            </div>
+          </div>
+          <div class="vs" aria-hidden="true">VS</div>
+          <div class="fighter enemy vacio" id="f-enemigo" data-lado="enemigo">
+            <div class="f-hud">
+              <div class="f-name">Arena vacía</div>
+              <div class="hp" aria-label="Vida del enemigo"><div class="hp-fill"></div><span class="hp-text"></span></div>
+              <div class="f-stats">Pulsa Explorar para encontrar un rival</div>
+              <div class="estados" role="list" aria-label="Estados del enemigo"></div>
+            </div>
+            <div class="retrato">
+              <div class="intencion" hidden aria-live="polite"></div>
+              <div class="sprite"></div>
+              <div class="avatar" aria-hidden="true">❔</div>
+            </div>
+          </div>
         </div>
-        <div id="hero-xp" class="xp" role="progressbar" aria-label="Experiencia" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-          <div class="xp-fill"></div><span class="xp-text">0 XP</span>
+
+        <div class="actions">
+          <button id="btn-explorar" class="btn btn-gold" type="button">🧭 Explorar</button>
+          <button id="btn-atacar" class="btn btn-red" type="button" disabled>⚔️ Atacar</button>
+          <button id="btn-defender" class="btn btn-blue" type="button" disabled>🛡️ Defender</button>
+          <div id="skills" class="skills" role="group" aria-label="Habilidades"></div>
+          <button id="btn-pocion" class="btn btn-verde" type="button" disabled>🧪 Poción</button>
+          <button id="btn-huir" class="btn btn-ghost" type="button" disabled>🏃 Huir</button>
         </div>
-        <div class="stats" id="stats"></div>
-        <h3 class="sub">Equipo</h3>
-        <ul class="slots" id="slots"></ul>
+
+        <div id="resultado" class="resultado" aria-live="polite" hidden></div>
+
+        <details class="cronica" id="cronica">
+          <summary>📜 Crónica del combate <span class="cronica-ultima" aria-hidden="true"></span></summary>
+          <ol id="log" class="log" aria-live="polite"></ol>
+        </details>
       </section>
 
-      <section class="panel" aria-labelledby="t-inv">
-        <div class="panel-head">
+      <!-- 🧝 Héroe -->
+      <section id="seccion-heroe" class="seccion" data-seccion="heroe" aria-labelledby="t-heroe" tabindex="-1" hidden>
+        <div class="seccion-head">
+          <h2 id="t-heroe">Tu héroe <span id="heroe-titulo" class="heroe-titulo"></span></h2>
+          <div class="chips"><span id="victorias" class="chip">0 victorias</span></div>
+        </div>
+        <div class="heroe-rejilla">
+          <div class="panel heroe-retrato">
+            <div class="heroe-grande heroe-mini" aria-hidden="true"></div>
+            <div class="stats" id="stats"></div>
+          </div>
+          <div class="panel">
+            <h3 class="sub">Equipo</h3>
+            <ul class="slots" id="slots"></ul>
+          </div>
+          <div class="panel heroe-vestuario">
+            <h3 class="sub">Vestuario</h3>
+            <section id="vestuario" class="vestuario" aria-label="Vestuario"></section>
+          </div>
+        </div>
+      </section>
+
+      <!-- 🎒 Inventario -->
+      <section id="seccion-inventario" class="seccion" data-seccion="inventario" aria-labelledby="t-inv" tabindex="-1" hidden>
+        <div class="seccion-head">
           <h2 id="t-inv">Inventario</h2>
           <button id="btn-refrescar" class="btn btn-small btn-ghost" type="button" disabled title="Volver a leer de la cadena">↻ Refrescar</button>
+        </div>
+        <div class="filtros" id="inv-filtros" role="group" aria-label="Filtrar y ordenar">
+          <label>Rareza
+            <select id="inv-filtro-rareza"><option value="">Todas</option><option value="0">Común</option><option value="1">Raro</option><option value="2">Legendario</option></select>
+          </label>
+          <label>Tipo
+            <select id="inv-filtro-tipo"><option value="">Todos</option><option>Espada</option><option>Escudo</option><option>Casco</option><option>Armadura</option><option>Botas</option></select>
+          </label>
+          <label>Orden
+            <select id="inv-orden"><option value="reciente">Más recientes</option><option value="poder">Más poder</option><option value="rareza">Rareza</option><option value="nombre">Nombre</option></select>
+          </label>
+          <span id="inv-cuenta" class="inv-cuenta" aria-live="polite"></span>
         </div>
         <p id="inv-estado" class="inv-estado"></p>
         <div id="inventario" class="inventario"></div>
       </section>
-    </aside>
 
-    <section class="panel mercado-panel" aria-labelledby="t-mercado">
-      <div class="panel-head">
-        <h2 id="t-mercado">Mercado</h2>
-        <div class="pestanas" role="tablist" aria-label="Mercado">
-          <button class="pestana" type="button" role="tab" id="tab-tienda" aria-controls="tienda" aria-selected="true">🏪 Tienda</button>
-          <button class="pestana" type="button" role="tab" id="tab-vestuario" aria-controls="vestuario" aria-selected="false">👘 Vestuario</button>
+      <!-- 🏪 Mercado -->
+      <section id="seccion-mercado" class="seccion" data-seccion="mercado" aria-labelledby="t-mercado" tabindex="-1" hidden>
+        <div class="seccion-head"><h2 id="t-mercado">Mercado</h2></div>
+        <section id="tienda" class="tienda" aria-label="Tienda"></section>
+      </section>
+
+      <!-- 📜 Misiones -->
+      <section id="seccion-misiones" class="seccion" data-seccion="misiones" aria-labelledby="t-misiones" tabindex="-1" hidden>
+        <div class="seccion-head"><h2 id="t-misiones">Misiones</h2></div>
+        <div class="rejilla-misiones">
+          <section id="diario" class="panel bloque" aria-label="Recompensa diaria"></section>
+          <section id="misiones-diarias" class="panel bloque" aria-label="Misiones diarias"></section>
+          <section id="mision-semanal" class="panel bloque" aria-label="Misión semanal"></section>
+          <section id="desafio" class="panel bloque" aria-label="Desafío diario"></section>
+          <section id="pase" class="panel bloque bloque-ancho" aria-label="Pase de temporada"></section>
         </div>
-      </div>
-      <section id="tienda" class="tienda" role="tabpanel" aria-labelledby="tab-tienda"></section>
-      <section id="vestuario" class="vestuario" role="tabpanel" aria-labelledby="tab-vestuario" hidden></section>
-    </section>
-  </main>
+      </section>
 
-  <footer class="footer">
-    <span id="contrato-info"></span>
-  </footer>
+      <!-- 🏅 Logros -->
+      <section id="seccion-logros" class="seccion" data-seccion="logros" aria-labelledby="t-logros" tabindex="-1" hidden>
+        <div class="seccion-head"><h2 id="t-logros">Logros y colección</h2></div>
+        <div class="rejilla-logros">
+          <section id="logros" class="panel bloque" aria-label="Logros"></section>
+          <section id="coleccion" class="panel bloque" aria-label="Colección"></section>
+        </div>
+      </section>
+
+      <!-- 🏆 Ranking -->
+      <section id="seccion-ranking" class="seccion" data-seccion="ranking" aria-labelledby="t-ranking" tabindex="-1" hidden>
+        <div class="seccion-head"><h2 id="t-ranking">Salón de la fama</h2></div>
+        <section id="ranking" class="panel bloque" aria-label="Ranking"></section>
+      </section>
+    </main>
+  </div>
 
   <dialog id="dlg-transfer" class="dialog">
     <form id="form-transfer" method="dialog">
@@ -159,8 +219,10 @@
   <div id="toasts" class="toasts"></div>
 
   <script type="module">
+    import { iniciarRouter } from "./js/router.js";
     import { iniciarInterfaz } from "./js/fx.js";
-    iniciarInterfaz({ auto: false });
+    iniciarRouter();
+    iniciarInterfaz(); // idempotente: main.js también la llama (con {auto:false}, que prevalece)
   </script>
 </body>
 </html>

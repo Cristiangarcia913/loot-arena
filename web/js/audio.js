@@ -10,6 +10,7 @@ const K_MUSICA = "lootarena:musica";
 export const SONIDOS = Object.freeze([
   "golpe", "critico", "bloqueo", "curacion", "nivel", "victoria", "derrota", "cofre", "legendario",
   "raro", "ataque", "muerte", "esquiva", "estado", "click", "aparicion",
+  "logro", "monedas", "pase", "racha", "menu",
 ]);
 
 const leer = (k, def) => { try { const v = localStorage.getItem(k); return v == null ? def : v === "1"; } catch { return def; } };
@@ -152,6 +153,28 @@ const RECETAS = {
   },
   estado() { [0, 0.07, 0.14].forEach((t, i) => tono({ tipo: "sine", f0: 300 + i * 140, f1: 200, t, dur: 0.12, vol: 0.12 })); },
   click() { tono({ tipo: "triangle", f0: 900, dur: 0.05, vol: 0.08 }); },
+  menu() { tono({ tipo: "sine", f0: 660, f1: 880, dur: 0.07, vol: 0.06 }); },
+  logro() {
+    [76, 79, 84, 88].forEach((n, i) => tono({ tipo: "triangle", f0: nota(n), t: i * 0.09, dur: 0.5, vol: 0.14 }));
+    [84, 88, 91].forEach((n) => tono({ tipo: "sine", f0: nota(n), t: 0.4, dur: 1, vol: 0.08 }));
+    ruido({ t: 0.36, dur: 0.7, vol: 0.06, tipo: "highpass", f: 6000 });
+  },
+  monedas() {
+    for (let i = 0; i < 9; i++) {
+      const f = 1800 + Math.random() * 1400;
+      tono({ tipo: "square", f0: f, t: i * 0.07 + Math.random() * 0.03, dur: 0.09, vol: 0.05, filtro: { tipo: "bandpass", f, q: 4 } });
+      tono({ tipo: "sine", f0: f * 1.5, t: i * 0.07 + 0.02, dur: 0.12, vol: 0.04 });
+    }
+  },
+  pase() {
+    [67, 71, 74, 79, 83].forEach((n, i) => tono({ tipo: "sine", f0: nota(n), t: i * 0.06, dur: 0.35, vol: 0.12 }));
+    [79, 83, 86].forEach((n) => tono({ tipo: "triangle", f0: nota(n), t: 0.32, dur: 0.9, vol: 0.09 }));
+  },
+  racha() {
+    ruido({ dur: 0.5, vol: 0.25, tipo: "bandpass", f: 300, f1: 2400, q: 1.5 });
+    tono({ tipo: "sawtooth", f0: 110, f1: 220, dur: 0.5, vol: 0.08, filtro: { f: 900 } });
+    tono({ tipo: "triangle", f0: nota(84), t: 0.35, dur: 0.6, vol: 0.1 });
+  },
   aparicion() {
     tono({ tipo: "sine", f0: 70, f1: 50, dur: 0.6, vol: 0.4 });
     ruido({ dur: 0.5, vol: 0.12, f: 400, f1: 1600 });

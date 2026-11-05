@@ -144,6 +144,17 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "cuenta",
+        "type": "address"
+      }
+    ],
+    "name": "SoloRecompensas",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "YaReclamada",
     "type": "error"
@@ -435,6 +446,31 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "address",
+        "name": "jugador",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "id",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "cofre",
+        "type": "bool"
+      }
+    ],
+    "name": "PremioAcunado",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": false,
         "internalType": "uint256[3]",
         "name": "recompensa",
@@ -442,6 +478,25 @@
       }
     ],
     "name": "RecompensaEthCambiada",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "anterior",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "nuevo",
+        "type": "address"
+      }
+    ],
+    "name": "RecompensasCambiado",
     "type": "event"
   },
   {
@@ -490,6 +545,30 @@
       {
         "internalType": "uint256",
         "name": "id",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "jugador",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "id",
+        "type": "uint256"
+      }
+    ],
+    "name": "acunarPremio",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
         "type": "uint256"
       }
     ],
@@ -901,6 +980,19 @@
   },
   {
     "inputs": [],
+    "name": "recompensas",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -1008,6 +1100,19 @@
       }
     ],
     "name": "setRecompensaEth",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "nuevo",
+        "type": "address"
+      }
+    ],
+    "name": "setRecompensas",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

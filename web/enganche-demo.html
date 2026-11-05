@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loot Arena · Demo de enganche</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/tienda.css">
+  <link rel="stylesheet" href="css/enganche.css">
+  <style>
+    .demo-wrap { max-width: 1180px; margin: 0 auto; padding: 14px clamp(10px, 3vw, 28px) 90px; display: grid; gap: 14px; }
+    .demo-barra { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .demo-barra .on { background: rgba(232, 183, 90, .2); border-color: var(--oro); }
+    .demo-sec { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 14px; align-items: start; }
+    .demo-sec[hidden] { display: none; }
+    .demo-sec .ancho { grid-column: 1 / -1; }
+    .panel { background: var(--panel); border: 1px solid var(--borde-suave); border-radius: 14px; padding: 16px; min-width: 0; }
+    .insignia-demo { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: #dc4c3e; color: #fff; font-size: .7rem; line-height: 18px; text-align: center; }
+    .demo-eventos { position: sticky; bottom: 0; z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; padding: 10px; border-radius: 12px; background: rgba(18, 14, 11, .92); border: 1px solid var(--borde-suave); backdrop-filter: blur(4px); }
+    #demo-titulo { color: var(--oro); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">📜</span><div><h1>Loot Arena</h1><p class="tagline">Demo de enganche (datos simulados) · <span id="demo-titulo">sin título</span></p></div></div>
+  </header>
+
+  <main class="demo-wrap">
+    <nav class="demo-barra" aria-label="Secciones">
+      <button type="button" class="btn btn-small btn-ghost on" data-ver="misiones">📜 Misiones<span class="insignia-demo" data-aviso="misiones" hidden></span></button>
+      <button type="button" class="btn btn-small btn-ghost" data-ver="logros">🏅 Logros<span class="insignia-demo" data-aviso="logros" hidden></span></button>
+      <button type="button" class="btn btn-small btn-ghost" data-ver="ranking">🏆 Ranking</button>
+      <span class="tn-tenue" id="demo-origen"></span>
+    </nav>
+
+    <div class="demo-sec" data-sec="misiones">
+      <section id="diario" class="panel"></section>
+      <section id="desafio" class="panel"></section>
+      <section id="misiones-diarias" class="panel"></section>
+      <section id="mision-semanal" class="panel"></section>
+      <section id="pase" class="panel ancho"></section>
+    </div>
+    <div class="demo-sec" data-sec="logros" hidden>
+      <section id="logros" class="panel"></section>
+      <section id="coleccion" class="panel"></section>
+    </div>
+    <div class="demo-sec" data-sec="ranking" hidden>
+      <section id="ranking" class="panel ancho"></section>
+    </div>
+
+    <div class="demo-eventos" role="group" aria-label="Simular eventos de juego">
+      <button type="button" class="btn btn-small" data-ev="victoria">⚔️ Victoria</button>
+      <button type="button" class="btn btn-small" data-ev="jefe">👑 Vencer jefe</button>
+      <button type="button" class="btn btn-small" data-ev="critico">💥 Crítico</button>
+      <button type="button" class="btn btn-small" data-ev="habilidad">✨ Habilidad</button>
+      <button type="button" class="btn btn-small" data-ev="botin">💎 Botín legendario</button>
+      <button type="button" class="btn btn-small" data-ev="venta">🪙 Venta</button>
+      <button type="button" class="btn btn-small" data-ev="cofre">🎁 Cofre</button>
+      <button type="button" class="btn btn-small" data-ev="racha">🔥 Racha 5</button>
+      <button type="button" class="btn btn-small btn-gold" data-ev="mucho">⏩ 20 jefes</button>
+      <button type="button" class="btn btn-small btn-ghost" id="demo-reset">↺ Reiniciar</button>
+    </div>
+  </main>
+  <div id="toasts" class="toasts"></div>
+
+  <script type="module">
+    import * as G from "./js/enganche.js";
+    import { BESTIARIO } from "./js/combat.js";
+
+    const q = new URLSearchParams(location.search);
+    let fx = null;
+    if (q.get("fx") !== "0") { try { fx = await import("./js/fx.js"); } catch (e) { console.info("[demo] sin fx.js:", e.message); } }
+
+    const CUENTA = "0xDE00000000000000000000000000000000000001";
+    const dir = (n) => `0x${n.toString(16).padStart(40, "0")}`;
+
+    // Servidor simulado: GET /ranking, GET /ranking/:address, POST /recompensa.
+    const top = (n, f) => Array.from({ length: n }, (_, i) => ({ address: dir(0xa000 + i * 7919), valor: f(i) }));
+    const ranking = {
+      actualizado: Date.now() - 45_000,
+      categorias: {
+        objetos: [...top(20, (i) => 240 - i * 11)].map((x, i) => (i === 6 ? { address: CUENTA, valor: x.valor } : x)),
+        legendarios: top(14, (i) => 19 - i),
+        oroVentas: top(20, (i) => ((9000n - BigInt(i) * 400n) * 10n ** 18n).toString()),
+        rachaDiaria: top(9, (i) => 30 - i * 3),
+      },
+    };
+    const reclamados = new Set();
+    const fetchSim = async (url, init = {}) => {
+      await new Promise((r) => setTimeout(r, 350));
+      const u = new URL(url, location.href);
+      const json = (status, body) => ({ ok: status < 300, status, json: async () => body });
+      if (u.pathname.endsWith(`/ranking/${CUENTA}`)) return json(200, { categorias: { objetos: { posicion: 7, valor: 174 }, legendarios: { posicion: 31, valor: 2 }, oroVentas: { posicion: 0 }, rachaDiaria: { posicion: 12, valor: 4 } } });
+      if (u.pathname.endsWith("/ranking")) return json(200, ranking);
+      if (u.pathname.endsWith("/recompensa") && init.method === "POST") {
+        const { motivo } = JSON.parse(init.body);
+        if (reclamados.has(motivo)) return json(409, { error: "Ya reclamaste esta recompensa." });
+        reclamados.add(motivo);
+        const cantidad = { pase10: 100, pase20: 200, pase30: 400, misiones_diarias: 25 }[motivo];
+        return json(200, { ok: true, txHash: `0x${"e".repeat(64)}`, cantidad });
+      }
+      return json(404, { error: "No encontrado" });
+    };
+
+    const recompensas = G.crearRecompensasSimulada({ racha: 6, ultimoDia: G.diaUTC() - 1 });
+    let desafioEnCurso = null;
+
+    const r = await G.montarEnganche({
+      cuenta: CUENTA, cfg: { red: "sepolia", serverUrl: "https://servidor.simulado" }, fx, recompensas, fetch: fetchSim,
+      onAviso: (seccion, hay, cuenta) => {
+        const b = document.querySelector(`[data-aviso="${seccion}"]`);
+        if (b) { b.hidden = !hay; b.textContent = cuenta ? String(cuenta) : "•"; }
+      },
+      onRecompensa: (rec) => console.info("[demo] recompensa local para main.js:", JSON.stringify(rec)),
+      onCambioTitulo: (t) => { document.getElementById("demo-titulo").textContent = t ? `«${t.texto}»` : "sin título"; },
+      onJugarDesafio: (desafio, ayuda) => {
+        // main.js lanzaría el combate real con ayuda.crearCombate(heroe); aquí se simula el resultado.
+        const { combate } = ayuda.crearCombate({ vidaMax: 120, ataque: 16, defensa: 8, nivel: 5, habilidades: [] });
+        desafioEnCurso = combate;
+        setTimeout(() => {
+          const gana = Math.random() < 0.6;
+          const fin = { ...desafioEnCurso, fase: gana ? "victoria" : "derrota", jugador: { ...desafioEnCurso.jugador, vida: gana ? Math.round(desafioEnCurso.jugador.vidaMax * 0.4) : 0 },
+            enemigo: { ...desafioEnCurso.enemigo, vida: gana ? 0 : Math.round(desafioEnCurso.enemigo.vidaMax * 0.3) }, resumen: { ...(desafioEnCurso.resumen ?? {}), turnos: 7 } };
+          const res = G.terminarDesafio(fin);
+          console.info("[demo] desafío terminado:", JSON.stringify(res));
+        }, 1200);
+      },
+    });
+    document.getElementById("demo-origen").textContent = r ? `Módulos: ${Object.entries(r.origen).map(([k, v]) => `${k} ${v === "ok" ? "✔" : "✖"}`).join(" · ")}` : "";
+    document.getElementById("demo-titulo").textContent = G.tituloActivo() ? `«${G.tituloActivo().texto}»` : "sin título";
+
+    const bestia = () => BESTIARIO[Math.floor(Math.random() * BESTIARIO.length)];
+    const EVENTOS = {
+      victoria: () => { const b = bestia(); return [{ tipo: "victoria", clave: b.clave, nivel: 2, jefe: false, danoRecibido: 25, turnos: 4 }]; },
+      jefe: () => { const b = bestia(); return [{ tipo: "victoria", clave: b.clave, nivel: 5, jefe: true, danoRecibido: 60, turnos: 8 }, { tipo: "jefe", clave: b.clave, nivel: 5 }]; },
+      critico: () => [{ tipo: "critico", cantidad: 1 }],
+      habilidad: () => [{ tipo: "habilidad", id: "golpe", cantidad: 1 }],
+      botin: () => [{ tipo: "botin", item: { tipo: ["Espada", "Escudo", "Casco", "Armadura", "Botas"][Math.floor(Math.random() * 5)], rareza: 2 } }],
+      venta: () => [{ tipo: "venta", cantidad: 1, oro: 54 }],
+      cofre: () => [{ tipo: "cofre", cantidad: 1 }, { tipo: "cosmeticos", ids: [1 + Math.floor(Math.random() * 13)] }],
+      racha: () => [{ tipo: "racha", valor: 5 }],
+      mucho: () => Array.from({ length: 20 }, () => EVENTOS.jefe()).flat(),
+    };
+    document.querySelectorAll("[data-ev]").forEach((b) => b.addEventListener("click", () => { for (const ev of EVENTOS[b.dataset.ev]()) G.registrarEvento(ev); }));
+    document.getElementById("demo-reset").addEventListener("click", () => {
+      for (const k of Object.keys(localStorage)) if (k.startsWith("lootarena:") && k.endsWith(CUENTA.toLowerCase())) localStorage.removeItem(k);
+      location.reload();
+    });
+    document.querySelectorAll("[data-ver]").forEach((b) => b.addEventListener("click", () => {
+      document.querySelectorAll("[data-ver]").forEach((x) => x.classList.toggle("on", x === b));
+      document.querySelectorAll("[data-sec]").forEach((s) => { s.hidden = s.dataset.sec !== b.dataset.ver; });
+    }));
+  </script>
+</body>
+</html>

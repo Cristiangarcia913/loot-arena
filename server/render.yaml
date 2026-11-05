@@ -29,4 +29,12 @@ services:
         value: "0.6"
       - key: TRUST_PROXY
         value: "1"
+      # 1.2: ranking on-chain y recompensas. No son secretos, pero las direcciones aún no existen:
+      # se rellenan en el panel de Render tras desplegar los contratos de la 1.2.
+      - key: MERCADO_ADDRESS
+        value: "0xC02683814b25c4a99998aD359D336b4A15F83E2f"
+      - key: RECOMPENSAS_ADDRESS
+        value: "0x67436408fe590dA830E783dc20345CccBCDbEE56"
+      - key: DEPLOY_BLOCK
+        value: "12072405"
       # PORT lo inyecta Render automáticamente; no hace falta definirlo.

@@ -41,7 +41,7 @@
 
   <main class="demo">
     <section class="panel">
-      <div class="panel-head"><h2>La Arena</h2><div class="chips"><span id="racha" class="chip chip-racha" hidden></span><span id="hero-nivel" class="chip chip-nivel">Nv. 1</span></div></div>
+      <div class="panel-head"><h2>La Arena</h2><div class="chips"><span id="jefe-en" class="chip chip-jefe" hidden></span><span id="racha" class="chip chip-racha" hidden></span><span id="hero-nivel" class="chip chip-nivel">Nv. 1</span></div></div>
       <div id="hero-xp" class="xp" role="progressbar" aria-label="Experiencia" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="xp-fill"></div><span class="xp-text">0 XP</span></div>
       <div id="escena" class="arena escena">
         <div class="fighter" id="f-jugador" data-lado="heroe">
@@ -107,6 +107,17 @@
         <button class="btn btn-red" data-a="derrota">Pantalla derrota</button>
         <button class="btn btn-ghost" data-a="portada">Portada</button>
         <button class="btn btn-ghost" data-a="combo">▶ Combate completo</button>
+      </div>
+      <div class="grupo"><h3>Enganche (1.2)</h3>
+        <button class="btn btn-gold" data-a="logro">celebrarLogro</button>
+        <button class="btn btn-ghost" data-a="logros3">3 logros en cola</button>
+        <button class="btn btn-gold" data-a="recompensa">celebrarRecompensa (40 ORO)</button>
+        <button class="btn btn-ghost" data-a="recompensa-cos">… con cosmético (día 7)</button>
+        <button class="btn btn-ghost" data-a="pase">subirNivelPase</button>
+        <button class="btn btn-ghost" data-a="racha-dias">Racha de días (pantalla)</button>
+        <button class="btn btn-ghost" data-a="racha-inline">Racha de días (en caja)</button>
+        <button class="btn btn-ghost" data-a="jefe-en">Jefe en N</button>
+        <div id="diario" style="width:100%;padding:8px;border-radius:10px;background:rgba(0,0,0,.25);min-height:76px"></div>
       </div>
       <div class="grupo"><h3>Sonidos</h3><span id="sonidos" class="grupo" style="margin:0"></span>
         <button class="btn btn-ghost" id="btn-musica">🎵 Música: no</button>
@@ -284,6 +295,18 @@
       victoria: async () => log(`mostrarResultado → ${await FX.mostrarResultado({ tipo: "victoria", enemigo: "Orco berserker", danoHecho: 87, criticos: 2, danoRecibido: 31, turnos: 7, xp: 45, racha: 3 })}`),
       derrota: async () => log(`mostrarResultado → ${await FX.mostrarResultado({ tipo: "derrota", enemigo: "Dragón ancestral", danoHecho: 54, criticos: 1, danoRecibido: 100, turnos: 5, xp: 0 })}`),
       portada: () => FX.mostrarPortada(),
+      logro: () => FX.celebrarLogro({ nombre: "Matadragones", descripcion: "Vence a un Dragón ancestral", icono: "🐉", titulo: "Matadragones" }),
+      logros3: () => {
+        FX.celebrarLogro({ nombre: "Primeros pasos", descripcion: "Gana tu primer combate", icono: "👣", rareza: 0 });
+        FX.celebrarLogro({ nombre: "Ojo de halcón", descripcion: "Haz 10 críticos", icono: "🎯", rareza: 1 });
+        FX.celebrarLogro({ nombre: "Leyenda viva", descripcion: "Consigue un objeto legendario", icono: "🌟" });
+      },
+      recompensa: () => FX.celebrarRecompensa({ oro: 40, texto: "Recompensa diaria" }),
+      "recompensa-cos": () => FX.celebrarRecompensa({ oro: 40, cosmetico: { id: 9, nombre: "Alas de fénix" }, texto: "¡Día 7!" }),
+      pase: () => FX.subirNivelPase(10, { recompensa: "100 ORO on-chain" }),
+      "racha-dias": () => FX.mostrarRachaDias(null, 4),
+      "racha-inline": () => { const d = (Number($("#diario").dataset.d) || 0) % 7 + 1; $("#diario").dataset.d = d; FX.mostrarRachaDias($("#diario"), d); },
+      "jefe-en": () => { const c = $("#jefe-en"); const n = c.hidden ? 3 : Math.max(0, (parseInt(c.textContent.replace(/\D/g, "")) || 0) - 1); FX.actualizarJefeEn(n); },
       combo: async () => {
         A.revivir(); mostrar(); await esperar(700);
         FX.mostrarIntencion({ tipo: "cargar", texto: "Enfurecerse", icono: "😤" });

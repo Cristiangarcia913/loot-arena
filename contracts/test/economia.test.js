@@ -42,7 +42,7 @@ describe("Economía (LootGold, LootCosmetics, Mercado)", function () {
       await cosmeticos.getAddress()
     );
     const mercadoAddr = await mercado.getAddress();
-    await oro.setMinter(mercadoAddr);
+    await oro.setMinter(mercadoAddr, true);
     await cosmeticos.setMinter(mercadoAddr);
 
     // Objetos de prueba: 1 común (5/3), 2 raro (12/4), 3 legendario (30/20) para jugador; 4 para otro
@@ -69,7 +69,8 @@ describe("Economía (LootGold, LootCosmetics, Mercado)", function () {
       expect(await oro.name()).to.equal("Oro de Loot Arena");
       expect(await oro.symbol()).to.equal("ORO");
       expect(await oro.decimals()).to.equal(18n);
-      expect(await oro.minter()).to.equal(mercadoAddr);
+      expect(await oro.esMinter(mercadoAddr)).to.equal(true);
+      expect(await oro.esMinter(owner.address)).to.equal(false);
       expect(await oro.owner()).to.equal(owner.address);
     });
 
@@ -169,7 +170,7 @@ describe("Economía (LootGold, LootCosmetics, Mercado)", function () {
 
     it("solo el owner puede cambiar el minter", async function () {
       const { oro, cosmeticos, jugador } = await loadFixture(desplegar);
-      await expect(oro.connect(jugador).setMinter(jugador.address)).to.be.revertedWithCustomError(
+      await expect(oro.connect(jugador).setMinter(jugador.address, true)).to.be.revertedWithCustomError(
         oro,
         "OwnableUnauthorizedAccount"
       );

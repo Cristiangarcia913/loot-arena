@@ -209,3 +209,148 @@ describe('API HTTP (contrato simulado, sin red)', () => {
     assert.equal(r.status, 404);
   });
 });
+
+describe('1.2: GET /ranking y POST /recompensa', () => {
+  const B = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
+  let srv, reloj, pagos, pagoFalla, rankingFalso, opciones;
+  const HOY = Date.UTC(2026, 10, 5, 12);
+
+  const arrancar = async (extra = {}) => {
+    srv = await levantar(crearApp({
+      mint: async () => ({ tokenId: 1n, txHash: '0x' + 'cd'.repeat(32) }),
+      contractAddress: CONTRATO, chainId: 11155111, rng: () => 0.99, now: () => reloj, logger: loggerMudo,
+      ...opciones, ...extra,
+    }));
+  };
+
+  beforeEach(() => {
+    reloj = HOY;
+    pagos = [];
+    pagoFalla = null;
+    rankingFalso = {
+      actualizado: HOY,
+      pagados: new Set(),
+      ranking: () => ({
+        actualizado: new Date(HOY).toISOString(), bloque: 7000000, sincronizado: true,
+        categorias: { objetos: [{ address: JUGADOR, valor: 12 }], legendarios: [], oroVentas: [], rachaDiaria: [] },
+      }),
+      posicion: (a) => ({ address: a, posiciones: { objetos: { posicion: 1, valor: 12, participantes: 1 } } }),
+      yaRecompensado(a, m) { return this.pagados.has(`${a}|${m}`); },
+    };
+    opciones = {
+      ranking: rankingFalso,
+      pagarRecompensa: async (to, cantidad, motivo) => {
+        if (pagoFalla) throw pagoFalla;
+        pagos.push({ to, cantidad, motivo });
+        return { txHash: '0x' + 'ef'.repeat(32) };
+      },
+    };
+  });
+  afterEach(() => srv?.cerrar());
+
+  const postRec = (body) => fetch(`${srv.url}/recompensa`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }).then(async (r) => ({ status: r.status, json: await r.json() }));
+
+  test('503 en /ranking y /recompensa si faltan variables, y /ganar sigue funcionando', async () => {
+    await arrancar({ ranking: null, pagarRecompensa: null, rankingNoDisponible: 'Ranking no disponible: el servidor no tiene configurado DEPLOY_BLOCK' });
+    let r = await fetch(`${srv.url}/ranking`);
+    assert.equal(r.status, 503);
+    assert.deepEqual(await r.json(), { error: 'Ranking no disponible: el servidor no tiene configurado DEPLOY_BLOCK' });
+    r = await fetch(`${srv.url}/ranking/${JUGADOR}`);
+    assert.equal(r.status, 503);
+    const rr = await fetch(`${srv.url}/recompensa`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address: JUGADOR, motivo: 'pase10' }) });
+    assert.equal(rr.status, 503);
+    assert.match((await rr.json()).error, /Recompensas no disponibles/);
+    const g = await post(srv.url, { address: JUGADOR });
+    assert.equal(g.status, 200);
+    assert.deepEqual(g.json, { drop: false });
+  });
+
+  test('GET /ranking: 503 mientras se genera, luego 200 con la forma documentada', async () => {
+    await arrancar();
+    rankingFalso.actualizado = null;
+    let r = await fetch(`${srv.url}/ranking`);
+    assert.equal(r.status, 503);
+    assert.equal(r.headers.get('retry-after'), '30');
+    rankingFalso.actualizado = HOY;
+    r = await fetch(`${srv.url}/ranking`);
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('cache-control'), 'public, max-age=30');
+    const j = await r.json();
+    assert.deepEqual(Object.keys(j.categorias), ['objetos', 'legendarios', 'oroVentas', 'rachaDiaria']);
+    assert.equal(j.actualizado, '2026-11-05T12:00:00.000Z');
+  });
+
+  test('GET /ranking/:address normaliza y valida la dirección', async () => {
+    await arrancar();
+    let r = await fetch(`${srv.url}/ranking/${JUGADOR.toLowerCase()}`);
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).address, JUGADOR);
+    r = await fetch(`${srv.url}/ranking/nope`);
+    assert.equal(r.status, 400);
+    assert.deepEqual(await r.json(), { error: 'Dirección inválida' });
+  });
+
+  test('POST /recompensa paga la cantidad fija con el motivo on-chain y la forma documentada', async () => {
+    await arrancar();
+    const r = await postRec({ address: JUGADOR.toLowerCase(), motivo: 'pase20' });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json, { ok: true, motivo: 'pase20', periodo: 'T1', oro: 200, txHash: '0x' + 'ef'.repeat(32) });
+    assert.deepEqual(pagos, [{ to: JUGADOR, cantidad: 200n * 10n ** 18n, motivo: 'pase20@T1' }]);
+  });
+
+  test('POST /recompensa: 400 por dirección o motivo inválidos', async () => {
+    await arrancar();
+    let r = await postRec({ address: 'x', motivo: 'pase10' });
+    assert.equal(r.status, 400);
+    r = await postRec({ address: JUGADOR, motivo: 'pase99' });
+    assert.equal(r.status, 400);
+    assert.deepEqual(r.json, { error: 'motivo debe ser uno de: pase10, pase20, pase30, misiones_diarias' });
+    assert.equal(pagos.length, 0);
+  });
+
+  test('POST /recompensa: reclamo único (409), también si ya está pagado on-chain', async () => {
+    await arrancar();
+    assert.equal((await postRec({ address: JUGADOR, motivo: 'misiones_diarias' })).status, 200);
+    reloj += 11_000;
+    const r = await postRec({ address: JUGADOR, motivo: 'misiones_diarias' });
+    assert.equal(r.status, 409);
+    assert.deepEqual(r.json, { error: 'Ya has reclamado esta recompensa', motivo: 'misiones_diarias', periodo: '2026-11-05' });
+    reloj += 24 * 3600 * 1000; // mañana sí
+    assert.equal((await postRec({ address: JUGADOR, motivo: 'misiones_diarias' })).status, 200);
+    // Pagado on-chain antes de un reinicio (lo sabe el indexador): 409 sin pagar
+    rankingFalso.pagados.add(`${B}|pase10@T1`);
+    const r2 = await postRec({ address: B, motivo: 'pase10' });
+    assert.equal(r2.status, 409);
+    assert.equal(pagos.length, 2);
+  });
+
+  test('POST /recompensa: 1 cada 10 s por dirección (429)', async () => {
+    await arrancar();
+    assert.equal((await postRec({ address: JUGADOR, motivo: 'pase10' })).status, 200);
+    const r = await postRec({ address: JUGADOR, motivo: 'pase20' });
+    assert.equal(r.status, 429);
+  });
+
+  test('POST /recompensa: si el pago falla se puede reintentar; tope on-chain → 409', async () => {
+    await arrancar();
+    pagoFalla = Object.assign(new Error('x'), { code: 'NETWORK_ERROR' });
+    let r = await postRec({ address: JUGADOR, motivo: 'pase30' });
+    assert.equal(r.status, 500);
+    assert.deepEqual(r.json, { error: 'No se pudo conectar con la red Ethereum' });
+    reloj += 11_000;
+    pagoFalla = Object.assign(new Error('tope'), { code: 'CALL_EXCEPTION', revert: { name: 'TopeJugadorSuperado' } });
+    r = await postRec({ address: JUGADOR, motivo: 'pase30' });
+    assert.equal(r.status, 409);
+    assert.match(r.json.error, /tope diario/);
+    reloj += 11_000;
+    pagoFalla = Object.assign(new Error('global'), { code: 'CALL_EXCEPTION', revert: { name: 'TopeGlobalSuperado' } });
+    r = await postRec({ address: JUGADOR, motivo: 'pase30' });
+    assert.equal(r.status, 409);
+    assert.match(r.json.error, /para todos/);
+    reloj += 11_000;
+    pagoFalla = null;
+    assert.equal((await postRec({ address: JUGADOR, motivo: 'pase30' })).status, 200);
+  });
+});

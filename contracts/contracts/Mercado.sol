@@ -39,6 +39,12 @@ interface IGameItem {
 ///  Todas las cantidades de ORO están en unidades base (18 decimales):
 ///  `precioVenta` devuelve p. ej. `54e18` para 54 ORO.
 ///
+///  - Premios (1.2): el contrato `Recompensas` (fijado por el owner con
+///    `setRecompensas`) puede pedir al Mercado `acunarPremio(jugador, id)` para
+///    regalar un cosmético (id concreto) o un cofre gratis (id = 0, misma tirada
+///    que `abrirCofre` pero sin cobrar ORO). Así LootCosmetics no se redespliega
+///    y sigue teniendo un único minter: el Mercado.
+///
 ///  AVISO sobre el azar del cofre: se usa `block.prevrandao` + nonce + remitente.
 ///  Es predecible/manipulable por validadores y por contratos que simulen antes de
 ///  llamar; aceptable en testnet (Sepolia) para un juego sin valor real, NO en mainnet
@@ -76,6 +82,9 @@ contract Mercado is Ownable, ReentrancyGuard {
     /// @notice ETH ya pagado a `jugador` el día `dia` (= block.timestamp / 1 days).
     mapping(address => mapping(uint256 => uint256)) public ethPagadoDia;
 
+    /// @notice Contrato Recompensas autorizado a llamar a `acunarPremio` (0 = ninguno).
+    address public recompensas;
+
     /// @notice Si una dirección ya reclamó el bono de bienvenida.
     mapping(address => bool) public bienvenidaReclamada;
 
@@ -96,6 +105,9 @@ contract Mercado is Ownable, ReentrancyGuard {
     event EnCofreCambiado(uint256 indexed id, bool enCofre);
     event FormulaVentaCambiada(uint256[3] bases, uint256 oroPorPunto);
     event PrecioCofreCambiado(uint256 precio);
+    event RecompensasCambiado(address indexed anterior, address indexed nuevo);
+    /// @notice `cofre` = true si salió de una tirada de cofre gratis (id pedido = 0).
+    event PremioAcunado(address indexed jugador, uint256 indexed id, bool cofre);
 
     error NoEresDueno(uint256 tokenId, address dueno);
     error ListaVacia();
@@ -107,6 +119,7 @@ contract Mercado is Ownable, ReentrancyGuard {
     error RarezaInvalida(uint8 rareza);
     error CofreVacio();
     error SaldoEthInsuficiente(uint256 caja, uint256 pedido);
+    error SoloRecompensas(address cuenta);
 
     constructor(address gameItem_, address oro_, address cosmeticos_) Ownable(msg.sender) {
         gameItem = IGameItem(gameItem_);
@@ -254,14 +267,29 @@ contract Mercado is Ownable, ReentrancyGuard {
     ///         al azar ponderado por rareza. Ver el aviso sobre el azar arriba.
     function abrirCofre() external nonReentrant returns (uint256 id) {
         _cobrar(PRECIO_COFRE);
-
-        uint256 r = uint256(keccak256(abi.encode(block.prevrandao, block.timestamp, msg.sender, _nonce++)));
-        uint256 tirada = r % 100;
-        uint8 rareza = tirada < probCofre[0] ? 0 : (tirada < uint256(probCofre[0]) + probCofre[1] ? 1 : 2);
-
-        id = _elegir(rareza, r >> 128);
+        id = _tirarCofre(msg.sender);
         cosmeticos.mint(msg.sender, id, 1);
         emit CofreAbierto(msg.sender, id);
+    }
+
+    /// @notice Regala a `jugador` el cosmético `id`, o un cofre gratis si `id == 0`.
+    ///         Solo lo puede llamar el contrato `recompensas`. Devuelve el id acuñado.
+    function acunarPremio(address jugador, uint256 id) external nonReentrant returns (uint256) {
+        if (msg.sender != recompensas || recompensas == address(0)) revert SoloRecompensas(msg.sender);
+        bool cofre = id == 0;
+        if (cofre) id = _tirarCofre(jugador);
+        else _cosmetico(id); // revierte si no existe
+        cosmeticos.mint(jugador, id, 1);
+        emit PremioAcunado(jugador, id, cofre);
+        return id;
+    }
+
+    /// @dev Tirada ponderada por rareza (ver aviso sobre el azar arriba).
+    function _tirarCofre(address jugador) private returns (uint256) {
+        uint256 r = uint256(keccak256(abi.encode(block.prevrandao, block.timestamp, jugador, _nonce++)));
+        uint256 tirada = r % 100;
+        uint8 rareza = tirada < probCofre[0] ? 0 : (tirada < uint256(probCofre[0]) + probCofre[1] ? 1 : 2);
+        return _elegir(rareza, r >> 128);
     }
 
     /// @dev Elige uniformemente entre los cosméticos de esa rareza que pueden salir
@@ -350,6 +378,12 @@ contract Mercado is Ownable, ReentrancyGuard {
         basesVenta = bases;
         oroPorPunto = porPunto;
         emit FormulaVentaCambiada(bases, porPunto);
+    }
+
+    /// @notice Fija el contrato Recompensas que puede llamar a `acunarPremio`.
+    function setRecompensas(address nuevo) external onlyOwner {
+        emit RecompensasCambiado(recompensas, nuevo);
+        recompensas = nuevo;
     }
 
     /// @notice Cambia el precio del cofre.

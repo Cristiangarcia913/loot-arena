@@ -194,6 +194,21 @@ export function generarEnemigo(nivel, rng = Math.random, { jefe = false } = {}) 
   const lo = Math.max(0, centro - 1);
   const hi = Math.min(BESTIARIO.length - 1, centro + 1);
   const cr = jefe ? BESTIARIO[centro] : BESTIARIO[randInt(lo, hi, rng)];
+  return generarEnemigoDe(cr.clave, n, { jefe });
+}
+
+/**
+ * Genera una criatura concreta del bestiario (no consume rng). Útil para el desafío diario.
+ * @param {string} clave clave de BESTIARIO (rata, lobo, goblin…)
+ * @param {number} nivel 1..10
+ * @param {{jefe?: boolean}} [opciones]
+ * @returns {ReturnType<typeof generarEnemigo>}
+ * @throws si la clave no existe
+ */
+export function generarEnemigoDe(clave, nivel, { jefe = false } = {}) {
+  const cr = criaturaDe(clave);
+  if (!cr) throw new Error(`Criatura desconocida: ${clave}`);
+  const n = clampNivel(nivel);
   const s = statsEnemigo(n);
   const mj = jefe ? JEFE : { vida: 1, ataque: 1, defensa: 1 };
   // En los jefes los modificadores de la criatura se suavizan a la mitad (ya llevan los de JEFE).
@@ -501,7 +516,9 @@ function aplicarEstado(c, quien, def, ataqueFuente) {
   let valor = def.valor;
   if (def.pct != null) {
     const baseValor = def.tipo === "escudo" ? q.vidaMax : ataqueFuente;
-    valor = Math.max(1, Math.round(baseValor * def.pct));
+    // `enemigo.multEstados` (opcional, p. ej. desafío diario) potencia los estados que aplica el enemigo.
+    const mult = quien === "jugador" && def.tipo !== "escudo" ? (c.enemigo.multEstados ?? 1) : 1;
+    valor = Math.max(1, Math.round(baseValor * def.pct * mult));
   }
   const nuevo = { tipo: def.tipo, turnos: def.turnos, ...(valor != null ? { valor } : {}) };
   const i = q.estados.findIndex((e) => e.tipo === def.tipo);
@@ -548,7 +565,7 @@ function golpear({ c, rng }, de, opts = {}) {
       return { dano: 0, esquivado: true, critico: false, bloqueado: false, absorbido: 0 };
     }
   }
-  const pCrit = opts.siempreCritico ? 1 : (de === "jugador" ? at.critico : CRITICO_ENEMIGO) + (opts.criticoExtra ?? 0);
+  const pCrit = opts.siempreCritico ? 1 : (de === "jugador" ? at.critico : (at.critico ?? CRITICO_ENEMIGO)) + (opts.criticoExtra ?? 0);
   const critico = opts.siempreCritico ? true : rng() < pCrit;
   let dano = calcularDano(ataqueEfectivo(c, de), ob.defensa, rng) * (opts.mult ?? 1) * (critico ? MULT_CRITICO : 1);
   let bloqueado = false;

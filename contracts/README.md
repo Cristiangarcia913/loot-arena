@@ -142,7 +142,7 @@ Diseño completo en `../MEJORAS.md` §5. `GameItem` **no cambia**: se añaden tr
 
 | Contrato | Qué es |
 |---|---|
-| `LootGold.sol` | ERC-20 **"Oro de Loot Arena" (ORO)**, 18 decimales, `burn`/`burnFrom`. Solo el `minter` (= Mercado, lo fija el owner con `setMinter`) puede acuñar (`mint`) y quemar ORO del comprador sin `approve` (`quemarDe`). |
+| `LootGold.sol` | ERC-20 **"Oro de Loot Arena" (ORO)**, 18 decimales, `burn`/`burnFrom`. Desde la 1.2 admite **varios minters** (`setMinter(cuenta, activo)` del owner, consulta con `esMinter(cuenta)`): Mercado y Recompensas. Solo un minter puede acuñar (`mint`) y quemar ORO del comprador sin `approve` (`quemarDe`). |
 | `LootCosmetics.sol` | ERC-1155 de cosméticos (ids 1..14 del catálogo). Solo el `minter` (= Mercado) acuña. Los jugadores pueden quemar los suyos (`burn`, p. ej. la poción extra id 14). `uri(id)` = `baseURI + id + ".json"` → `web/meta/cosmeticos/{id}.json`. |
 | `Mercado.sol` | Vende objetos por ORO (+ un poco de ETH de su caja), vende cosméticos, abre cofres y da la bienvenida. `Ownable` + `ReentrancyGuard`. |
 
@@ -175,7 +175,7 @@ npx hardhat run scripts/deploy.js --network localhost
 npx hardhat run scripts/deploy-economia.js --network localhost
 ```
 
-`deploy-economia.js` lee la dirección de GameItem de `../shared/deployments.json[red].address`, despliega los tres contratos, hace `setMinter(mercado)` en ORO y cosméticos, recarga la caja (1 ETH en local por defecto) y escribe `oro`, `cosmeticos` y `mercado` en la entrada de la red, más `../shared/{LootGold,LootCosmetics,Mercado}.abi.json`. Variables opcionales: `CAJA_ETH` (ETH para la caja; 0 por defecto fuera de local) y `COSMETICOS_URI` (prefijo de los metadatos).
+`deploy-economia.js` lee la dirección de GameItem de `../shared/deployments.json[red].address`, despliega los tres contratos, hace `setMinter(mercado, true)` en ORO y `setMinter(mercado)` en cosméticos, recarga la caja (1 ETH en local por defecto) y escribe `oro`, `cosmeticos` y `mercado` en la entrada de la red, más `../shared/{LootGold,LootCosmetics,Mercado}.abi.json`. Variables opcionales: `CAJA_ETH` (ETH para la caja; 0 por defecto fuera de local) y `COSMETICOS_URI` (prefijo de los metadatos).
 
 ### Despliegue en Sepolia y verificación en Etherscan
 
@@ -198,3 +198,60 @@ npx hardhat verify --network sepolia <mercado> <gameItem> <oro> <cosmeticos>
 ```
 
 Gas por operación del jugador (medido en local): `setApprovalForAll` ~46 k (una vez), `venderItem` ~140–205 k, `venderVarios` de 3 ~265 k, `comprarCosmetico` ~81 k, `abrirCofre` ~176 k, `reclamarBienvenida` ~65 k.
+
+---
+
+## Loot Arena 1.2: recompensas diarias y premios del servidor
+
+Diseño en `../MEJORAS-1.2.md` §2–§3. `GameItem` y `LootCosmetics` **no se redespliegan**; se redespliegan `LootGold` (v2, varios minters) y `Mercado` (mismo comportamiento, apuntando al ORO nuevo), y se añade `Recompensas.sol`. El ORO de la 1.1 queda abandonado (no había jugadores reales).
+
+### `Recompensas.sol`
+
+- **`reclamarDiario()`** → `(racha, oro, cosmeticoId)`: un reclamo por **día UTC** (`block.timestamp / 1 days`; cambia a las 00:00 UTC, no 24 h después). La racha sube si el reclamo anterior fue el día anterior; si no, vuelve a 1. ORO por día del ciclo: 10, 15, 20, 25, 30, 35, 40 (`tablaDiaria`, índice 0 = día 1). El día 7 regala además **un cofre cosmético gratis** (misma tirada 60/32/8 que `abrirCofre`, nunca consumibles). Tras el día 7 el ciclo vuelve al día 1, pero `racha` sigue contando (8, 9…) para el ranking de mayor racha. Evento `DiarioReclamado(jugador, dia, racha, oro, cosmeticoId)` (`cosmeticoId = 0` si no hubo cosmético).
+- **`estadoDiario(jugador)`** → `(racha, ultimoDia, puedeReclamar, segundosHastaSiguiente, proximaRecompensa)`: `racha` es la vigente (0 si nunca reclamó o si ya se rompió), `ultimoDia` en días UTC, `segundosHastaSiguiente` = 0 si puede reclamar o los segundos hasta las 00:00 UTC, `proximaRecompensa` = ORO del próximo reclamo. **`proximoDiaCiclo(jugador)`** → 1..7 (7 = el próximo reclamo trae cofre).
+- **`recompensar(jugador, cantidad, motivo)`**: solo `operador` (la wallet del servidor). Topes diarios: **500 ORO por jugador** y **5 000 ORO en total** (`setTopes`); si se supera revierte con `TopeJugadorSuperado(restante, pedido)` o `TopeGlobalSuperado(restante, pedido)`. Evento `Recompensado(jugador, cantidad, motivo)`. Vista `restanteHoy(jugador)` → `(jugadorRestante, globalRestante)`.
+- **Owner**: `setOperador`, `setTablaDiaria(uint256[7])`, `setPremioDia7(activo, id)` (id 0 = cofre aleatorio; otro = ese cosmético), `setTopes(porJugador, global)`.
+- Protegido con `ReentrancyGuard`; actualiza el estado antes de acuñar.
+
+### Cómo se acuña el cofre del día 7
+
+`LootCosmetics` solo tiene un minter (el Mercado) y no se redespliega, así que **Recompensas pide el premio al Mercado**: `Mercado.acunarPremio(jugador, id)` (solo lo puede llamar la dirección fijada con `Mercado.setRecompensas`). Con `id = 0` hace una tirada de cofre gratis; con otro id acuña ese cosmético. Emite `PremioAcunado(jugador, id, cofre)`.
+
+### Despliegue (`scripts/deploy-1.2.js`)
+
+Necesita en `../shared/deployments.json[red]` el GameItem (`address`) y el LootCosmetics (`cosmeticos`), y que la cuenta que despliega sea owner de LootCosmetics (para pasar su minter al Mercado nuevo). Orden de transacciones:
+
+1. `deploy LootGold` (v2)
+2. `deploy Mercado(gameItem, oro, cosmeticos)`
+3. `deploy Recompensas(oro, mercado, operador)`
+4. `LootGold.setMinter(mercado, true)`
+5. `LootGold.setMinter(recompensas, true)`
+6. `LootCosmetics.setMinter(mercado)` (el Mercado viejo deja de poder acuñar cosméticos)
+7. `Mercado.setRecompensas(recompensas)`
+8. (opcional) recargar la caja de ETH del Mercado nuevo (`CAJA_ETH`)
+
+Es idempotente: con `LOOTGOLD_EXISTENTE`, `MERCADO_EXISTENTE` o `RECOMPENSAS_EXISTENTE` reutiliza lo ya desplegado (si un despliegue se cortó a medias) y solo envía las transacciones de permisos que falten. Usa nonce explícito. `OPERADOR` = wallet del servidor (por defecto, la cuenta que despliega). Escribe `oro`, `mercado`, `recompensas` y `bloqueDespliegue` (bloque del primer contrato nuevo, para `DEPLOY_BLOCK` del servidor) en la entrada de la red, y `../shared/{LootGold,Mercado,Recompensas}.abi.json`.
+
+En local (con el nodo arrancado y tras `deploy.js` y `deploy-economia.js`):
+
+```bash
+npx hardhat run scripts/deploy-1.2.js --network localhost
+```
+
+En Sepolia (PowerShell; pon la dirección de la wallet del servidor):
+
+```powershell
+$env:OPERADOR="0xWALLET_DEL_SERVIDOR"; $env:CAJA_ETH="0.02"; npx hardhat run scripts/deploy-1.2.js --network sepolia
+```
+
+Verificación (el script imprime los comandos con las direcciones reales):
+
+```bash
+npx hardhat verify --network sepolia <oro>
+npx hardhat verify --network sepolia <mercado> <gameItem> <oro> <cosmeticos>
+npx hardhat verify --network sepolia <recompensas> <oro> <mercado> <operador>
+```
+
+Coste aproximado (medido en local): unos 6,3 M de gas en total (LootGold ~0,72 M, Mercado ~4,12 M, Recompensas ~1,30 M y unos 30–48 k por cada transacción de permisos). Operaciones: `reclamarDiario` ~103 k el primer día y ~53 k los siguientes, ~194 k el día 7 (con cofre); `recompensar` ~97 k la primera vez del día para un jugador y ~63 k después.
+
+Recuerda recargar la caja de ETH del **Mercado nuevo** (la del viejo se puede recuperar con `retirarEth` desde el owner).

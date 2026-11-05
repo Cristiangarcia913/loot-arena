@@ -154,14 +154,14 @@
       {
         "indexed": true,
         "internalType": "address",
-        "name": "anterior",
+        "name": "cuenta",
         "type": "address"
       },
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "nuevo",
-        "type": "address"
+        "indexed": false,
+        "internalType": "bool",
+        "name": "activo",
+        "type": "bool"
       }
     ],
     "name": "MinterCambiado",
@@ -326,6 +326,25 @@
     "inputs": [
       {
         "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "esMinter",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
         "name": "to",
         "type": "address"
       },
@@ -338,19 +357,6 @@
     "name": "mint",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "minter",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -408,8 +414,13 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "nuevo",
+        "name": "cuenta",
         "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "activo",
+        "type": "bool"
       }
     ],
     "name": "setMinter",

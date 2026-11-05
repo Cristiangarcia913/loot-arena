@@ -112,3 +112,19 @@ Límite: máx. 1 petición `/ganar` cada 10 s por dirección y 30 por hora por I
 - Combate con habilidades, críticos, esquiva, estados, enemigos con patrón e intención visible, jefe cada 5.º combate de un nivel (`VICTORIAS_POR_NIVEL = 5`), 3 pociones por expedición + pociones extra compradas (se queman al acabar la expedición).
 - Progresión del héroe (niveles 1–30, XP, racha) en `localStorage` por dirección.
 - Efectos, sprites SVG, sonido sintetizado, revelado del botín, tienda, venta y vestuario.
+
+---
+
+## Cambios de la versión 1.2
+
+- **App por secciones** con router por hash (`#/arena`, `#/heroe`, `#/inventario`, `#/mercado`, `#/misiones`, `#/logros`, `#/ranking`), menú lateral/inferior con avisos.
+- **Enganche:** recompensa diaria on-chain con racha de 7 días (10→40 ORO, cofre el día 7), 3 misiones diarias, misión semanal, desafío diario, pase de temporada de 30 niveles, más de 40 logros con títulos, colección (bestiario y álbumes) y ranking on-chain.
+- **Contratos nuevos en Sepolia** (los anteriores de ORO y Mercado quedan obsoletos):
+
+| Contrato | Dirección |
+|---|---|
+| `LootGold` v2 (ORO, varios minters) | `0xb95150f40e6e9C5095558cC01A1b9CfffA89e166` |
+| `Mercado` | `0xC02683814b25c4a99998aD359D336b4A15F83E2f` |
+| `Recompensas` | `0x67436408fe590dA830E783dc20345CccBCDbEE56` |
+
+- **Servidor:** `GET /ranking`, `GET /ranking/:address` (indexa eventos on-chain desde el bloque 12072405 y los `ItemMinted` de GameItem) y `POST /recompensa {address, motivo}` con `motivo ∈ pase10|pase20|pase30|misiones_diarias` (topes por jugador y día en el contrato).

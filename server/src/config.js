@@ -3,10 +3,12 @@ import { isAddress, getAddress, ZeroAddress } from 'ethers';
 
 /**
  * @param {Record<string, string | undefined>} env
- * @returns {{ config: object, errores: string[] }}
+ * @returns {{ config: object, errores: string[], avisos: string[] }}
+ *   `errores` impiden arrancar; `avisos` solo desactivan /ranking o /recompensa (no rompen /ganar).
  */
 export function cargarConfig(env = process.env) {
   const errores = [];
+  const avisos = [];
   const limpio = (k) => (env[k] ?? '').trim();
 
   const rpcUrl = limpio('RPC_URL');
@@ -37,9 +39,36 @@ export function cargarConfig(env = process.env) {
   const tpTxt = limpio('TRUST_PROXY') || '1';
   const trustProxy = /^\d+$/.test(tpTxt) ? Number(tpTxt) : tpTxt === 'true';
 
+  // ── Opcionales de la 1.2 (ranking y recompensas) ──
+  const dirOpcional = (k, para) => {
+    const v = limpio(k);
+    if (!v) { avisos.push(`Falta ${k}: ${para} devolverá 503.`); return null; }
+    if (!isAddress(v) || getAddress(v) === ZeroAddress) { avisos.push(`${k} no es una dirección válida ("${v}"): ${para} devolverá 503.`); return null; }
+    return getAddress(v);
+  };
+  const mercadoAddress = dirOpcional('MERCADO_ADDRESS', 'GET /ranking');
+  const recompensasAddress = dirOpcional('RECOMPENSAS_ADDRESS', 'GET /ranking y POST /recompensa');
+  const dbTxt = limpio('DEPLOY_BLOCK');
+  let deployBlock = null;
+  if (!dbTxt) avisos.push('Falta DEPLOY_BLOCK: GET /ranking devolverá 503.');
+  else if (!/^\d+$/.test(dbTxt)) avisos.push(`DEPLOY_BLOCK debe ser un entero ≥ 0 ("${dbTxt}"): GET /ranking devolverá 503.`);
+  else deployBlock = Number(dbTxt);
+
+  const tiTxt = limpio('TEMPORADA_INICIO');
+  let inicioTemporadas = null;
+  if (tiTxt) {
+    const ms = Date.parse(tiTxt);
+    if (Number.isFinite(ms)) inicioTemporadas = ms;
+    else avisos.push(`TEMPORADA_INICIO no es una fecha válida ("${tiTxt}"); se usa la de por defecto.`);
+  }
+
   return {
-    config: { rpcUrl, privateKey, contractAddress, port, dropChance, allowedOrigin, trustProxy },
+    config: {
+      rpcUrl, privateKey, contractAddress, port, dropChance, allowedOrigin, trustProxy,
+      mercadoAddress, recompensasAddress, deployBlock, inicioTemporadas,
+    },
     errores,
+    avisos,
   };
 }
 

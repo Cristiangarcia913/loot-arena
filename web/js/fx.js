@@ -14,7 +14,7 @@
 
 import { sonar, desbloquear, conectarBotonSonido } from "./audio.js";
 import {
-  spriteHeroe, spriteEnemigo, spriteCofre, spriteCosmetico, claveEnemigo, iconoEstado, iconoIntencion,
+  spriteHeroe, spriteEnemigo, spriteCofre, spriteCosmetico, spriteMedalla, spriteLlama, claveEnemigo, iconoEstado, iconoIntencion,
   iconoObjeto, PALETA_RAREZA, RANURA_COSMETICO, APARIENCIA_VACIA,
 } from "./sprites.js";
 
@@ -134,6 +134,13 @@ class Particulas {
         ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 0.04, p.y - p.vy * 0.04); ctx.stroke();
       } else if (p.forma === "rect") {
         ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillRect(-p.tam, -p.tam * 0.5, p.tam * 2, p.tam); ctx.restore();
+      } else if (p.forma === "moneda") {
+        const ancho = Math.abs(Math.cos(p.rot)) * p.tam + 0.6;
+        ctx.fillStyle = "#b45309";
+        ctx.beginPath(); ctx.ellipse(p.x, p.y + 1, ancho, p.tam, 0, 0, 6.283); ctx.fill();
+        ctx.fillStyle = Math.cos(p.rot) > 0 ? "#fcd34d" : "#f59e0b";
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, ancho, p.tam, 0, 0, 6.283); ctx.fill();
+        if (ancho > p.tam * 0.5) { ctx.fillStyle = "#fff7cc"; ctx.beginPath(); ctx.ellipse(p.x - ancho * 0.3, p.y - p.tam * 0.35, ancho * 0.25, p.tam * 0.2, 0, 0, 6.283); ctx.fill(); }
       } else if (p.forma === "estrella") {
         const s = p.tam * (0.6 + 0.4 * k);
         ctx.beginPath(); ctx.moveTo(p.x, p.y - s * 2); ctx.lineTo(p.x + s * 0.5, p.y - s * 0.5); ctx.lineTo(p.x + s * 2, p.y);
@@ -347,10 +354,12 @@ function asegurarLuchador(raiz, quien) {
  *        nombre/emoji que pinte main.js en `.f-name`/`.avatar` (útil antes de integrar; pon false si llamas a todo a mano)
  * @returns {HTMLElement} la raíz
  */
-export function montarEscena(raizEl, { auto = true } = {}) {
+export function montarEscena(raizEl, opciones = {}) {
   if (!raizEl) throw new Error("montarEscena: falta el elemento raíz");
+  // Una segunda llamada sin `auto` explícito no cambia lo que eligió la primera (main.js pasa {auto:false}).
+  if (E.raiz === raizEl) { if ("auto" in opciones) E.auto = !!opciones.auto; return raizEl; }
+  const auto = opciones.auto ?? true;
   E.auto = auto;
-  if (E.raiz === raizEl) return raizEl;
   E.raiz = raizEl;
   raizEl.classList.add("escena", "escena-montada");
   const cFondo = raizEl.querySelector("canvas.escena-fondo") ?? el("canvas", "escena-fondo");
@@ -818,6 +827,71 @@ export function decorarCarta(cartaEl, item) {
   if (top && arte.parentElement === top) top.after(arte);
   cartaEl.append(Object.assign(txt("span", "item-poder", `⚡ ${poder}`), { title: `Poder: ${poder} (ataque + defensa)` }));
   if (rareza >= 2) cartaEl.classList.add("holo");
+  // Datos para filtrar/ordenar (#inv-filtros)
+  cartaEl.dataset.rareza = String(rareza);
+  cartaEl.dataset.tipo = tipo;
+  cartaEl.dataset.poder = String(poder);
+  cartaEl.dataset.nombre = item?.nombre ?? cartaEl.querySelector(".item-nombre")?.textContent ?? "";
+  cartaEl.dataset.token = String(item?.tokenId ?? (cartaEl.querySelector(".item-id")?.textContent.match(/\d+/) ?? [""])[0]);
+}
+
+/**
+ * Aplica los filtros/orden de #inv-filtros (#inv-filtro-rareza, #inv-filtro-tipo, #inv-orden) a las cartas de #inventario.
+ * Se reaplica solo cuando main.js repinta el inventario. Muestra «N de M» en #inv-cuenta.
+ */
+export function aplicarFiltrosInventario() {
+  const inv = document.getElementById("inventario");
+  if (!inv) return;
+  const fr = document.getElementById("inv-filtro-rareza")?.value ?? "";
+  const ft = document.getElementById("inv-filtro-tipo")?.value ?? "";
+  const orden = document.getElementById("inv-orden")?.value ?? "reciente";
+  const cartas = [...inv.querySelectorAll(":scope > .item")];
+  cartas.forEach((c) => decorarCarta(c));
+  let visibles = 0;
+  for (const c of cartas) {
+    const ok = (!fr || c.dataset.rareza === fr) && (!ft || c.dataset.tipo === ft);
+    c.hidden = !ok;
+    if (ok) visibles++;
+  }
+  const n = (c, k) => Number(c.dataset[k]) || 0;
+  const cmp = {
+    reciente: (a, b) => n(b, "token") - n(a, "token"),
+    poder: (a, b) => n(b, "poder") - n(a, "poder") || n(b, "rareza") - n(a, "rareza"),
+    rareza: (a, b) => n(b, "rareza") - n(a, "rareza") || n(b, "poder") - n(a, "poder"),
+    nombre: (a, b) => (a.dataset.nombre ?? "").localeCompare(b.dataset.nombre ?? "", "es"),
+  }[orden] ?? (() => 0);
+  const ordenadas = [...cartas].sort(cmp);
+  if (ordenadas.some((c, i) => c !== cartas[i])) {
+    E.reordenando = true;
+    const resto = [...inv.children].filter((x) => !x.matches(".item"));
+    inv.append(...ordenadas, ...resto);
+    queueMicrotask(() => { E.reordenando = false; });
+  }
+  const cuenta = document.getElementById("inv-cuenta");
+  if (cuenta) cuenta.textContent = cartas.length ? (visibles === cartas.length ? `${cartas.length} objetos` : `${visibles} de ${cartas.length}`) : "";
+}
+
+function conectarFiltrosInventario() {
+  const inv = document.getElementById("inventario");
+  if (!inv) return;
+  for (const id of ["inv-filtro-rareza", "inv-filtro-tipo", "inv-orden"]) {
+    const s = document.getElementById(id);
+    if (!s) continue;
+    try { const v = localStorage.getItem(`lootarena:${id}`); if (v != null && [...s.options].some((o) => o.value === v)) s.value = v; } catch { /* sin storage */ }
+    s.addEventListener("change", () => { try { localStorage.setItem(`lootarena:${id}`, s.value); } catch { /* */ } aplicarFiltrosInventario(); });
+  }
+  new MutationObserver(() => { if (!E.reordenando) aplicarFiltrosInventario(); }).observe(inv, { childList: true });
+  aplicarFiltrosInventario();
+}
+
+/** Muestra la última línea de la crónica (#log) en el resumen plegado (.cronica-ultima). */
+function conectarCronica() {
+  const log = document.getElementById("log");
+  const ult = document.querySelector(".cronica-ultima");
+  if (!log || !ult) return;
+  const pintar = () => { ult.textContent = log.lastElementChild?.textContent ?? ""; };
+  new MutationObserver(pintar).observe(log, { childList: true });
+  pintar();
 }
 
 function vigilarCartas() {
@@ -1121,6 +1195,8 @@ export function iniciarInterfaz(opciones = {}) {
   conectarBotonSonido(document.getElementById("btn-sonido"));
   vigilarCartas();
   conectarPestanas();
+  conectarFiltrosInventario();
+  conectarCronica();
   document.querySelectorAll(".heroe-mini").forEach((m) => { m.innerHTML = spriteHeroe(E.equipados, E.apariencia); });
   const portada = document.getElementById("pantalla-portada");
   if (portada) {
@@ -1134,4 +1210,195 @@ export function iniciarInterfaz(opciones = {}) {
     if (vista) portada.hidden = true;
     portada.querySelector("#btn-entrar")?.addEventListener("click", () => { desbloquear(); sonar("aparicion"); ocultarPortada(); });
   }
+}
+
+// ───────────────────────── Enganche (1.2): logros, recompensas, pase, racha de días ─────────────────────────
+
+let capa = null;
+/** Capa de partículas a pantalla completa (por encima de todo, sin capturar clics). */
+function capaGlobal() {
+  if (capa?.c.isConnected) return capa;
+  const c = el("canvas", "fx-global");
+  c.setAttribute("aria-hidden", "true");
+  document.body.append(c);
+  capa = new Particulas(c);
+  addEventListener("resize", () => capa?.ajustar());
+  return capa;
+}
+
+let colaLogros = Promise.resolve();
+
+/**
+ * Toast grande de logro desbloqueado con medalla, brillo, estrellas y sonido. Se encolan si llegan varios.
+ * Clic para cerrarlo antes.
+ * @param {{nombre:string, descripcion?:string, icono?:string, titulo?:string, rareza?:number}} logro
+ *        titulo = título que desbloquea (se muestra «Nuevo título»); rareza 0..2 colorea la medalla (por defecto 2, oro)
+ * @returns {Promise<void>} cuando desaparece
+ */
+export function celebrarLogro(logro = {}) {
+  colaLogros = colaLogros.then(() => new Promise((fin) => {
+    const r = Math.max(0, Math.min(2, Number(logro.rareza ?? 2) || 0));
+    const t = el("div", `logro-toast logro-r${r}`);
+    t.setAttribute("role", "status");
+    t.setAttribute("aria-live", "assertive");
+    const med = el("div", "logro-medalla", spriteMedalla(logro.icono ?? "🏅", r));
+    const cuerpo = el("div", "logro-cuerpo");
+    cuerpo.append(txt("div", "logro-pre", "¡Logro desbloqueado!"), txt("div", "logro-nombre", logro.nombre ?? "Logro"));
+    if (logro.descripcion) cuerpo.append(txt("div", "logro-desc", logro.descripcion));
+    if (logro.titulo) cuerpo.append(txt("div", "logro-titulo", `Nuevo título: «${logro.titulo}»`));
+    t.append(med, cuerpo);
+    document.body.append(t);
+    sonar("logro");
+    const red = reducido();
+    t.animate([{ transform: "translate(-50%, -140%)", opacity: 0 }, { transform: "translate(-50%, 8px)", opacity: 1, offset: 0.7 }, { transform: "translate(-50%, 0)", opacity: 1 }],
+      { duration: red ? 1 : 520, easing: "cubic-bezier(.2,.9,.3,1.2)", fill: "forwards" });
+    setTimeout(() => {
+      const m = med.getBoundingClientRect();
+      capaGlobal().emitir(m.left + m.width / 2, m.top + m.height / 2, { n: 40, colores: COLORES_RAREZA[r], vel: [80, 260], g: 220, vida: [0.5, 1.1], tam: [2, 3.5], forma: "estrella" });
+      med.animate([{ transform: "scale(.3) rotate(-40deg)" }, { transform: "scale(1.25) rotate(8deg)", offset: 0.6 }, { transform: "none" }], { duration: red ? 1 : 600, easing: "ease-out" });
+    }, red ? 0 : 280);
+    let cerrado = false;
+    const cerrar = () => {
+      if (cerrado) return;
+      cerrado = true;
+      t.animate([{ opacity: 1, transform: "translate(-50%, 0)" }, { opacity: 0, transform: "translate(-50%, -40px)" }], { duration: 300, fill: "forwards" })
+        .finished.catch(() => {}).finally(() => { t.remove(); fin(); });
+    };
+    t.addEventListener("click", cerrar);
+    setTimeout(cerrar, 4200);
+  }));
+  return colaLogros;
+}
+
+/**
+ * Recompensa: lluvia de monedas, «+N ORO» con contador y (opcional) el cosmético ganado; al final unas monedas
+ * vuelan al saldo de la cabecera (#saldo-oro), que late.
+ * @param {{oro?:number, cosmetico?:number|{id:number, nombre?:string}|null, texto?:string}} r texto = subtítulo opcional
+ * @returns {Promise<void>}
+ */
+export function celebrarRecompensa({ oro = 0, cosmetico = null, texto = "" } = {}) {
+  const red = reducido();
+  const p = capaGlobal();
+  const cos = cosmetico == null ? null : typeof cosmetico === "object" ? cosmetico : { id: Number(cosmetico) };
+  sonar("monedas");
+  if (cos) setTimeout(() => sonar("raro"), 500);
+  const w = innerWidth;
+  if (oro > 0) {
+    const n = Math.min(90, 20 + Math.round(oro / 2));
+    p.emitir(w / 2, -20, { n, colores: ["#f59e0b"], vel: [20, 120], ang: [Math.PI * 0.2, Math.PI * 0.8], g: 620, vida: [1.4, 2.2], tam: [5, 8], forma: "moneda", aditivo: false, area: [w * 0.9, 20], arrastre: 0.995 });
+  }
+  const pop = el("div", "recompensa-pop");
+  pop.setAttribute("role", "status");
+  if (oro > 0) {
+    const cifra = el("div", "recompensa-oro");
+    const num = txt("span", "", red ? `+${oro}` : "+0");
+    cifra.append(el("span", "moneda-ico"), num);
+    pop.append(cifra, txt("div", "recompensa-sub", texto || "ORO"));
+    if (!red) {
+      const t0 = performance.now();
+      const contar = (t) => { const k = Math.min(1, (t - t0) / 900); num.textContent = `+${Math.round(oro * (1 - (1 - k) ** 3))}`; if (k < 1) requestAnimationFrame(contar); };
+      requestAnimationFrame(contar);
+    }
+  } else if (texto) pop.append(txt("div", "recompensa-sub", texto));
+  if (cos) {
+    const carta = el("div", "recompensa-cos", spriteCosmetico(cos.id) || spriteMedalla("🎁", 2));
+    carta.append(txt("div", "recompensa-cos-nombre", cos.nombre ?? `Cosmético #${cos.id}`));
+    pop.append(carta);
+  }
+  document.body.append(pop);
+  pop.animate([{ transform: "translate(-50%, -50%) scale(.4)", opacity: 0 }, { transform: "translate(-50%, -50%) scale(1.1)", opacity: 1, offset: 0.6 }, { transform: "translate(-50%, -50%) scale(1)", opacity: 1 }],
+    { duration: red ? 1 : 450, easing: "cubic-bezier(.2,.9,.3,1.3)", fill: "forwards" });
+  return esperar(red ? 1200 : 1900).then(async () => {
+    const saldo = document.getElementById("saldo-oro");
+    const destino = saldo?.offsetParent && saldo.childElementCount ? saldo.getBoundingClientRect() : null;
+    if (destino && oro > 0 && !red) {
+      const a = pop.getBoundingClientRect();
+      const vuelos = [];
+      for (let i = 0; i < 8; i++) {
+        const m = el("span", "moneda-vuela");
+        m.style.left = `${a.left + a.width / 2}px`; m.style.top = `${a.top + a.height / 2}px`;
+        document.body.append(m);
+        const dx = destino.left + destino.width / 2 - (a.left + a.width / 2), dy = destino.top + destino.height / 2 - (a.top + a.height / 2);
+        vuelos.push(m.animate([{ transform: "translate(0,0) scale(1)" }, { transform: `translate(${dx * 0.5 + azar(-60, 60)}px, ${dy * 0.5 - 60}px) scale(1.2)`, offset: 0.5 }, { transform: `translate(${dx}px, ${dy}px) scale(.5)`, opacity: 0.6 }],
+          { duration: 700, delay: i * 60, easing: "cubic-bezier(.5,0,.6,1)", fill: "forwards" }).finished.catch(() => {}).finally(() => m.remove()));
+      }
+      pop.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, fill: "forwards" });
+      await Promise.all(vuelos);
+      saldo.animate([{ transform: "scale(1)" }, { transform: "scale(1.25)", filter: "drop-shadow(0 0 10px #fbbf24)" }, { transform: "scale(1)" }], { duration: 400 });
+    } else {
+      await pop.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, fill: "forwards" }).finished.catch(() => {});
+    }
+    pop.remove();
+  });
+}
+
+/**
+ * Subida de nivel del pase de temporada: rótulo morado, estrellas y sonido; hace latir #pase si existe.
+ * @param {number} nivel 1..30 @param {{recompensa?:string}} [o] texto de lo que da ese nivel
+ * @returns {Promise<void>}
+ */
+export function subirNivelPase(nivel, { recompensa = "" } = {}) {
+  sonar("pase");
+  capaGlobal().emitir(innerWidth / 2, innerHeight / 2, { n: 70, colores: ["#e9d5ff", "#c084fc", "#a855f7", "#fde047"], vel: [120, 420], g: 160, vida: [0.6, 1.4], tam: [2, 4], forma: "estrella" });
+  const pase = document.getElementById("pase");
+  pase?.animate([{ boxShadow: "0 0 0 0 rgba(192,132,252,.9)" }, { boxShadow: "0 0 0 14px rgba(192,132,252,0)" }], { duration: 900, iterations: 2 });
+  return anunciar(`Pase · Nivel ${nivel}`, recompensa || "¡Sigue así, campeón!", "anuncio-pase");
+}
+
+/**
+ * Racha de días (recompensa diaria): una llama por día, encendidas hasta `dias`; la de hoy prende con animación.
+ * Con `contenedorEl` la pinta dentro (p. ej. en #diario); con null la muestra como celebración breve a pantalla completa.
+ * @param {HTMLElement|null} contenedorEl
+ * @param {number} dias racha actual (0..max)
+ * @param {{max?:number, animar?:boolean, premios?:Record<number,string>}} [o] premios: texto bajo cada día (p. ej. {7:"🎁"})
+ * @returns {Promise<HTMLElement>} el widget creado
+ */
+export function mostrarRachaDias(contenedorEl, dias, { max = 7, animar = true, premios = { 7: "🎁" } } = {}) {
+  const d = Math.max(0, Math.min(max, Number(dias) || 0));
+  const w = el("div", "racha-dias");
+  w.setAttribute("role", "img");
+  w.setAttribute("aria-label", `Racha de ${d} día${d === 1 ? "" : "s"} de ${max}`);
+  for (let i = 1; i <= max; i++) {
+    const dia = el("div", `rd-dia${i <= d ? " encendido" : ""}${i === d ? " rd-hoy" : ""}${i === max ? " rd-final" : ""}`, spriteLlama(i <= d));
+    dia.append(txt("span", "rd-num", premios[i] ?? `D${i}`));
+    w.append(dia);
+  }
+  const red = reducido();
+  const hoy = w.querySelector(".rd-hoy");
+  const prender = () => {
+    if (!hoy || !animar || red) return;
+    hoy.animate([{ transform: "scale(.2)", filter: "brightness(3)" }, { transform: "scale(1.35)", filter: "brightness(1.6)", offset: 0.6 }, { transform: "none", filter: "none" }], { duration: 700, easing: "cubic-bezier(.2,.9,.3,1.3)" });
+    const r = hoy.getBoundingClientRect();
+    capaGlobal().emitir(r.left + r.width / 2, r.top + r.height / 2, { n: 26, colores: ["#fde047", "#fb923c", "#ef4444"], vel: [30, 140], ang: [-Math.PI, 0], g: -60, vida: [0.4, 0.9], tam: [1.5, 3] });
+  };
+  if (contenedorEl) {
+    contenedorEl.replaceChildren(w);
+    requestAnimationFrame(prender);
+    return esperar(red ? 0 : 700).then(() => w);
+  }
+  sonar("racha");
+  const ov = el("div", "racha-overlay");
+  ov.setAttribute("role", "status");
+  ov.append(txt("div", "racha-titulo", `🔥 ¡Racha de ${d} día${d === 1 ? "" : "s"}!`), w);
+  document.body.append(ov);
+  ov.animate([{ opacity: 0, transform: "translate(-50%, -50%) scale(.7)" }, { opacity: 1, transform: "translate(-50%, -50%) scale(1)" }], { duration: red ? 1 : 350, easing: "cubic-bezier(.2,.9,.3,1.2)", fill: "forwards" });
+  setTimeout(prender, red ? 0 : 300);
+  return esperar(red ? 1500 : 2800).then(async () => {
+    await ov.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, fill: "forwards" }).finished.catch(() => {});
+    ov.remove();
+    return w;
+  });
+}
+
+/**
+ * Indicador «jefe en N» de la arena (#jefe-en). null/undefined lo oculta; 0 = «¡Jefe ahora!».
+ * @param {number|null} n combates que faltan para el jefe
+ */
+export function actualizarJefeEn(n) {
+  const c = document.getElementById("jefe-en");
+  if (!c) return;
+  c.hidden = n == null;
+  if (n == null) return;
+  c.textContent = n <= 0 ? "👑 ¡Jefe ahora!" : `👑 Jefe en ${n}`;
+  c.classList.toggle("jefe-ya", n <= 0);
 }

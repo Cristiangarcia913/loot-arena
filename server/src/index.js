@@ -5,8 +5,11 @@ import { dirname, resolve } from 'node:path';
 import dotenv from 'dotenv';
 import { JsonRpcProvider, Network, Wallet, Contract, FetchRequest, formatEther } from 'ethers';
 import { cargarConfig } from './config.js';
-import { cargarAbi, crearMinter, RUTA_ABI } from './chain.js';
+import { cargarAbi, crearMinter, crearEmisor, nonceDeFirmante, RUTA_ABI } from './chain.js';
 import { crearApp } from './app.js';
+import { ABI_RECOMPENSAS } from './abis.js';
+import { IndexadorRanking } from './ranking.js';
+import { INICIO_TEMPORADAS } from './recompensa.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(here, '../.env') }); // las variables del entorno real tienen prioridad
@@ -33,7 +36,7 @@ async function detectarChainId(rpcUrl, timeoutMs = 8000) {
 const ocultarClave = (url) => url.replace(/(\/v\d+\/)[^/?#]+/, '$1***').replace(/(api[_-]?key=)[^&]+/i, '$1***');
 
 async function main() {
-  const { config, errores } = cargarConfig(process.env);
+  const { config, errores, avisos } = cargarConfig(process.env);
   if (errores.length) fatal(...errores, 'Copia server/.env.example a server/.env y rellénalo (o define las variables en Render/Railway).');
 
   let abi;
@@ -67,8 +70,51 @@ async function main() {
   const saldo = await provider.getBalance(wallet.address);
   if (saldo === 0n) console.warn(`⚠ La cuenta ${wallet.address} no tiene ETH: los mints fallarán por falta de gas.`);
 
+  // Una sola cola/nonce para todas las transacciones de esta wallet (mints y recompensas).
+  const emisor = crearEmisor({ obtenerNonce: nonceDeFirmante(wallet) });
+
+  // ── 1.2: ranking y recompensas (opcionales; si faltan variables, 503 en esos endpoints) ──
+  for (const a of avisos) console.warn(`⚠ ${a}`);
+  const faltan = (...claves) => claves.filter((k) => config[k] === null)
+    .map((k) => ({ mercadoAddress: 'MERCADO_ADDRESS', recompensasAddress: 'RECOMPENSAS_ADDRESS', deployBlock: 'DEPLOY_BLOCK' })[k]);
+
+  let ranking = null;
+  const faltanRanking = faltan('mercadoAddress', 'recompensasAddress', 'deployBlock');
+  if (!faltanRanking.length) {
+    ranking = new IndexadorRanking({
+      provider, gameItem: config.contractAddress, mercado: config.mercadoAddress,
+      recompensas: config.recompensasAddress, deployBlock: config.deployBlock,
+    }).iniciar(60_000);
+  }
+
+  let pagarRecompensa = null;
+  const faltanRecompensa = faltan('recompensasAddress');
+  if (!faltanRecompensa.length) {
+    const recompensas = new Contract(config.recompensasAddress, ABI_RECOMPENSAS, wallet);
+    if ((await provider.getCode(config.recompensasAddress)) === '0x') {
+      console.warn(`⚠ No hay contrato en RECOMPENSAS_ADDRESS (${config.recompensasAddress}): POST /recompensa fallará.`);
+    }
+    try {
+      const operador = await recompensas.operador();
+      if (operador.toLowerCase() !== wallet.address.toLowerCase()) {
+        console.warn(`⚠ La wallet del servidor (${wallet.address}) no es el operador de Recompensas (${operador}).`);
+      }
+    } catch (e) {
+      console.warn(`⚠ No se pudo comprobar Recompensas.operador(): ${e.shortMessage ?? e.message}`);
+    }
+    pagarRecompensa = async (to, cantidad, motivo) => {
+      const { tx } = await emisor((o) => recompensas.recompensar(to, cantidad, motivo, o));
+      return { txHash: tx.hash };
+    };
+  }
+
   const app = crearApp({
-    mint: crearMinter(contract),
+    mint: crearMinter(contract, { emisor }),
+    ranking,
+    rankingNoDisponible: `Ranking no disponible: el servidor no tiene configurado ${faltanRanking.join(', ')}`,
+    pagarRecompensa,
+    recompensaNoDisponible: `Recompensas no disponibles: el servidor no tiene configurado ${faltanRecompensa.join(', ')}`,
+    inicioTemporadas: config.inicioTemporadas ?? INICIO_TEMPORADAS,
     contractAddress: config.contractAddress,
     chainId,
     dropChance: config.dropChance,
@@ -80,9 +126,10 @@ async function main() {
     console.log(`✓ Loot Arena server en http://localhost:${server.address().port}`);
     console.log(`  chainId ${chainId} · contrato ${config.contractAddress}`);
     console.log(`  minter ${wallet.address} (${formatEther(saldo)} ETH) · DROP_CHANCE ${config.dropChance} · CORS ${config.allowedOrigin}`);
+    console.log(`  ranking ${ranking ? `activo desde el bloque ${config.deployBlock}` : 'desactivado'} · recompensas ${pagarRecompensa ? 'activas' : 'desactivadas'}`);
   });
 
-  const cerrar = () => { console.log('Cerrando servidor…'); server.close(() => process.exit(0)); };
+  const cerrar = () => { console.log('Cerrando servidor…'); ranking?.detener(); server.close(() => process.exit(0)); };
   process.on('SIGTERM', cerrar);
   process.on('SIGINT', cerrar);
 }

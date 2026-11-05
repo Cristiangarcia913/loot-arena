@@ -50,7 +50,7 @@ await copiar("GameItem.abi.json", (d) => {
 });
 
 // ABI de la economía (ORO, cosméticos, Mercado): opcionales; la tienda usa un ABI mínimo si faltan.
-for (const nombre of ["LootGold.abi.json", "LootCosmetics.abi.json", "Mercado.abi.json"]) {
+for (const nombre of ["LootGold.abi.json", "LootCosmetics.abi.json", "Mercado.abi.json", "Recompensas.abi.json"]) {
   await copiar(nombre, (d) => {
     const abi = Array.isArray(d) ? d : d?.abi;
     if (!Array.isArray(abi)) throw new Error("no es un array ABI");

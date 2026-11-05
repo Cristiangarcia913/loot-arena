@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Interface } from 'ethers';
-import { cargarAbi, extraerTokenId, crearMinter, mensajeError } from '../src/chain.js';
+import { cargarAbi, extraerTokenId, crearMinter, crearEmisor, mensajeError } from '../src/chain.js';
 import { crearColaSerie } from '../src/queue.js';
 
 const CONTRATO = '0x5FbDB2315678afecb367f032d93F642f64180aa3';
@@ -99,4 +99,25 @@ test('mensajeError traduce códigos de ethers', () => {
   assert.match(mensajeError({ code: 'INSUFFICIENT_FUNDS' }), /ETH/);
   assert.match(mensajeError({ code: 'CALL_EXCEPTION' }), /rechazó/);
   assert.equal(mensajeError(new Error('?')), 'Error interno al acuñar el objeto');
+});
+
+test('crearEmisor compartido: mints y otras tx de la misma wallet van en serie con nonces consecutivos', async () => {
+  const nonces = [];
+  let activos = 0, maxActivos = 0;
+  const tx = (n) => ({ hash: `0x${String(n).padStart(64, '0')}`, async wait() { await new Promise((r) => setTimeout(r, 5)); activos--; return { status: 1, logs: [logItemMinted(BigInt(n))] }; } });
+  const contrato = {
+    target: CONTRATO, interface: iface,
+    async mintItem(...args) { activos++; maxActivos = Math.max(maxActivos, activos); nonces.push(['mint', args[6].nonce]); return tx(args[6].nonce); },
+  };
+  const emisor = crearEmisor({ obtenerNonce: async () => 40 });
+  const mint = crearMinter(contrato, { emisor });
+  const pagar = () => emisor(async (o) => { activos++; maxActivos = Math.max(maxActivos, activos); nonces.push(['pago', o.nonce]); return tx(o.nonce); });
+  const item = { nombre: 'x', tipo: 'Espada', rareza: 0, ataque: 1, defensa: 0 };
+  await Promise.all([mint(JUGADOR, item), pagar(), mint(JUGADOR, item), pagar()]);
+  assert.equal(maxActivos, 1);
+  assert.deepEqual(nonces, [['mint', 40], ['pago', 41], ['mint', 42], ['pago', 43]]);
+});
+
+test('mensajeError admite acción personalizada', () => {
+  assert.equal(mensajeError(new Error('?'), { accion: 'pagar la recompensa' }), 'Error interno al pagar la recompensa');
 });

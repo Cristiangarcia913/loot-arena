@@ -32,6 +32,13 @@ npm start
 | `ALLOWED_ORIGIN` | no (`*`) | Origen de la web para CORS. Admite varios separados por comas. |
 | `DROP_CHANCE` | no (0.6) | Probabilidad de drop por victoria, de 0 a 1. |
 | `TRUST_PROXY` | no (1) | Nº de proxies delante (Render/Railway = 1) para leer la IP real del cliente. En local da igual. |
+| `MERCADO_ADDRESS` | no¹ | Dirección del `Mercado` de la 1.2 (`shared/deployments.json` → `sepolia.mercado`). |
+| `RECOMPENSAS_ADDRESS` | no¹ | Dirección de `Recompensas` (`sepolia.recompensas`). La wallet de `PRIVATE_KEY` debe ser su `operador`. |
+| `DEPLOY_BLOCK` | no¹ | Bloque desde el que se indexa el ranking: el del **despliegue de GameItem** (el más antiguo de los tres). |
+| `TEMPORADA_INICIO` | no | Inicio de la temporada 1 del pase (ISO UTC). Por defecto `2026-11-02T00:00:00Z`. Debe coincidir con `web/js/pase.js`. |
+
+¹ Sin `MERCADO_ADDRESS` + `RECOMPENSAS_ADDRESS` + `DEPLOY_BLOCK`, `GET /ranking*` responde 503; sin `RECOMPENSAS_ADDRESS`,
+`POST /recompensa` responde 503. En ambos casos el servidor arranca (solo avisa con `⚠`) y `/ganar` funciona igual.
 
 Al arrancar, el servidor comprueba, en este orden, y **sale con código 1 y un mensaje claro** si algo falla:
 1. variables presentes y con formato válido;
@@ -85,6 +92,83 @@ La forma de la respuesta no cambia respecto a la 1.0.
 **Límites** (en memoria, una sola instancia): 30 peticiones/hora por IP (se cuenta antes de validar) y
 1 petición cada 10 s por dirección (se cuenta tras validar, también si no hay drop).
 
+### `GET /ranking` (1.2)
+Salón de la fama on-chain: top 20 por categoría, leído de los eventos de los contratos (no se puede falsear).
+```json
+{
+  "actualizado": "2026-11-05T12:00:00.000Z",
+  "bloque": 7012345,
+  "sincronizado": true,
+  "categorias": {
+    "objetos":     [{ "address": "0x7099…79C8", "valor": 42 }, { "address": "0x3C44…93BC", "valor": 17 }],
+    "legendarios": [{ "address": "0x7099…79C8", "valor": 3 }],
+    "oroVentas":   [{ "address": "0x3C44…93BC", "valor": 1250.5 }],
+    "rachaDiaria": [{ "address": "0x3C44…93BC", "valor": 7 }]
+  }
+}
+```
+| Categoría | Evento | Valor |
+|---|---|---|
+| `objetos` | `GameItem.ItemMinted` | nº de objetos acuñados para la dirección |
+| `legendarios` | `GameItem.ItemMinted` con `rareza = 2` | nº de legendarios |
+| `oroVentas` | `Mercado.ItemVendido` | ORO ganado vendiendo, en ORO (número; ya dividido entre 10¹⁸) |
+| `rachaDiaria` | `Recompensas.DiarioReclamado` | mayor `racha` alcanzada |
+
+- Solo aparecen direcciones con valor > 0. Empates: dirección ascendente. `address` va en checksum.
+- `actualizado`: hora del último refresco correcto. `bloque`: último bloque indexado.
+  `sincronizado: false` = aún recorriendo el historial (se sirve lo que hay).
+- `Cache-Control: public, max-age=30`. Límite: 60 peticiones/min por IP.
+- 503 `{ "error": "Ranking no disponible: el servidor no tiene configurado DEPLOY_BLOCK" }` si faltan variables;
+  503 `{ "error": "El ranking se está generando, vuelve en unos segundos" }` + `Retry-After: 30` hasta el primer refresco.
+
+### `GET /ranking/:address` (1.2)
+```json
+{
+  "address": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+  "actualizado": "2026-11-05T12:00:00.000Z", "bloque": 7012345, "sincronizado": true,
+  "posiciones": {
+    "objetos":     { "posicion": 2,    "valor": 17,     "participantes": 58 },
+    "legendarios": { "posicion": null, "valor": 0,      "participantes": 9 },
+    "oroVentas":   { "posicion": 1,    "valor": 1250.5, "participantes": 12 },
+    "rachaDiaria": { "posicion": 1,    "valor": 7,      "participantes": 20 }
+  }
+}
+```
+`posicion` empieza en 1 y es `null` si la dirección no puntúa en esa categoría (fuera del top 20 también tiene posición).
+400 `{ "error": "Dirección inválida" }`; 503 como `/ranking`.
+
+### `POST /recompensa` (1.2)
+Body: `{ "address": "0x...", "motivo": "pase10" }`.
+
+| `motivo` | ORO | Una vez por |
+|---|---|---|
+| `pase10` | 100 | temporada (4 semanas desde `TEMPORADA_INICIO`) |
+| `pase20` | 200 | temporada |
+| `pase30` | 400 | temporada |
+| `misiones_diarias` | 25 | día UTC |
+
+| Código | Cuerpo |
+|---|---|
+| 200 | `{ "ok": true, "motivo": "pase10", "periodo": "T1", "oro": 100, "txHash": "0x..." }` (`periodo` = `"T<n>"` o `"YYYY-MM-DD"`) |
+| 400 | `{ "error": "Dirección inválida" }` · `{ "error": "motivo debe ser uno de: pase10, pase20, pase30, misiones_diarias" }` |
+| 409 | `{ "error": "Ya has reclamado esta recompensa", "motivo": "pase10", "periodo": "T1" }` · `{ "error": "Has alcanzado el tope diario de ORO de recompensas; vuelve mañana" }` · `{ "error": "Se ha agotado el ORO de recompensas de hoy para todos; vuelve mañana" }` |
+| 429 | `{ "error": "Demasiadas peticiones, espera N s" }` · `{ "error": "Has alcanzado el límite de recompensas de hoy" }` |
+| 500 | `{ "error": "..." }` (sin gas, red caída, el servidor no es operador…) |
+| 503 | `{ "error": "Recompensas no disponibles: el servidor no tiene configurado RECOMPENSAS_ADDRESS" }` |
+
+- La respuesta llega con la tx minada (~12-15 s en Sepolia).
+- Llama a `Recompensas.recompensar(jugador, cantidad·10¹⁸, "<motivo>@<periodo>")`, p. ej. `"pase10@T1"` o
+  `"misiones_diarias@2026-11-05"`. Como el periodo va en el motivo on-chain, tras un reinicio el indexador
+  reconstruye lo ya pagado desde los eventos `Recompensado` y no se paga dos veces (si el ranking está activo).
+- Límites en memoria: 1 reclamo por motivo y periodo, máx. 4 reclamos por dirección y día, 1 petición cada 10 s
+  por dirección, 20 por hora por IP. Si la tx falla, la reserva se libera y se puede reintentar.
+- Topes on-chain (`Recompensas`): 500 ORO por jugador y día y 5000 en total por día (por defecto). Ojo: `pase30` + `pase20`
+  el mismo día (600) supera el tope por jugador: el segundo da 409 y se puede reclamar al día siguiente.
+
+> **Confianza en el cliente (testnet).** El servidor no puede comprobar que el jugador haya llegado al nivel 10 del pase
+> o completado sus misiones (eso vive en el `localStorage` de la web): solo limita cuánto y cuántas veces paga.
+> Lo que acota el daño son los topes on-chain. Para mainnet haría falta mover el progreso al servidor o a la cadena.
+
 ## Cómo funciona
 
 ```
@@ -92,7 +176,10 @@ src/
   index.js      arranque: .env, comprobaciones de red/contrato, listen
   app.js        Express: rutas, validación, límites (dependencias inyectadas)
   loot.js       lógica PURA de drops (RNG inyectable)
-  chain.js      ABI, extracción del tokenId del evento ItemMinted, minter con cola
+  ranking.js    indexador de eventos on-chain para GET /ranking (1.2)
+  recompensa.js motivos, cantidades, periodos y registro de reclamos de POST /recompensa (1.2)
+  abis.js       ABIs mínimos human-readable de GameItem, Mercado y Recompensas (1.2)
+  chain.js      ABI, extracción del tokenId del evento ItemMinted, emisor de tx con cola y nonce, minter
   queue.js      cola en serie
   rateLimit.js  limitador de ventana deslizante con reloj inyectable
   config.js     lectura y validación de variables
@@ -150,7 +237,27 @@ La secundaria es el 10–40 % de la principal, redondeado (puede salir 0 en Comu
 El servidor no repite el mismo nombre legendario dos veces seguidas (si sale igual que el último, cambia el nombre propio).
 La base pertenece siempre al tipo del NFT (una *Cimitarra* es `tipo: "Espada"`), así que la web debe usar `tipo`, no el nombre, para iconos y slots.
 
+### Ranking (`ranking.js`)
+
+`IndexadorRanking` lee con `getLogs` los eventos `ItemMinted` (GameItem), `ItemVendido` (Mercado),
+`DiarioReclamado` y `Recompensado` (Recompensas) desde `DEPLOY_BLOCK`, en una sola consulta por tramo
+(las tres direcciones y los cuatro topics juntos). Arranca con el servidor y se refresca cada 60 s de forma
+incremental; todo vive en memoria y tras un reinicio se reconstruye desde `DEPLOY_BLOCK`.
+
+Tolerancia a RPC públicos (publicnode a veces va desfasado o limita rangos):
+- Tramos de 10 000 bloques; si `getLogs` falla, el tramo se parte por la mitad (mín. 50) y se reintenta.
+  Tras 8 fallos seguidos se deja para el siguiente refresco **sin perder lo ya indexado**. Máx. 100 tramos por refresco.
+- Solo se indexa hasta `cabeza − 3` bloques. Si el nodo devuelve una cabeza **por detrás** de lo indexado, se ignora.
+- Cada refresco vuelve a leer los últimos 50 bloques: los logs que un nodo desfasado no devolvió aparecen después.
+  Los repetidos se descartan por `(txHash, índice)`.
+- Se ignoran logs `removed`, de otras direcciones o que no se pueden decodificar.
+
+Los ABIs son mínimos (`abis.js`). Los tests comparan cada firma (incluidos los `indexed`) con
+`shared/Mercado.abi.json` y `shared/Recompensas.abi.json`.
+
 ### Mints y ABI
+
+Todas las tx de la wallet del servidor (mints y recompensas) pasan por **un único emisor** (`crearEmisor`): misma cola y mismo nonce local.
 
 **Mints en serie**: todos los `mintItem` pasan por una cola (envío + espera del recibo), y el nonce se lleva
 en memoria: se pide al nodo con `eth_getTransactionCount(pending)` la primera vez y después de cualquier error,
@@ -169,7 +276,10 @@ npm test
 Sin red: distribución de rarezas por nivel y jefe en 100k tiradas (±1 pp), drop garantizado de jefes, pity
 (umbral, escalado, reinicio, memoria acotada, racha máxima de 20), rangos de stats por nivel (todos los valores alcanzables),
 nombres (vocabulario mínimo, concordancia, ≤ 60 caracteres en el peor caso, sin legendario repetido),
-validación de dirección, `enemyLevel` y `jefe`, respuestas 200/400/429/500 con un minter simulado y reloj falso,
+validación de dirección, `enemyLevel` y `jefe`, indexador del ranking con un provider simulado (tramos, rango rechazado,
+errores transitorios, nodo desfasado, solape sin duplicados, margen, logs inválidos), recompensas (cantidades, periodos,
+reclamo único, límites, reintento tras fallo, errores del contrato), 503 sin variables con `/ganar` intacto,
+emisor compartido de tx, comparación de los ABIs mínimos con los de `shared/`, respuestas 200/400/429/500 con un minter simulado y reloj falso,
 extracción del `tokenId` de un log `ItemMinted` codificado de verdad, serialización y nonce del minter, y configuración.
 
 ## Despliegue

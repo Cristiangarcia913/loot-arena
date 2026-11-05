@@ -2,15 +2,19 @@
   "localhost": {
     "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     "chainId": 31337,
-    "oro": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "oro": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
     "cosmeticos": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-    "mercado": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
+    "mercado": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
+    "recompensas": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
+    "bloqueDespliegue": 8
   },
   "sepolia": {
     "address": "0x32B89E29fACa1b1418B5802b6a2C7de71f3AdA2f",
     "chainId": 11155111,
-    "oro": "0x9cAF63A74f3E98179102e5438181aCee67Fe49eB",
+    "oro": "0xb95150f40e6e9C5095558cC01A1b9CfffA89e166",
     "cosmeticos": "0xfe09222b51A2b91F54d42e7bE4ca1E84591F9604",
-    "mercado": "0xbA659cC7AF1dDCC53Af847Aa9639bdbAC2BAa15E"
+    "mercado": "0xC02683814b25c4a99998aD359D336b4A15F83E2f",
+    "recompensas": "0x67436408fe590dA830E783dc20345CccBCDbEE56",
+    "bloqueDespliegue": 12072405
   }
 }

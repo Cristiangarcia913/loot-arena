@@ -431,6 +431,33 @@ export function spriteCofre() {
     </g>`, "sp-cofre", "0 0 140 120");
 }
 
+/**
+ * Medalla de logro (viewBox 0 0 100 120): cinta, disco con borde por rareza y el icono (emoji) en el centro.
+ * @param {string} icono emoji @param {number} [rareza=2] 0 bronce/plata, 1 azul, 2 oro
+ */
+export function spriteMedalla(icono = "🏅", rareza = 2) {
+  const g = uid("m");
+  const [a, b, c] = rareza >= 2 ? ["#fff1b8", "#f59e0b", "#92400e"] : rareza === 1 ? ["#dbeafe", "#60a5fa", "#1e3a8a"] : ["#f1f5f9", "#a8b0bb", "#4b5563"];
+  const em = String(icono).replace(/[<>&"]/g, "");
+  return svg(`<defs>${grad(`${g}d`, a, c)}${radial(`${g}b`, "#fff", b, .9)}</defs>
+    <path d="M30 0 H46 L56 40 H40 Z" fill="#b91c1c"/><path d="M70 0 H54 L44 40 H60 Z" fill="#dc2626"/>
+    <circle cx="50" cy="72" r="40" fill="url(#${g}d)" stroke="${c}" stroke-width="3"/>
+    <circle cx="50" cy="72" r="31" fill="url(#${g}b)" opacity=".35"/>
+    <circle cx="50" cy="72" r="31" fill="none" stroke="${a}" stroke-width="2" stroke-dasharray="3 4"/>
+    <text x="50" y="86" font-size="38" text-anchor="middle">${em}</text>`, "sp-medalla", "0 0 100 120");
+}
+
+/** Llama de racha diaria (viewBox 0 0 40 52). `encendida` false = apagada (gris). */
+export function spriteLlama(encendida = true) {
+  const g = uid("l");
+  if (!encendida) {
+    return svg(`<path d="M20 4 Q30 18 30 30 Q30 46 20 48 Q10 46 10 30 Q10 18 20 4Z" fill="#3b2d21" stroke="#5b4530" stroke-width="1.5" stroke-dasharray="3 3"/>`, "sp-llama apagada", "0 0 40 52");
+  }
+  return svg(`<defs>${grad(`${g}a`, "#fde047", "#dc2626")}</defs>
+    <path class="llama-ext" d="M20 2 Q34 16 33 31 Q32 48 20 50 Q8 48 7 31 Q7 22 13 15 Q13 24 18 26 Q14 14 20 2Z" fill="url(#${g}a)"/>
+    <path d="M20 20 Q27 29 26 37 Q25 46 20 46 Q15 46 14 38 Q14 31 20 20Z" fill="#fff7ad"/>`, "sp-llama", "0 0 40 52");
+}
+
 // ───────────────────────── Iconos ─────────────────────────
 
 const ICONOS_ESTADO = {
