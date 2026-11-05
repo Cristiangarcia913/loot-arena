@@ -23,9 +23,10 @@ jobs:
         include:
           - os: windows-latest
             nombre: LootArena-Windows.zip
-          # Etiqueta concreta en vez de macos-latest: en v1.1.0 el job de
-          # macos-latest no llegó a conseguir runner (capacidad de macOS arm64).
-          - os: macos-14
+          # macos-latest (arm64) no consiguió runner en v1.1.0 por falta de
+          # capacidad y macos-14 ya no está soportado. El runner Intel tiene su
+          # propia cola; el binario x64 funciona en Apple Silicon con Rosetta 2.
+          - os: macos-15-intel
             nombre: LootArena-macOS.zip
           - os: ubuntu-latest
             nombre: LootArena-Linux.zip
