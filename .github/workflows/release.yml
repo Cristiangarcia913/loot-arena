@@ -17,15 +17,20 @@ permissions:
 jobs:
   ejecutables:
     strategy:
+      # Si un sistema falla o se cancela, los demás siguen y se publican igual.
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
             nombre: LootArena-Windows.zip
-          - os: macos-latest
+          # Etiqueta concreta en vez de macos-latest: en v1.1.0 el job de
+          # macos-latest no llegó a conseguir runner (capacidad de macOS arm64).
+          - os: macos-14
             nombre: LootArena-macOS.zip
           - os: ubuntu-latest
             nombre: LootArena-Linux.zip
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -68,7 +73,11 @@ jobs:
 
   release:
     needs: [ejecutables, html5]
+    # Publica aunque falle o se cancele algún sistema: sube los zip que haya.
+    # Al relanzar el workflow, `gh release upload --clobber` añade los que falten.
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -80,7 +89,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          ls -la paquetes
+          ls -la paquetes || true
+          if ! ls paquetes/*.zip >/dev/null 2>&1; then
+            echo "::error::No hay ningún paquete que publicar"
+            exit 1
+          fi
+          for f in LootArena-Windows.zip LootArena-macOS.zip LootArena-Linux.zip LootArena-HTML5.zip; do
+            [ -f "paquetes/$f" ] || echo "::warning::Falta $f (su job falló o se canceló); se publica el resto"
+          done
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" paquetes/* --clobber
           else
