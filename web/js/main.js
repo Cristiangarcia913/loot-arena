@@ -523,6 +523,8 @@ async function iniciar() {
     return;
   }
   S.links = enlacesExplorador(S.cfg.net, S.cfg.address);
+  // Despierta el servidor de botín (Render free se duerme) mientras el jugador combate.
+  fetch(`${S.cfg.serverUrl}/health`, { cache: "no-store" }).catch(() => {});
 
   renderCabecera();
   renderHeroe();

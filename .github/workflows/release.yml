@@ -1,0 +1,88 @@
+name: Publicar versión descargable
+
+# Al subir una etiqueta vX.Y.Z se compilan los ejecutables (Windows, macOS, Linux)
+# y el zip HTML5 (para itch.io / Game Jolt) y se adjuntan a una Release de GitHub.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Etiqueta existente (p. ej. v1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  ejecutables:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            nombre: LootArena-Windows.zip
+          - os: macos-latest
+            nombre: LootArena-macOS.zip
+          - os: ubuntu-latest
+            nombre: LootArena-Linux.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Sincronizar ABI y direcciones
+        run: node web/sync-config.mjs
+      - name: Compilar ejecutable
+        run: node launcher/build.mjs
+      - name: Empaquetar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item launcher/LEEME.txt dist/
+          Compress-Archive -Path dist/LootArena.exe, dist/LEEME.txt -DestinationPath ${{ matrix.nombre }}
+      - name: Empaquetar (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: |
+          cp launcher/LEEME.txt dist/
+          cd dist && zip -9 ../${{ matrix.nombre }} LootArena LEEME.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.nombre }}
+          path: ${{ matrix.nombre }}
+
+  html5:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node web/sync-config.mjs
+      - name: Zip HTML5 (index.html en la raíz del zip)
+        run: cd web && zip -9 -r ../LootArena-HTML5.zip . -x "test/*" "package*.json" "sync-config.mjs" "README.md"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LootArena-HTML5.zip
+          path: LootArena-HTML5.zip
+
+  release:
+    needs: [ejecutables, html5]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: paquetes
+          merge-multiple: true
+      - name: Crear o actualizar la Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          ls -la paquetes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" paquetes/* --clobber
+          else
+            gh release create "$TAG" paquetes/* --title "Loot Arena $TAG" --notes-file launcher/NOTAS_RELEASE.md
+          fi

@@ -1,0 +1,19 @@
+name: Mantener despierto el servidor de botín
+
+# Render (plan gratuito) duerme el servicio tras ~15 min sin tráfico.
+# Este workflow lo visita cada 10 minutos para que el primer botín sea instantáneo.
+# 1 servicio 24/7 ≈ 730 h/mes, dentro de las 750 h gratuitas de Render.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: GET /health
+        run: curl -fsS --retry 3 --retry-delay 20 --max-time 90 https://loot-arena-cg913.onrender.com/health

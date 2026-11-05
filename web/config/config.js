@@ -2,8 +2,10 @@
 // Edita SERVER_URL y NETWORK antes de publicar.
 
 /** URL del servidor de botín (Persona B). Sin barra final. */
-const ES_LOCAL = ["localhost", "127.0.0.1"].includes(globalThis.location?.hostname);
-export const SERVER_URL = ES_LOCAL ? "http://localhost:3000" : "https://loot-arena-cg913.onrender.com";
+// Por defecto, el servidor público de Render (web publicada y versión descargable).
+// Con ?red=localhost (desarrollo con nodo Hardhat) se usa el servidor local.
+const RED_URL = (() => { try { return new URLSearchParams(globalThis.location?.search ?? "").get("red"); } catch { return null; } })();
+export const SERVER_URL = RED_URL === "localhost" ? "http://localhost:3000" : "https://loot-arena-cg913.onrender.com";
 
 /** Red esperada: "sepolia" | "localhost". Se puede forzar con ?red=localhost en la URL. */
 export const NETWORK = "sepolia";

@@ -24,7 +24,7 @@ services:
       - key: CONTRACT_ADDRESS
         value: "0x32B89E29fACa1b1418B5802b6a2C7de71f3AdA2f"
       - key: ALLOWED_ORIGIN
-        value: https://cristiangarcia913.github.io
+        value: "https://cristiangarcia913.github.io,http://localhost:7777,http://localhost:7778,http://localhost:7779,https://html-classic.itch.zone"
       - key: DROP_CHANCE
         value: "0.6"
       - key: TRUST_PROXY

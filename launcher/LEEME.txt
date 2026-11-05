@@ -1,0 +1,21 @@
+LOOT ARENA
+==========
+
+Mini-RPG de combate por turnos. Cada objeto que ganas es un NFT en la red de pruebas Sepolia.
+
+CÓMO JUGAR
+1. Ejecuta LootArena (en Windows: doble clic en LootArena.exe).
+   Se abrirá el juego en tu navegador (http://localhost:7777).
+   Deja abierta la ventana negra mientras juegas; ciérrala para salir.
+2. Para conseguir objetos instala MetaMask en el navegador (https://metamask.io)
+   y conecta tu wallet en la red Sepolia. Sin MetaMask puedes jugar en modo demo.
+
+AVISOS
+- Windows puede mostrar "Windows protegió su PC" porque el ejecutable no está firmado:
+  pulsa "Más información" -> "Ejecutar de todas formas".
+- macOS: si dice que no se puede abrir, haz clic derecho -> Abrir -> Abrir.
+  En Linux: chmod +x LootArena && ./LootArena
+- El ETH de Sepolia no tiene valor real. Nunca uses aquí una wallet con dinero de verdad.
+
+También puedes jugar sin descargar nada: https://cristiangarcia913.github.io/loot-arena/
+Código: https://github.com/Cristiangarcia913/loot-arena
