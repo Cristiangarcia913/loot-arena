@@ -1,6 +1,8 @@
 # ⚔️ Loot Arena
 
-Mini-RPG de combate por turnos en el navegador. Cada objeto de equipo que consigues es un **NFT ERC-721 en la red de pruebas Sepolia** y pertenece a tu wallet, no al juego.
+Mini-RPG de combate por turnos en el navegador. Cada objeto de equipo que consigues es un **NFT ERC-721 en la red de pruebas Sepolia** y pertenece a tu wallet, no al juego. Véndelo por **ORO** (y algo de ETH de Sepolia) y gasta el ORO en **cosméticos** para personalizar a tu héroe.
+
+**Novedades 1.1:** arena animada con sprites propios, efectos y sonido; habilidades, críticos, estados y jefes con dos fases; niveles de héroe y rachas; botín con nombres épicos; mercado on-chain con venta, tienda, cofres y vestuario.
 
 | | |
 |---|---|
@@ -57,7 +59,7 @@ node launcher/jugar.cjs        # sin empaquetar
 node launcher/build.mjs        # genera dist/LootArena(.exe)
 ```
 
-Tests: contrato 12 ✔ · servidor 34 ✔ · web 30 ✔.
+Tests: contratos 48 ✔ · servidor 64 ✔ · web 72 ✔.
 
 ## Seguridad
 

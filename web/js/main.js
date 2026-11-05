@@ -1,14 +1,17 @@
-// Orquestación de la UI de Loot Arena.
+// Orquestación de Loot Arena 1.1: wallet, combate (combat/skills/progression), efectos (fx),
+// botín del servidor, inventario NFT y economía (tienda/venta/vestuario).
 import { cargarConfig, ZERO_ADDRESS } from "../config/config.js";
 import * as C from "./combat.js";
 import * as E from "./equipment.js";
+import * as P from "./progression.js";
+import * as Sk from "./skills.js";
 import * as W from "./wallet.js";
+import * as FX from "./fx.js";
+import * as T from "./tienda.js";
 import { reclamarBotin } from "./api.js";
 import { crearContrato, hayCodigo, leerInventario, transferir, enlacesExplorador } from "./chain.js";
-import { $, h, enlace, acortar, toast, flotar, esperar } from "./ui.js";
+import { $, h, enlace, acortar, toast, esperar } from "./ui.js";
 import { leer, guardar } from "./storage.js";
-
-const CLAVE_VICTORIAS = "lootarena:victorias";
 
 const S = {
   cfg: null,
@@ -20,10 +23,11 @@ const S = {
   chainId: null,
   inventario: [],
   equipo: {},
+  progreso: P.progresoNuevo(),
   combate: null,
   animando: false,
-  victorias: Number(leer(CLAVE_VICTORIAS)) || 0,
-  botinPendiente: null, // nivel del enemigo vencido aún sin reclamar
+  // Expedición: serie de combates hasta caer o huir. Las pociones normales no se recargan entre combates.
+  expedicion: null, // { pociones, pocionesExtra, extraGastadas }
   reclamando: false,
   transfiriendo: new Set(),
   links: { tx: () => null, token: () => null },
@@ -31,6 +35,8 @@ const S = {
 
 const redCorrecta = () => S.chainId != null && S.chainId === S.cfg?.chainId;
 const contratoDesplegado = () => S.cfg && S.cfg.address.toLowerCase() !== ZERO_ADDRESS;
+const quienFx = (actor) => (actor === "jugador" ? "heroe" : "enemigo");
+const enCurso = () => S.combate?.fase === "en_curso";
 
 // ───────────────────────── Banner y cabecera ─────────────────────────
 
@@ -75,7 +81,7 @@ function renderCabecera() {
     banner([
       "No se ha detectado MetaMask. Puedes jugar en ",
       h("strong", {}, "modo demo"),
-      ", pero para recibir y gestionar objetos NFT necesitas ",
+      ", pero para recibir objetos NFT, venderlos por ORO y personalizar a tu héroe necesitas ",
       enlace("https://metamask.io/download/", "instalar MetaMask"),
       ".",
     ], "info");
@@ -119,7 +125,6 @@ async function conectar() {
 async function asegurarRed() {
   try {
     await W.cambiarRed(S.cfg.net);
-    // chainChanged actualizará el estado; por si el evento no llega:
     await alCambiarRed(await W.chainIdActual());
   } catch (e) {
     toast(`No se pudo cambiar de red: ${W.mensajeError(e)}`, "error");
@@ -128,13 +133,19 @@ async function asegurarRed() {
 
 async function alCambiarCuentas(cuentas) {
   const nueva = cuentas?.[0] ?? null;
+  const cambio = nueva?.toLowerCase() !== S.cuenta?.toLowerCase();
   S.cuenta = nueva;
   S.chainId = nueva ? await W.chainIdActual() : null;
+  if (cambio) {
+    cargarProgreso();
+    if (!enCurso()) S.expedicion = null;
+  }
   await prepararContrato();
   cargarEquipo();
   renderCabecera();
   renderHeroe();
   await cargarInventario();
+  await montarEconomia();
   if (!nueva) toast("Wallet desconectada.", "info");
 }
 
@@ -144,6 +155,7 @@ async function alCambiarRed(chainIdHexONum) {
   cargarEquipo();
   renderCabecera();
   await cargarInventario();
+  await montarEconomia();
 }
 
 /** (Re)crea provider y contrato. ethers v6 exige un BrowserProvider nuevo tras cambiar de red. */
@@ -160,6 +172,57 @@ async function prepararContrato() {
   }
 }
 
+// ───────────────────────── Progreso del héroe ─────────────────────────
+
+function cargarProgreso() {
+  S.progreso = P.cargarProgreso(P.claveProgreso(S.cuenta));
+}
+
+function guardarProgreso() {
+  P.guardarProgreso(P.claveProgreso(S.cuenta), S.progreso);
+}
+
+function renderProgreso() {
+  const i = P.infoXp(S.progreso);
+  FX.actualizarXP({ xp: i.xp, xpSiguiente: i.max ? i.xp || 1 : i.necesaria, nivel: i.nivel });
+  FX.actualizarRacha(S.progreso.racha);
+  const v = S.progreso.victorias;
+  $("#arena-level").textContent = `Nivel de arena ${C.nivelArena(v)}`;
+  const faltan = P.combatesHastaJefe(v);
+  $("#victorias").textContent = `${v} victoria${v === 1 ? "" : "s"} · ${faltan === 0 ? "👑 ¡jefe!" : `jefe en ${faltan + 1}`}`;
+}
+
+// ───────────────────────── Economía (tienda, venta, vestuario) ─────────────────────────
+
+let montajeEco = 0;
+async function montarEconomia() {
+  const id = ++montajeEco;
+  let signer = null;
+  if (S.provider && S.cuenta && redCorrecta()) {
+    try { signer = await S.provider.getSigner(); } catch { /* sin signer: modo demo */ }
+  }
+  if (id !== montajeEco) return;
+  try {
+    await T.montarTienda({
+      provider: signer ? S.provider : null,
+      signer,
+      cuenta: signer ? S.cuenta : null,
+      cfg: S.cfg,
+      ethers: S.ethers ?? undefined,
+      fx: FX,
+      inventario: inventarioConEquipo(),
+      getEquipados: equipados,
+      onVendido: async () => { await cargarInventario(); },
+      onCambioApariencia: (ap) => FX.actualizarHeroe(equipados(), ap),
+    });
+  } catch (e) {
+    console.warn("[economía]", e);
+  }
+  if (id !== montajeEco) return;
+  FX.actualizarHeroe(equipados(), T.aparienciaGuardada(S.cuenta));
+  renderInventario();
+}
+
 // ───────────────────────── Equipo e inventario ─────────────────────────
 
 function cargarEquipo() {
@@ -170,9 +233,9 @@ function guardarEquipo() {
   if (S.cuenta) guardar(E.claveEquipo(S.cuenta, S.chainId), JSON.stringify(S.equipo));
 }
 
-function statsActuales() {
-  return E.statsJugador(E.itemsEquipados(S.equipo, S.inventario));
-}
+const equipados = () => E.itemsEquipados(S.equipo, S.inventario);
+const inventarioConEquipo = () => S.inventario.map((it) => ({ ...it, equipado: E.estaEquipado(S.equipo, it.tokenId) }));
+const statsHeroe = () => P.statsHeroe(S.progreso, equipados());
 
 let cargaInvId = 0;
 async function cargarInventario() {
@@ -190,25 +253,30 @@ async function cargarInventario() {
   if (motivo) {
     S.inventario = [];
     estado.textContent = motivo;
-    renderInventario();
-    renderHeroe();
+    alCambiarInventario();
     return;
   }
 
   estado.textContent = "Leyendo objetos de la cadena…";
   try {
     const inv = await leerInventario(S.contrato, S.cuenta);
-    if (id !== cargaInvId) return; // llegó una carga más reciente
+    if (id !== cargaInvId) return;
     S.inventario = inv;
     const saneado = E.sanearEquipo(S.equipo, inv);
     if (JSON.stringify(saneado) !== JSON.stringify(S.equipo)) { S.equipo = saneado; guardarEquipo(); }
     estado.textContent = inv.length
-      ? `${inv.length} objeto${inv.length === 1 ? "" : "s"} en tu wallet.`
+      ? `${inv.length} objeto${inv.length === 1 ? "" : "s"} en tu wallet. Véndelos por ORO + ETH o equípalos.`
       : "Aún no tienes objetos. ¡Gana combates para conseguir botín!";
   } catch (e) {
     if (id !== cargaInvId) return;
     estado.textContent = `Error leyendo el inventario: ${W.mensajeError(e)}`;
   }
+  alCambiarInventario();
+}
+
+function alCambiarInventario() {
+  T.actualizarInventario(inventarioConEquipo());
+  FX.actualizarHeroe(equipados());
   renderInventario();
   renderHeroe();
 }
@@ -216,9 +284,8 @@ async function cargarInventario() {
 function alternarEquipo(item) {
   S.equipo = E.estaEquipado(S.equipo, item.tokenId) ? E.desequipar(S.equipo, item.tokenId) : E.equipar(S.equipo, item);
   guardarEquipo();
-  renderInventario();
-  renderHeroe();
-  if (S.combate?.fase === "en_curso") toast("El nuevo equipo se aplicará en el próximo combate.", "info", 3000);
+  alCambiarInventario();
+  if (enCurso()) toast("El nuevo equipo se aplicará en el próximo combate.", "info", 3000);
 }
 
 function tarjetaItem(item, { acciones = true } = {}) {
@@ -228,8 +295,9 @@ function tarjetaItem(item, { acciones = true } = {}) {
   const stats = [];
   if (item.ataque) stats.push(h("span", { class: "st st-atk" }, `+${item.ataque} ATQ`));
   if (item.defensa) stats.push(h("span", { class: "st st-def" }, `+${item.defensa} DEF`));
+  const vender = acciones && !equipado && !enviando ? T.botonVender(item) : null;
 
-  return h("article", { class: `item rar-${r.id}${equipado ? " equipado" : ""}`, style: `--rar:${r.color}` },
+  return h("article", { class: `item rar-${r.id}${equipado ? " equipado" : ""}`, style: `--rar:${r.color}`, "data-token": item.tokenId },
     h("div", { class: "item-top" },
       h("span", { class: "item-emoji", "aria-hidden": "true" }, E.emojiTipo(item.tipo)),
       h("span", { class: "item-id" }, `#${item.tokenId}`),
@@ -241,6 +309,7 @@ function tarjetaItem(item, { acciones = true } = {}) {
     acciones && h("div", { class: "item-acciones" },
       h("button", { class: `btn btn-small ${equipado ? "btn-ghost" : "btn-gold"}`, type: "button", disabled: enviando, onclick: () => alternarEquipo(item) },
         equipado ? "Desequipar" : "Equipar"),
+      vender,
       h("button", { class: "btn btn-small btn-ghost", type: "button", disabled: enviando, onclick: () => abrirTransferencia(item) },
         enviando ? "Enviando…" : "Transferir"),
       enlace(S.links.token(item.tokenId), "Etherscan ↗"),
@@ -249,17 +318,19 @@ function tarjetaItem(item, { acciones = true } = {}) {
 }
 
 function renderInventario() {
-  const cont = $("#inventario");
-  cont.replaceChildren(...E.ordenarInventario(S.inventario, S.equipo).map((it) => tarjetaItem(it)));
+  $("#inventario").replaceChildren(...E.ordenarInventario(S.inventario, S.equipo).map((it) => tarjetaItem(it)));
 }
 
 function renderHeroe() {
-  const s = statsActuales();
+  const s = statsHeroe();
   const bonus = (n) => (n ? h("small", { class: "bonus" }, ` (+${n})`) : null);
+  const pct = (x) => `${Math.round(x * 100)} %`;
   $("#stats").replaceChildren(
-    h("div", { class: "stat" }, h("span", { class: "stat-ico" }, "❤️"), h("span", { class: "stat-lbl" }, "Vida"), h("b", {}, String(s.vida))),
+    h("div", { class: "stat" }, h("span", { class: "stat-ico" }, "❤️"), h("span", { class: "stat-lbl" }, "Vida"), h("b", {}, String(s.vidaMax))),
     h("div", { class: "stat" }, h("span", { class: "stat-ico" }, "⚔️"), h("span", { class: "stat-lbl" }, "Ataque"), h("b", {}, String(s.ataque), bonus(s.bonusAtaque))),
     h("div", { class: "stat" }, h("span", { class: "stat-ico" }, "🛡️"), h("span", { class: "stat-lbl" }, "Defensa"), h("b", {}, String(s.defensa), bonus(s.bonusDefensa))),
+    h("div", { class: "stat" }, h("span", { class: "stat-ico" }, "💥"), h("span", { class: "stat-lbl" }, "Crítico"), h("b", {}, pct(s.critico))),
+    h("div", { class: "stat" }, h("span", { class: "stat-ico" }, "💨"), h("span", { class: "stat-lbl" }, "Esquiva"), h("b", {}, pct(s.esquiva))),
   );
 
   const porId = new Map(S.inventario.map((it) => [it.tokenId, it]));
@@ -273,10 +344,9 @@ function renderHeroe() {
     );
   }));
 
-  const nv = C.nivelArena(S.victorias);
-  $("#arena-level").textContent = `Nivel de arena ${nv}`;
-  $("#victorias").textContent = `${S.victorias} victoria${S.victorias === 1 ? "" : "s"}`;
-  if (!S.combate || S.combate.fase !== "en_curso") renderLuchadores();
+  renderProgreso();
+  if (!enCurso()) renderLuchadores();
+  renderBotones();
 }
 
 // ───────────────────────── Transferencia ─────────────────────────
@@ -322,114 +392,174 @@ async function confirmarTransferencia(ev) {
   }
 }
 
-// ───────────────────────── Combate ─────────────────────────
+// ───────────────────────── Combate: pintado ─────────────────────────
 
-function pintarLuchador(el, { emoji, nombre, vida, vidaMax, ataque, defensa, extra, vacio }) {
+function pintarHud(el, { nombre, extra, vida, vidaMax, stats, vacio }) {
   el.classList.toggle("vacio", !!vacio);
-  el.querySelector(".avatar").textContent = emoji;
   el.querySelector(".f-name").replaceChildren(nombre, extra ?? "");
-  const pct = vidaMax ? Math.max(0, (vida / vidaMax) * 100) : 0;
-  const fill = el.querySelector(".hp-fill");
-  fill.style.width = `${pct}%`;
-  fill.classList.toggle("baja", pct <= 30);
   el.querySelector(".hp").hidden = !!vacio;
-  el.querySelector(".hp-text").textContent = vacio ? "" : `${vida} / ${vidaMax}`;
-  el.querySelector(".f-stats").textContent = vacio ? "Pulsa Explorar para encontrar un rival" : `⚔️ ${ataque} · 🛡️ ${defensa}`;
+  el.querySelector(".f-stats").textContent = stats;
+  if (!vacio) FX.actualizarVida(el.dataset.lado, vida, vidaMax);
 }
 
 function renderLuchadores() {
   const c = S.combate;
-  const j = c?.fase === "en_curso" ? c.jugador : { ...statsActuales(), vidaMax: statsActuales().vida };
-  const jVida = c && c.fase !== "huida" ? c.jugador.vida : j.vida;
-  pintarLuchador($("#f-jugador"), {
-    emoji: c?.fase === "derrota" ? "😵" : "🤺", nombre: "Tu héroe",
-    vida: jVida, vidaMax: c?.jugador.vidaMax ?? j.vidaMax, ataque: j.ataque, defensa: j.defensa,
+  const s = statsHeroe();
+  const j = c && c.fase !== "huida" ? c.jugador : { vida: s.vidaMax, vidaMax: s.vidaMax, ataque: s.ataque, defensa: s.defensa };
+  pintarHud($("#f-jugador"), {
+    nombre: "Tu héroe", extra: h("span", { class: "nv" }, ` Nv. ${P.infoXp(S.progreso).nivel}`),
+    vida: j.vida, vidaMax: j.vidaMax, stats: `⚔️ ${j.ataque} · 🛡️ ${j.defensa}`,
   });
   const en = c?.enemigo;
   const fEn = $("#f-enemigo");
   if (!en || c.fase === "huida") {
-    pintarLuchador(fEn, { emoji: "❔", nombre: "Arena vacía", vacio: true });
+    pintarHud(fEn, { nombre: "Arena vacía", vacio: true, stats: "Pulsa Explorar para encontrar un rival" });
   } else {
-    pintarLuchador(fEn, {
-      emoji: c.fase === "victoria" ? "🪦" : en.emoji, nombre: en.nombre,
-      extra: h("span", { class: "nv" }, ` Nv. ${en.nivel}`),
-      vida: en.vida, vidaMax: en.vidaMax, ataque: en.ataque, defensa: en.defensa,
+    pintarHud(fEn, {
+      nombre: en.nombre,
+      extra: h("span", { class: "nv" }, ` ${en.jefe ? "👑 JEFE · " : ""}Nv. ${en.nivel}`),
+      vida: Math.max(0, en.vida), vidaMax: en.vidaMax, stats: `⚔️ ${en.ataque} · 🛡️ ${en.defensa}${en.rasgo ? ` · ${en.rasgo}` : ""}`,
     });
   }
-  fEn.classList.toggle("cargando", !!en?.cargando && c.fase === "en_curso");
 }
 
 function renderBotones() {
-  const enCurso = S.combate?.fase === "en_curso";
-  $("#btn-explorar").disabled = enCurso || S.animando;
-  $("#btn-atacar").disabled = !enCurso || S.animando;
-  $("#btn-defender").disabled = !enCurso || S.animando;
-  $("#btn-huir").disabled = !enCurso || S.animando;
+  const lucha = enCurso();
+  const libre = lucha && !S.animando;
+  $("#btn-explorar").disabled = lucha || S.animando;
+  $("#btn-atacar").disabled = !libre;
+  $("#btn-defender").disabled = !libre;
+  $("#btn-huir").disabled = !libre;
+
+  const pBtn = $("#btn-pocion");
+  const pociones = lucha ? S.combate.jugador.pociones : (S.expedicion ? S.expedicion.pociones + S.expedicion.pocionesExtra : C.POCIONES_POR_EXPEDICION + T.pocionesExtra());
+  pBtn.textContent = `🧪 Poción ×${pociones}`;
+  pBtn.disabled = !libre || !(lucha && S.combate.jugador.pociones > 0) || S.combate.jugador.vida >= S.combate.jugador.vidaMax;
+
+  const habs = lucha
+    ? Sk.habilidadesDisponibles({ habilidades: S.combate.jugador.habilidades })
+    : Sk.habilidadesDisponibles({ habilidades: statsHeroe().habilidades });
+  $("#skills").replaceChildren(...habs.map((hb) => {
+    const b = h("button", {
+      class: `btn btn-skill${hb.especial ? " legendaria" : ""}`, type: "button",
+      title: `${hb.nombre}: ${hb.descripcion}${hb.restante ? ` (listo en ${hb.restante})` : ""}`,
+      "data-restante": hb.restante || null,
+      style: hb.restante ? `--cd:${(hb.restante / hb.enfriamiento).toFixed(2)}` : null,
+      disabled: !libre || hb.restante > 0,
+      onclick: () => accion({ habilidad: hb.id }),
+    }, `${hb.icono} ${hb.nombre}`);
+    return b;
+  }));
 }
 
 function añadirLog(eventos) {
   const log = $("#log");
   for (const ev of eventos) log.append(h("li", { class: `log-${ev.actor} log-${ev.tipo}` }, ev.texto));
-  while (log.children.length > 60) log.firstChild.remove();
+  while (log.children.length > 80) log.firstChild.remove();
   log.scrollTop = log.scrollHeight;
 }
 
+function aplicarSnapshot(ev, c) {
+  if (ev.vidas) {
+    FX.actualizarVida("heroe", Math.max(0, ev.vidas.jugador), c.jugador.vidaMax);
+    FX.actualizarVida("enemigo", Math.max(0, ev.vidas.enemigo), c.enemigo.vidaMax);
+  }
+  if (ev.estados) {
+    FX.mostrarEstado("heroe", ev.estados.jugador ?? []);
+    FX.mostrarEstado("enemigo", ev.estados.enemigo ?? []);
+  }
+}
+
+/** Anima un evento del motor de combate con la capa de efectos. */
+async function animarEvento(ev, c) {
+  const golpe = ev.dano != null && ev.objetivo && ["ataque", "habilidad", "contraataque", "reflejo", "robo"].includes(ev.tipo);
+  if (golpe && ev.actor !== "sistema" && ev.actor !== ev.objetivo) {
+    await FX.animarAtaque(quienFx(ev.actor), { critico: !!ev.critico, brutal: !!(ev.brutal || ev.definitiva) });
+    await FX.animarGolpe(quienFx(ev.objetivo), ev.dano, { critico: !!ev.critico, bloqueado: !!ev.bloqueado, esquivado: !!ev.esquivado });
+  } else if (ev.dano != null && ev.objetivo) {
+    await FX.animarGolpe(quienFx(ev.objetivo), ev.dano, { critico: !!ev.critico, bloqueado: !!ev.bloqueado, esquivado: !!ev.esquivado });
+  }
+  if (ev.curacion) FX.animarCuracion(quienFx(ev.objetivo ?? ev.actor), ev.curacion);
+  aplicarSnapshot(ev, c);
+  añadirLog([ev]);
+  if (ev.tipo === "fase") FX.anunciar("¡FASE 2!", c.enemigo.nombre, "anuncio-jefe");
+  if (ev.tipo === "victoria") FX.animarMuerte("enemigo");
+  if (ev.tipo === "derrota") FX.animarMuerte("heroe");
+  if (!golpe && ev.dano == null && !ev.curacion) await esperar(FX.reducido() ? 80 : 260);
+}
+
+// ───────────────────────── Combate: flujo ─────────────────────────
+
+function nuevaExpedicion() {
+  S.expedicion = { pociones: C.POCIONES_POR_EXPEDICION, pocionesExtra: T.pocionesExtra(), extraGastadas: 0 };
+}
+
+async function terminarExpedicion() {
+  const n = S.expedicion?.extraGastadas ?? 0;
+  S.expedicion = null;
+  if (n > 0) {
+    toast(`Usaste ${n} poción(es) extra de la tienda: confirma en MetaMask para gastarlas.`, "info", 7000);
+    await T.gastarPociones(n);
+  }
+}
+
 function explorar() {
-  const nivel = C.nivelEnemigo(C.nivelArena(S.victorias));
-  const enemigo = C.generarEnemigo(nivel);
-  S.combate = C.crearCombate(statsActuales(), enemigo);
-  S.botinPendiente = null;
+  if (enCurso() || S.animando) return;
+  if (!S.expedicion) nuevaExpedicion();
+  const v = S.progreso.victorias;
+  const jefe = C.esCombateDeJefe(v);
+  const nivelA = C.nivelArena(v);
+  // Los dos primeros combates son de nivel 1 para que el jugador nuevo aprenda sin frustrarse.
+  const nivel = jefe || v < 2 ? nivelA : C.nivelEnemigo(nivelA);
+  const enemigo = C.generarEnemigo(nivel, Math.random, { jefe });
+  const heroe = { ...statsHeroe(), pociones: S.expedicion.pociones, pocionesExtra: S.expedicion.pocionesExtra };
+  S.combate = C.crearCombate(heroe, enemigo);
   $("#resultado").hidden = true;
   $("#log").replaceChildren();
   añadirLog(S.combate.log);
+  FX.revivir("heroe");
+  FX.actualizarHeroe(equipados());
+  FX.mostrarEstado("heroe", []);
+  FX.mostrarEnemigo(enemigo);
+  FX.mostrarIntencion(C.intencionEnemigo(S.combate));
   renderLuchadores();
   renderBotones();
 }
 
 async function accion(tipo) {
-  if (S.animando || S.combate?.fase !== "en_curso") return;
+  if (S.animando || !enCurso()) return;
+  const v = C.validarAccion(S.combate, tipo);
+  if (!v.ok) return toast(v.motivo, "info", 2500);
   S.animando = true;
+  FX.mostrarIntencion(null);
   renderBotones();
-  const { combate, eventos } = C.turnoJugador(S.combate, tipo);
-  const fJ = $("#f-jugador");
-  const fE = $("#f-enemigo");
-
-  // Animación: primero el jugador, después la respuesta del enemigo.
-  const prev = S.combate;
-  for (const ev of eventos) {
-    if (ev.actor === "jugador") {
-      S.combate = { ...prev, enemigo: combate.enemigo };
-      if (ev.tipo === "ataque") flotar(fE, `−${ev.dano}`, "dano");
-      else flotar(fJ, "🛡️ ×2", "escudo");
-      renderLuchadores();
-      añadirLog([ev]);
-      await esperar(450);
-    } else if (ev.actor === "enemigo") {
-      S.combate = combate;
-      if (ev.dano) flotar(fJ, `−${ev.dano}`, "dano");
-      else flotar(fE, "⚡", "carga");
-      renderLuchadores();
-      añadirLog([ev]);
-      await esperar(250);
-    } else {
-      añadirLog([ev]);
-    }
+  let res;
+  try {
+    res = C.turnoJugador(S.combate, tipo);
+  } catch (e) {
+    S.animando = false;
+    renderBotones();
+    return toast(e.message, "error");
+  }
+  const { combate, eventos, fin } = res;
+  try {
+    for (const ev of eventos) await animarEvento(ev, combate);
+  } catch (e) {
+    console.warn("[fx]", e);
   }
   S.combate = combate;
   S.animando = false;
   renderLuchadores();
+  FX.mostrarIntencion(C.intencionEnemigo(combate));
   renderBotones();
-
-  if (combate.fase === "victoria") alGanar(combate.enemigo.nivel);
-  else if (combate.fase === "derrota") alPerder();
+  if (fin) await alTerminar(fin);
 }
 
 function huir() {
-  if (S.combate?.fase !== "en_curso") return;
+  if (!enCurso() || S.animando) return;
   S.combate = C.huir(S.combate);
   añadirLog([S.combate.log.at(-1)]);
-  renderLuchadores();
-  renderBotones();
+  alTerminar("huida");
 }
 
 function resultado(...contenido) {
@@ -438,49 +568,68 @@ function resultado(...contenido) {
   r.hidden = false;
 }
 
-function alPerder() {
-  resultado(h("div", { class: "res res-derrota" },
-    h("strong", {}, "☠️ Derrota. "),
-    "Recupérate, mejora tu equipo y vuelve a Explorar."));
-}
+async function alTerminar(fin) {
+  const c = S.combate;
+  const restantes = C.pocionesRestantes(c);
+  if (S.expedicion) {
+    S.expedicion.pociones = restantes.pociones;
+    S.expedicion.pocionesExtra = restantes.pocionesExtra;
+    S.expedicion.extraGastadas += restantes.extraGastadas;
+  }
+  FX.mostrarIntencion(null);
+  renderLuchadores();
+  renderBotones();
+  const resumen = { ...c.resumen, enemigo: c.enemigo.nombre };
 
-function alGanar(nivel) {
-  S.victorias++;
-  guardar(CLAVE_VICTORIAS, String(S.victorias));
-  renderHeroe();
-  S.botinPendiente = nivel;
-  reclamar();
-}
-
-async function reclamar() {
-  const nivel = S.botinPendiente;
-  if (nivel == null || S.reclamando) return;
-
-  if (!S.cuenta) {
-    resultado(h("div", { class: "res res-victoria" },
-      h("strong", {}, "🏆 ¡Victoria! "),
-      W.tieneMetaMask()
-        ? ["Conecta tu wallet para reclamar el botín de este combate. ",
-          h("button", { class: "btn btn-small btn-gold", type: "button", onclick: async () => { if (await conectar()) reclamar(); } }, "🦊 Conectar y reclamar")]
-        : "Modo demo: instala MetaMask para recibir objetos NFT como botín."));
+  if (fin === "victoria") {
+    const nivelAntes = P.infoXp(S.progreso).nivel;
+    const r = P.aplicarVictoria(S.progreso, c.enemigo);
+    S.progreso = r.progreso;
+    guardarProgreso();
+    renderHeroe();
+    if (r.subioNivel) FX.subidaDeNivel(P.infoXp(S.progreso).nivel);
+    else if (P.infoXp(S.progreso).nivel !== nivelAntes) FX.subidaDeNivel(P.infoXp(S.progreso).nivel);
+    // El botín se pide ya (el servidor tarda unos segundos en mintear) mientras se ve el resumen.
+    const botin = pedirBotin(c.enemigo);
+    const eleccion = await FX.mostrarResultado({ tipo: "victoria", ...resumen, xp: r.xp, racha: r.racha });
+    await mostrarBotin(await botin, eleccion);
     return;
   }
 
-  S.reclamando = true;
-  resultado(h("div", { class: "res res-espera" }, h("span", { class: "spinner" }), "🏆 ¡Victoria! Consultando al servidor si cae botín…"));
-  const r = await reclamarBotin(S.cfg.serverUrl, S.cuenta, nivel);
-  S.reclamando = false;
+  if (fin === "derrota") S.progreso = P.aplicarDerrota(S.progreso);
+  else S.progreso = P.aplicarHuida(S.progreso);
+  guardarProgreso();
+  renderHeroe();
+  await terminarExpedicion();
+  renderBotones();
+  const eleccion = await FX.mostrarResultado({ tipo: fin, ...resumen, racha: 0 });
+  if (fin === "derrota") resultado(h("div", { class: "res res-derrota" }, h("strong", {}, "☠️ Derrota. "), "Tu racha se rompe y la expedición termina. Mejora tu equipo, compra pociones en la tienda y vuelve a Explorar."));
+  if (eleccion === "otra") explorar();
+}
 
-  const reintentar = h("button", { class: "btn btn-small btn-gold", type: "button", onclick: reclamar }, "Reintentar");
+/** Pide el botín al servidor. Devuelve {tipo, ...} de api.js o {tipo:"demo"} sin wallet. */
+async function pedirBotin(enemigo) {
+  if (!S.cuenta || !redCorrecta()) return { tipo: "demo" };
+  S.reclamando = true;
+  resultado(h("div", { class: "res res-espera" }, h("span", { class: "spinner" }), enemigo.jefe ? "👑 ¡Jefe derrotado! Forjando su botín en la blockchain…" : "🏆 ¡Victoria! Consultando al servidor si cae botín…"));
+  try {
+    return await reclamarBotin(S.cfg.serverUrl, S.cuenta, enemigo.nivel, { jefe: !!enemigo.jefe });
+  } finally {
+    S.reclamando = false;
+  }
+}
+
+async function mostrarBotin(r, eleccionPrevia) {
+  const enemigo = S.combate?.enemigo;
+  const reintentar = h("button", { class: "btn btn-small btn-gold", type: "button", onclick: async () => mostrarBotin(await pedirBotin(enemigo), "continuar") }, "Reintentar");
+  let eleccion = eleccionPrevia;
   switch (r.tipo) {
     case "drop": {
-      S.botinPendiente = null;
       const urlTx = r.txHash && S.links.tx(r.txHash);
       resultado(h("div", { class: "res res-drop" },
-        h("div", {}, h("strong", {}, "🎁 ¡Botín! "), `Has conseguido un objeto ${E.rareza(r.item.rareza).nombre.toLowerCase()}.`),
-        tarjetaItem(r.item, { acciones: false }),
+        h("div", {}, h("strong", {}, "🎁 ¡Botín! "), `«${r.item.nombre}», ${E.rareza(r.item.rareza).nombre.toLowerCase()}. Ya es tuyo en la blockchain.`),
         urlTx ? h("div", { class: "res-links" }, enlace(urlTx, "Ver transacción de minteo ↗")) : null));
-      toast(`🎁 Nuevo objeto: ${r.item.nombre}`, "ok");
+      eleccion = await FX.revelarBotin(r.item);
       await cargarInventario();
       if (r.txHash && S.provider && !S.inventario.some((it) => it.tokenId === r.tokenId)) {
         try { await S.provider.waitForTransaction(r.txHash, 1, 120_000); } catch { /* seguimos */ }
@@ -489,8 +638,15 @@ async function reclamar() {
       break;
     }
     case "sin_drop":
-      S.botinPendiente = null;
       resultado(h("div", { class: "res res-nada" }, h("strong", {}, "🏆 ¡Victoria! "), "Esta vez el enemigo no llevaba nada de valor. ¡Sigue explorando!"));
+      break;
+    case "demo":
+      resultado(h("div", { class: "res res-victoria" },
+        h("strong", {}, "🏆 ¡Victoria! "),
+        W.tieneMetaMask()
+          ? ["Conecta tu wallet en Sepolia para que los enemigos suelten objetos NFT. ",
+            h("button", { class: "btn btn-small btn-gold", type: "button", onclick: () => conectar() }, "🦊 Conectar")]
+          : ["Modo demo: instala ", enlace("https://metamask.io/download/", "MetaMask"), " para conseguir objetos NFT, venderlos por ORO y personalizar a tu héroe."]));
       break;
     case "limite":
       resultado(h("div", { class: "res res-limite" }, h("strong", {}, "⏳ Calma, guerrero. "), r.mensaje, " ", reintentar));
@@ -498,14 +654,18 @@ async function reclamar() {
     default:
       resultado(h("div", { class: "res res-error" }, h("strong", {}, "❌ No se pudo reclamar el botín. "), r.mensaje, " ", reintentar));
   }
+  if (eleccion === "otra") explorar();
 }
 
 // ───────────────────────── Arranque ─────────────────────────
 
 async function iniciar() {
+  FX.iniciarInterfaz({ auto: false });
+  cargarProgreso();
   $("#btn-explorar").addEventListener("click", explorar);
   $("#btn-atacar").addEventListener("click", () => accion("atacar"));
   $("#btn-defender").addEventListener("click", () => accion("defender"));
+  $("#btn-pocion").addEventListener("click", () => accion("pocion"));
   $("#btn-huir").addEventListener("click", huir);
   $("#btn-refrescar").addEventListener("click", cargarInventario);
   $("#btn-connect").addEventListener("click", () => (S.cuenta && !redCorrecta() ? asegurarRed() : conectar()));
@@ -519,7 +679,6 @@ async function iniciar() {
     banner(`Error cargando la configuración: ${e.message}`, "error");
     $("#net-badge").textContent = "Sin configuración";
     renderHeroe();
-    renderBotones();
     return;
   }
   S.links = enlacesExplorador(S.cfg.net, S.cfg.address);
@@ -528,21 +687,19 @@ async function iniciar() {
 
   renderCabecera();
   renderHeroe();
-  renderBotones();
-  añadirLog([{ actor: "sistema", tipo: "inicio", texto: "Bienvenido a Loot Arena. Pulsa Explorar para buscar un rival." }]);
+  añadirLog([{ actor: "sistema", tipo: "inicio", texto: "Bienvenido a Loot Arena. Pulsa Explorar para buscar un rival. Cada 5.º combate de un nivel aparece un jefe 👑." }]);
 
   if (W.tieneMetaMask()) {
     W.escuchar({ onCuentas: alCambiarCuentas, onRed: alCambiarRed });
     try {
       const cuentas = await W.cuentasAutorizadas();
-      if (cuentas.length) await alCambiarCuentas(cuentas);
-      else await cargarInventario();
+      if (cuentas.length) { await alCambiarCuentas(cuentas); return; }
     } catch (e) {
       toast(W.mensajeError(e), "error");
     }
-  } else {
-    await cargarInventario();
   }
+  await cargarInventario();
+  await montarEconomia();
 }
 
 iniciar();

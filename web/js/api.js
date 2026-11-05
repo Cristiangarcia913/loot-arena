@@ -24,15 +24,15 @@ export function interpretarRespuesta(status, body) {
   return { tipo: "error", mensaje: error ?? `Respuesta inesperada del servidor (HTTP ${status})` };
 }
 
-/** POST {serverUrl}/ganar con {address, enemyLevel}. Nunca lanza: los fallos de red se devuelven como error. */
-export async function reclamarBotin(serverUrl, address, enemyLevel, { fetchImpl = fetch, timeoutMs = 90_000 } = {}) {
+/** POST {serverUrl}/ganar con {address, enemyLevel, jefe}. Nunca lanza: los fallos de red se devuelven como error. */
+export async function reclamarBotin(serverUrl, address, enemyLevel, { fetchImpl = fetch, timeoutMs = 90_000, jefe = false } = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetchImpl(`${serverUrl}/ganar`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address, enemyLevel }),
+      body: JSON.stringify(jefe ? { address, enemyLevel, jefe: true } : { address, enemyLevel }),
       signal: ctrl.signal,
     });
     let body = null;

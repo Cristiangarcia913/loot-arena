@@ -30,6 +30,8 @@ module.exports = {
       url: SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com",
       chainId: 11155111,
       accounts: cuentas(),
+      // El RPC público a veces estima propina ~0 y las tx se quedan atascadas: precio fijo.
+      gasPrice: 10_000_000, // 0,01 gwei: la tarifa base de Sepolia es ínfima
     },
   },
   etherscan: {

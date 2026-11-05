@@ -133,3 +133,68 @@ npx hardhat run scripts/mint-demo.js --network sepolia
 Rareza: `0` Común, `1` Raro, `2` Legendario.
 
 Para leer el `tokenId` minteado desde el servidor, lo más fiable es parsear el evento `ItemMinted` del recibo de la transacción (ver `scripts/mint-demo.js`).
+
+---
+
+## Economía: ORO, cosméticos y Mercado
+
+Diseño completo en `../MEJORAS.md` §5. `GameItem` **no cambia**: se añaden tres contratos que lo leen.
+
+| Contrato | Qué es |
+|---|---|
+| `LootGold.sol` | ERC-20 **"Oro de Loot Arena" (ORO)**, 18 decimales, `burn`/`burnFrom`. Solo el `minter` (= Mercado, lo fija el owner con `setMinter`) puede acuñar (`mint`) y quemar ORO del comprador sin `approve` (`quemarDe`). |
+| `LootCosmetics.sol` | ERC-1155 de cosméticos (ids 1..14 del catálogo). Solo el `minter` (= Mercado) acuña. Los jugadores pueden quemar los suyos (`burn`, p. ej. la poción extra id 14). `uri(id)` = `baseURI + id + ".json"` → `web/meta/cosmeticos/{id}.json`. |
+| `Mercado.sol` | Vende objetos por ORO (+ un poco de ETH de su caja), vende cosméticos, abre cofres y da la bienvenida. `Ownable` + `ReentrancyGuard`. |
+
+Todas las cantidades on-chain van en **unidades base** (ORO y ETH con 18 decimales): `precioVenta(t)` devuelve `54000000000000000000` para 54 ORO; usa `ethers.formatEther` para mostrarlo.
+
+### Reglas del Mercado
+
+- **Vender** (`venderItem(tokenId)` / `venderVarios(uint256[])`): requiere ser el dueño y haber hecho `GameItem.setApprovalForAll(mercado, true)`. El NFT va a `0x000000000000000000000000000000000000dEaD` y se acuñan `base[rareza] + 2 × (ataque + defensa)` ORO, con `base = [10, 40, 200]` (ajustable con `setFormulaVenta`).
+- **ETH de la caja**: cada venta paga además `recompensaEth[rareza]` = `[0.0001, 0.0005, 0.002]` ETH, recortado a lo que quede de `maxEthDiario` (0.005 ETH por dirección y día UTC, `block.timestamp / 1 days`). Si la caja no tiene saldo para esa recompensa, se paga 0 ETH y la venta sigue (solo ORO). Cualquiera recarga la caja enviando ETH al Mercado (`receive`); solo el owner retira (`retirarEth`). Si la wallet receptora rechaza el ETH, la venta revierte.
+- **Comprar** (`comprarCosmetico(id, cantidad)`): quema `precio × cantidad` ORO y acuña el cosmético. Una sola transacción, sin `approve`.
+- **Cofre** (`abrirCofre()`): quema `PRECIO_COFRE` (120 ORO) y acuña un cosmético al azar: común 60 %, rara 32 %, legendaria 8 %, uniforme dentro de la rareza; nunca consumibles (`enCofre = false`). **Azar**: `keccak256(block.prevrandao, block.timestamp, msg.sender, nonce)`. Es predecible por validadores y por contratos que simulen antes de llamar: aceptable en Sepolia para un juego sin valor real, no en mainnet (usar Chainlink VRF o commit-reveal).
+- **Bienvenida** (`reclamarBienvenida()`): 50 ORO una vez por dirección (`bienvenidaReclamada(addr)`).
+- **Owner**: `agregarCosmetico`, `setPrecioCosmetico` (0 = retirar de la venta), `setEnCofre`, `setFormulaVenta`, `setPrecioCofre`, `setRecompensaEth`, `setMaxEthDiario`, `retirarEth`.
+- **Vistas**: `catalogo()` (array; el elemento i es el id i+1), `cosmetico(id)`, `totalCosmeticos()`, `precioVenta(tokenId)`, `ethPorVenta(jugador, rareza)`, `ethRestanteHoy(jugador)`, `cajaEth()`.
+
+### Tests
+
+`npx hardhat test` ejecuta `test/GameItem.test.js` y `test/economia.test.js` (venta y precio, objetos ajenos, sin aprobación, permisos de acuñación, compra y saldo insuficiente, cofre, bienvenida, administración, caja de ETH y límite diario, reentrada con `contracts/test/AtacanteReentrada.sol` —solo para tests— y un caso de extremo a extremo).
+
+### Despliegue en local
+
+```bash
+npx hardhat node
+```
+
+En otra terminal (el GameItem va primero, porque `deploy.js` reescribe la entrada `localhost`):
+
+```bash
+npx hardhat run scripts/deploy.js --network localhost
+npx hardhat run scripts/deploy-economia.js --network localhost
+```
+
+`deploy-economia.js` lee la dirección de GameItem de `../shared/deployments.json[red].address`, despliega los tres contratos, hace `setMinter(mercado)` en ORO y cosméticos, recarga la caja (1 ETH en local por defecto) y escribe `oro`, `cosmeticos` y `mercado` en la entrada de la red, más `../shared/{LootGold,LootCosmetics,Mercado}.abi.json`. Variables opcionales: `CAJA_ETH` (ETH para la caja; 0 por defecto fuera de local) y `COSMETICOS_URI` (prefijo de los metadatos).
+
+### Despliegue en Sepolia y verificación en Etherscan
+
+Con `contracts/.env` configurado como en los pasos de arriba y la entrada `sepolia` de GameItem ya en `deployments.json`:
+
+```bash
+npx hardhat run scripts/deploy-economia.js --network sepolia
+```
+
+(En PowerShell, para recargar la caja al desplegar: `$env:CAJA_ETH="0.05"; npx hardhat run scripts/deploy-economia.js --network sepolia`. También se puede recargar después enviando ETH desde MetaMask a la dirección del Mercado.)
+
+Coste aproximado: ~6,4 M de gas en total (Mercado ~4,0 M, LootCosmetics ~1,56 M, LootGold ~0,70 M, dos `setMinter` ~48 k cada uno).
+
+El script imprime los comandos de verificación; espera ~1 min y ejecútalos:
+
+```bash
+npx hardhat verify --network sepolia <oro>
+npx hardhat verify --network sepolia <cosmeticos> "https://cristiangarcia913.github.io/loot-arena/meta/cosmeticos/"
+npx hardhat verify --network sepolia <mercado> <gameItem> <oro> <cosmeticos>
+```
+
+Gas por operación del jugador (medido en local): `setApprovalForAll` ~46 k (una vez), `venderItem` ~140–205 k, `venderVarios` de 3 ~265 k, `comprarCosmetico` ~81 k, `abrirCofre` ~176 k, `reclamarBienvenida` ~65 k.

@@ -1,0 +1,26 @@
+{
+  "name": "Armadura esmeralda",
+  "description": "Tiñe la armadura del héroe de verde esmeralda.",
+  "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgcng9IjEyIiBmaWxsPSIjMTQxMjFmIi8+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9Ijk0IiBoZWlnaHQ9Ijk0IiByeD0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzlhYTRiMiIgc3Ryb2tlLXdpZHRoPSI0Ii8+PHBhdGggZD0iTTMwIDMwaDQwbDggMTUtOCA0MEgzMGwtOC00MHoiIGZpbGw9IiMyN2FlNjAiLz48L3N2Zz4=",
+  "attributes": [
+    {
+      "trait_type": "Ranura",
+      "value": "color"
+    },
+    {
+      "trait_type": "Rareza",
+      "value": "Común"
+    },
+    {
+      "trait_type": "Precio (ORO)",
+      "value": 60,
+      "display_type": "number"
+    }
+  ],
+  "properties": {
+    "id": 2,
+    "ranura": "color",
+    "rareza": 0,
+    "precio": 60
+  }
+}

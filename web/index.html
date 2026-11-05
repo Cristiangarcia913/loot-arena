@@ -2,17 +2,29 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Loot Arena</title>
   <meta name="description" content="Mini-RPG por turnos: vence enemigos y consigue objetos NFT (ERC-721) en Sepolia.">
+  <meta name="theme-color" content="#120e0b">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/tienda.css">
   <script type="module" src="js/main.js"></script>
 </head>
 <body>
+  <!-- Portada -->
+  <div id="pantalla-portada" class="pantalla pantalla-portada">
+    <div class="portada-brasas" aria-hidden="true"></div>
+    <div class="portada-contenido">
+      <p class="portada-pre">Un mini-RPG on-chain</p>
+      <h1 class="portada-titulo" aria-label="Loot Arena"><span>Loot</span> <span>Arena</span></h1>
+      <p class="portada-lema">Lucha. Gana. Saquea. Tu botín es tuyo: NFT en Sepolia.</p>
+      <div class="portada-duelo" aria-hidden="true"></div>
+      <button id="btn-entrar" class="btn btn-gold btn-grande btn-latido" type="button">⚔️ Entrar en la arena</button>
+      <p class="portada-nota">Puedes jugar sin wallet en modo demo · 🔊 con sonido</p>
+    </div>
+  </div>
+
   <header class="topbar">
     <div class="brand">
       <span class="logo" aria-hidden="true">⚔️</span>
@@ -22,8 +34,10 @@
       </div>
     </div>
     <div class="wallet">
+      <div id="saldo-oro" class="saldo-oro"></div>
       <span id="net-badge" class="badge">Cargando…</span>
       <span id="addr" class="addr" hidden></span>
+      <button id="btn-sonido" class="btn btn-icono" type="button" aria-pressed="false" aria-label="Silenciar">🔊</button>
       <button id="btn-connect" class="btn btn-gold" type="button">🦊 Conectar MetaMask</button>
     </div>
   </header>
@@ -34,22 +48,38 @@
     <section class="panel arena-panel" aria-labelledby="t-arena">
       <div class="panel-head">
         <h2 id="t-arena">La Arena</h2>
-        <span id="arena-level" class="chip">Nivel de arena 1</span>
+        <div class="chips">
+          <span id="racha" class="chip chip-racha" hidden>🔥 Racha 0</span>
+          <span id="arena-level" class="chip">Nivel de arena 1</span>
+        </div>
       </div>
 
-      <div class="arena">
-        <div class="fighter" id="f-jugador">
-          <div class="avatar" aria-hidden="true">🤺</div>
-          <div class="f-name">Tu héroe</div>
-          <div class="hp" aria-label="Vida del héroe"><div class="hp-fill"></div><span class="hp-text"></span></div>
-          <div class="f-stats"></div>
+      <div id="escena" class="arena escena">
+        <div class="fighter" id="f-jugador" data-lado="heroe">
+          <div class="f-hud">
+            <div class="f-name">Tu héroe</div>
+            <div class="hp" aria-label="Vida del héroe"><div class="hp-fill"></div><span class="hp-text"></span></div>
+            <div class="f-stats"></div>
+            <div class="estados" role="list" aria-label="Estados del héroe"></div>
+          </div>
+          <div class="retrato">
+            <div class="sprite"></div>
+            <div class="avatar" aria-hidden="true">🤺</div>
+          </div>
         </div>
         <div class="vs" aria-hidden="true">VS</div>
-        <div class="fighter enemy vacio" id="f-enemigo">
-          <div class="avatar" aria-hidden="true">❔</div>
-          <div class="f-name">Arena vacía</div>
-          <div class="hp" aria-label="Vida del enemigo"><div class="hp-fill"></div><span class="hp-text"></span></div>
-          <div class="f-stats">Pulsa Explorar para encontrar un rival</div>
+        <div class="fighter enemy vacio" id="f-enemigo" data-lado="enemigo">
+          <div class="f-hud">
+            <div class="f-name">Arena vacía</div>
+            <div class="hp" aria-label="Vida del enemigo"><div class="hp-fill"></div><span class="hp-text"></span></div>
+            <div class="f-stats">Pulsa Explorar para encontrar un rival</div>
+            <div class="estados" role="list" aria-label="Estados del enemigo"></div>
+          </div>
+          <div class="retrato">
+            <div class="intencion" hidden aria-live="polite"></div>
+            <div class="sprite"></div>
+            <div class="avatar" aria-hidden="true">❔</div>
+          </div>
         </div>
       </div>
 
@@ -57,6 +87,8 @@
         <button id="btn-explorar" class="btn btn-gold" type="button">🧭 Explorar</button>
         <button id="btn-atacar" class="btn btn-red" type="button" disabled>⚔️ Atacar</button>
         <button id="btn-defender" class="btn btn-blue" type="button" disabled>🛡️ Defender</button>
+        <div id="skills" class="skills" role="group" aria-label="Habilidades"></div>
+        <button id="btn-pocion" class="btn btn-verde" type="button" disabled>🧪 Poción</button>
         <button id="btn-huir" class="btn btn-ghost" type="button" disabled>🏃 Huir</button>
       </div>
 
@@ -68,7 +100,13 @@
 
     <aside class="side">
       <section class="panel" aria-labelledby="t-heroe">
-        <div class="panel-head"><h2 id="t-heroe">Tu héroe</h2><span id="victorias" class="chip">0 victorias</span></div>
+        <div class="panel-head">
+          <h2 id="t-heroe">Tu héroe</h2>
+          <div class="chips"><span id="hero-nivel" class="chip chip-nivel">Nv. 1</span><span id="victorias" class="chip">0 victorias</span></div>
+        </div>
+        <div id="hero-xp" class="xp" role="progressbar" aria-label="Experiencia" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="xp-fill"></div><span class="xp-text">0 XP</span>
+        </div>
         <div class="stats" id="stats"></div>
         <h3 class="sub">Equipo</h3>
         <ul class="slots" id="slots"></ul>
@@ -83,6 +121,18 @@
         <div id="inventario" class="inventario"></div>
       </section>
     </aside>
+
+    <section class="panel mercado-panel" aria-labelledby="t-mercado">
+      <div class="panel-head">
+        <h2 id="t-mercado">Mercado</h2>
+        <div class="pestanas" role="tablist" aria-label="Mercado">
+          <button class="pestana" type="button" role="tab" id="tab-tienda" aria-controls="tienda" aria-selected="true">🏪 Tienda</button>
+          <button class="pestana" type="button" role="tab" id="tab-vestuario" aria-controls="vestuario" aria-selected="false">👘 Vestuario</button>
+        </div>
+      </div>
+      <section id="tienda" class="tienda" role="tabpanel" aria-labelledby="tab-tienda"></section>
+      <section id="vestuario" class="vestuario" role="tabpanel" aria-labelledby="tab-vestuario" hidden></section>
+    </section>
   </main>
 
   <footer class="footer">
@@ -104,6 +154,13 @@
     </form>
   </dialog>
 
+  <div id="pantalla-resultado" class="pantalla pantalla-resultado" role="dialog" aria-modal="true" aria-label="Resultado del combate" hidden></div>
+
   <div id="toasts" class="toasts"></div>
+
+  <script type="module">
+    import { iniciarInterfaz } from "./js/fx.js";
+    iniciarInterfaz({ auto: false });
+  </script>
 </body>
 </html>

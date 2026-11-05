@@ -1,6 +1,7 @@
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { crearApp, validarDireccion, validarNivel } from '../src/app.js';
+import { crearApp, validarDireccion, validarNivel, validarJefe } from '../src/app.js';
+import { EstadoBotin, PITY_UMBRAL } from '../src/loot.js';
 import { levantar, post, rngFijo, loggerMudo } from './helpers.js';
 
 const CONTRATO = '0x5FbDB2315678afecb367f032d93F642f64180aa3';
@@ -28,16 +29,23 @@ describe('validarDireccion / validarNivel', () => {
     assert.equal(validarNivel(10), 10);
     for (const v of [0, 11, 2.5, '3', -1, NaN, true]) assert.equal(validarNivel(v), null, String(v));
   });
+  test('jefe: booleano opcional, por defecto false', () => {
+    assert.equal(validarJefe(undefined), false);
+    assert.equal(validarJefe(false), false);
+    assert.equal(validarJefe(true), true);
+    for (const v of [null, 'true', 1, 0, {}, [], 'si']) assert.equal(validarJefe(v), null, String(v));
+  });
 });
 
 describe('API HTTP (contrato simulado, sin red)', () => {
-  let srv, reloj, rngValor, mints, mintFalla;
+  let srv, reloj, rngValor, mints, mintFalla, estadoBotin;
 
   beforeEach(async () => {
     reloj = 1_000_000;
     rngValor = 0;            // 0 → siempre hay drop (Común, Espada)
     mints = [];
     mintFalla = null;
+    estadoBotin = new EstadoBotin();
     const app = crearApp({
       mint: async (to, item) => {
         if (mintFalla) throw mintFalla;
@@ -49,6 +57,7 @@ describe('API HTTP (contrato simulado, sin red)', () => {
       rng: () => rngValor,
       now: () => reloj,
       logger: loggerMudo,
+      estadoBotin,
     });
     srv = await levantar(app);
   });
@@ -95,6 +104,58 @@ describe('API HTTP (contrato simulado, sin red)', () => {
     const r = await post(srv.url, { address: JUGADOR, enemyLevel: 11 });
     assert.equal(r.status, 400);
     assert.match(r.json.error, /enemyLevel/);
+  });
+
+  test('jefe: true → siempre hay drop (aunque el RNG diga que no) con la misma forma de respuesta', async () => {
+    rngValor = 0.99;
+    const r = await post(srv.url, { address: JUGADOR, enemyLevel: 10, jefe: true });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.drop, true);
+    assert.deepEqual(Object.keys(r.json).sort(), ['drop', 'item', 'tokenId', 'txHash']);
+    assert.deepEqual(Object.keys(r.json.item).sort(), ['ataque', 'defensa', 'nombre', 'rareza', 'tipo']);
+    assert.equal(r.json.item.rareza, 2); // rng 0.99 con jefe nivel 10 → Legendario (20 %)
+    assert.ok(r.json.item.nombre.length <= 60);
+    assert.equal(mints.length, 1);
+  });
+
+  test('jefe: false explícito se comporta como sin jefe', async () => {
+    rngValor = 0.99;
+    const r = await post(srv.url, { address: JUGADOR, jefe: false });
+    assert.deepEqual(r.json, { drop: false });
+  });
+
+  test('400 si jefe no es booleano (y no se acuña ni consume el límite por dirección)', async () => {
+    for (const jefe of ['true', 1, null, {}, []]) {
+      const r = await post(srv.url, { address: JUGADOR, jefe });
+      assert.equal(r.status, 400, JSON.stringify(jefe));
+      assert.deepEqual(r.json, { error: 'jefe debe ser un booleano' });
+    }
+    assert.equal(mints.length, 0);
+    assert.equal((await post(srv.url, { address: JUGADOR, jefe: true })).status, 200);
+  });
+
+  test('pity: el contador por dirección sube con cada drop entregado y no si el mint falla', async () => {
+    rngValor = 0; // siempre drop Común
+    assert.equal((await post(srv.url, { address: JUGADOR })).status, 200);
+    assert.equal(estadoBotin.sinLegendario(JUGADOR), 1);
+    reloj += 10_001;
+    mintFalla = new Error('boom');
+    assert.equal((await post(srv.url, { address: JUGADOR })).status, 500);
+    assert.equal(estadoBotin.sinLegendario(JUGADOR), 1);
+    // Con el pity al máximo, el servidor entrega un Legendario y reinicia el contador
+    mintFalla = null;
+    estadoBotin.contadores.set(JUGADOR, PITY_UMBRAL + 5);
+    reloj += 10_001;
+    const r = await post(srv.url, { address: JUGADOR });
+    assert.equal(r.json.item.rareza, 2);
+    assert.equal(estadoBotin.sinLegendario(JUGADOR), 0);
+    assert.equal(estadoBotin.ultimoLegendario, r.json.item.nombre);
+    // El siguiente legendario (mismo RNG) no repite nombre
+    estadoBotin.contadores.set(JUGADOR, PITY_UMBRAL + 5);
+    reloj += 10_001;
+    const r2 = await post(srv.url, { address: JUGADOR });
+    assert.equal(r2.json.item.rareza, 2);
+    assert.notEqual(r2.json.item.nombre, r.json.item.nombre);
   });
 
   test('400 JSON mal formado', async () => {

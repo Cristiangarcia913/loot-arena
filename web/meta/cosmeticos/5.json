@@ -1,0 +1,26 @@
+{
+  "name": "Yelmo con cuernos",
+  "description": "Yelmo de hierro coronado por dos cuernos curvos.",
+  "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgcng9IjEyIiBmaWxsPSIjMTQxMjFmIi8+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9Ijk0IiBoZWlnaHQ9Ijk0IiByeD0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzNiODJmNiIgc3Ryb2tlLXdpZHRoPSI0Ii8+PHBhdGggZD0iTTIwIDY1aDYwbC0xMC0zNUgzMHoiIGZpbGw9IiM4ZDk5YWUiLz48cmVjdCB4PSIxNCIgeT0iNjIiIHdpZHRoPSI3MiIgaGVpZ2h0PSI4IiByeD0iMyIgZmlsbD0iIzhkOTlhZSIvPjwvc3ZnPg==",
+  "attributes": [
+    {
+      "trait_type": "Ranura",
+      "value": "sombrero"
+    },
+    {
+      "trait_type": "Rareza",
+      "value": "Rara"
+    },
+    {
+      "trait_type": "Precio (ORO)",
+      "value": 180,
+      "display_type": "number"
+    }
+  ],
+  "properties": {
+    "id": 5,
+    "ranura": "sombrero",
+    "rareza": 1,
+    "precio": 180
+  }
+}

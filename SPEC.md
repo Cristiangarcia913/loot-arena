@@ -88,3 +88,27 @@ Límite: máx. 1 petición `/ganar` cada 10 s por dirección y 30 por hora por I
 - Combate: daño = max(1, ataque_atacante − defensa_objetivo) ± aleatorio pequeño; **Defender** dobla la defensa ese turno.
 - Rareza → color: Común `#9ca3af`, Raro `#3b82f6`, Legendario `#f59e0b`.
 - Transferir: `safeTransferFrom(from, to, tokenId)` firmado por el jugador con MetaMask.
+
+---
+
+## Cambios de la versión 1.1
+
+### Servidor: `POST /ganar`
+- Acepta además `jefe` (booleano opcional; 400 si no es booleano). Los jefes siempre sueltan objeto.
+- Rareza según nivel y jefe: nivel 1 → 70/25/5; nivel 10 → 47,5/38,5/14; jefe nivel 10 → 36/44/20. Protección contra la mala suerte tras 15 drops sin Legendario.
+- Stats por rareza (mín–máx absolutos): Común 1–6, Raro 6–14, Legendario 14–30, ligadas al nivel. Nombres procedurales con afijos y legendarios con nombre propio.
+
+### Economía en Sepolia (contratos nuevos; `GameItem` no cambia)
+| Contrato | Dirección |
+|---|---|
+| `LootGold` (ORO, ERC-20) | `0x9cAF63A74f3E98179102e5438181aCee67Fe49eB` |
+| `LootCosmetics` (ERC-1155) | `0xfe09222b51A2b91F54d42e7bE4ca1E84591F9604` |
+| `Mercado` | `0xbA659cC7AF1dDCC53Af847Aa9639bdbAC2BAa15E` |
+
+- Vender: `GameItem.setApprovalForAll(mercado)` + `Mercado.venderItem(tokenId)` → el NFT va a `0x…dEaD` y el jugador recibe `10/40/200 + 2·(ataque+defensa)` ORO y `0,0001/0,0005/0,002` ETH de la caja (máx. 0,005 ETH/día; si la caja no alcanza, solo ORO).
+- Comprar: `comprarCosmetico(id, cantidad)` quema ORO; `abrirCofre()` (120 ORO, 60/32/8); `reclamarBienvenida()` (50 ORO, una vez). Catálogo de 14 ids en `MEJORAS.md` §5 (id 14 = poción extra consumible).
+
+### Web
+- Combate con habilidades, críticos, esquiva, estados, enemigos con patrón e intención visible, jefe cada 5.º combate de un nivel (`VICTORIAS_POR_NIVEL = 5`), 3 pociones por expedición + pociones extra compradas (se queman al acabar la expedición).
+- Progresión del héroe (niveles 1–30, XP, racha) en `localStorage` por dirección.
+- Efectos, sprites SVG, sonido sintetizado, revelado del botín, tienda, venta y vestuario.

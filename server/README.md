@@ -52,7 +52,7 @@ npx hardhat node
 #   CONTRACT_ADDRESS=<dirección desplegada>
 npm start
 curl -X POST localhost:3000/ganar -H "content-type: application/json" \
-     -d '{"address":"0x70997970C51812dc3A010C7d01b50e0d17dc79C8","enemyLevel":2}'
+     -d '{"address":"0x70997970C51812dc3A010C7d01b50e0d17dc79C8","enemyLevel":2,"jefe":true}'
 ```
 
 ## API
@@ -63,13 +63,18 @@ curl -X POST localhost:3000/ganar -H "content-type: application/json" \
 ```
 
 ### `POST /ganar`
-Body: `{ "address": "0x...", "enemyLevel": 1 }` (`enemyLevel` entero 1..10, opcional, por defecto 1).
+Body: `{ "address": "0x...", "enemyLevel": 1, "jefe": false }`
+- `enemyLevel`: entero 1..10, opcional, por defecto 1.
+- `jefe`: **booleano** opcional, por defecto `false`. `true` = el combate ganado era contra un jefe
+  (siempre suelta objeto y mejora rareza y stats). Cualquier otro tipo (`"true"`, `1`, `null`…) → 400.
+
+La forma de la respuesta no cambia respecto a la 1.0.
 
 | Código | Cuerpo |
 |---|---|
-| 200 con drop | `{ "drop": true, "tokenId": "5", "txHash": "0x...", "item": { "nombre": "Espada Rúnica", "tipo": "Espada", "rareza": 1, "ataque": 12, "defensa": 2 } }` |
+| 200 con drop | `{ "drop": true, "tokenId": "5", "txHash": "0x...", "item": { "nombre": "Cimitarra Rúnica de Escarcha", "tipo": "Espada", "rareza": 1, "ataque": 12, "defensa": 3 } }` |
 | 200 sin drop | `{ "drop": false }` |
-| 400 | `{ "error": "Dirección inválida" }` · `{ "error": "enemyLevel debe ser un entero entre 1 y 10" }` · `{ "error": "JSON inválido" }` |
+| 400 | `{ "error": "Dirección inválida" }` · `{ "error": "enemyLevel debe ser un entero entre 1 y 10" }` · `{ "error": "jefe debe ser un booleano" }` · `{ "error": "JSON inválido" }` |
 | 429 | `{ "error": "Demasiadas peticiones, espera N s" }` (más cabecera `Retry-After: N`) |
 | 500 | `{ "error": "..." }` con mensaje legible (sin ETH para gas, contrato rechazó el mint, timeout…) |
 
@@ -96,10 +101,56 @@ scripts/sync-abi.js     copia y valida el ABI de ../shared/
 test/                   tests con node --test (sin red)
 ```
 
-**Drops (`loot.js`)**: `rng() < DROP_CHANCE` → hay objeto. Rareza 70 % Común / 25 % Raro / 5 % Legendario.
-Tipo uniforme entre Espada, Escudo, Casco, Armadura y Botas. Stat principal (Espada → ataque; resto → defensa):
-Común 1–5, Raro 6–12, Legendario 13–25. La secundaria es el 20–30 % de la principal, redondeado (≈ 25 %; puede salir 0 en Comunes).
-Nombre = tipo + adjetivo concordado según rareza, p. ej. "Espada Oxidada", "Escudo Rúnico", "Botas Arcanas", "Casco del Dragón Eterno".
+### Botín (`loot.js`)
+
+Lógica **pura** con RNG inyectable; el único estado (pity y último legendario) vive en `EstadoBotin`, en memoria.
+
+**¿Cae objeto?** `rng() < DROP_CHANCE` (60 % por defecto). **Los jefes siempre sueltan objeto.**
+
+**Rareza** según `enemyLevel` (interpolación lineal entre nivel 1 y 10) y `jefe`:
+
+| Combate | Común | Raro | Legendario |
+|---|---|---|---|
+| Nivel 1 | 70 % | 25 % | 5 % |
+| Nivel 3 | 65 % | 28 % | 7 % |
+| Nivel 5 | 60 % | 31 % | 9 % |
+| Nivel 7 | 55 % | 34 % | 11 % |
+| Nivel 10 | 47,5 % | 38,5 % | 14 % |
+| Jefe nivel 1 | 55 % | 35 % | 10 % |
+| Jefe nivel 5 | 46,6 % | 39 % | 14,4 % |
+| Jefe nivel 10 | 36 % | 44 % | 20 % |
+
+Fórmulas (`t = (nivel − 1) / 9`): sin jefe Legendario `5 % + 9 %·t`, Raro `25 % + 13,5 %·t`;
+con jefe Legendario `10 % + 10 %·t`, Raro `35 % + 9 %·t`; Común = el resto.
+Los tests comprueban estas tablas con 100 000 tiradas (±1 pp).
+
+**Pity** (protección contra la mala suerte, por dirección): tras **15 drops seguidos sin Legendario**, el
+siguiente tiene al menos un 50 % de Legendario, y sube 10 puntos por cada drop más (al 21.º es seguro).
+Se reinicia al recibir un Legendario. Solo cuentan los drops **acuñados** (si el mint falla, no cuenta).
+Con pity, la tasa efectiva de Legendario en nivel 1 pasa del 5 % a ≈ 8,7 %. Vive en memoria (máx. 10 000
+direcciones): un reinicio de Render lo pone a cero.
+
+**Stats.** Tipo uniforme entre Espada, Escudo, Casco, Armadura y Botas. Stat principal (Espada → ataque;
+resto → defensa) dentro de un rango absoluto por rareza, desplazado según el nivel (un jefe cuenta como +2 niveles):
+
+| Rareza | Rango absoluto | Nivel 1 | Nivel 5 | Nivel 10 / jefe 8+ |
+|---|---|---|---|---|
+| Común (0) | 1–6 | 1–4 | 2–5 | 3–6 |
+| Raro (1) | 6–14 | 6–11 | 7–12 | 9–14 |
+| Legendario (2) | 14–30 | 14–24 | 17–26 | 20–30 |
+
+La secundaria es el 10–40 % de la principal, redondeado (puede salir 0 en Comunes). Todo cabe de sobra en `uint16`.
+
+**Nombres procedurales** (≤ 60 caracteres, con concordancia de género y número). 16 bases por tipo,
+16 adjetivos comunes, 13 adjetivos raros, 20 sufijos raros, 28 nombres propios y 20 epítetos legendarios:
+- Común: `<Base> <adjetivo>` → *Falcata de Recluta*, *Clípeo Rayado*, *Capellina Oxidada*, *Gambesón Corriente*, *Babuchas Rayadas*.
+- Raro: `<Base> <adjetivo> <sufijo>` → *Cimitarra Encantada del Centinela*, *Broquel Élfico del Coloso*, *Capucha Templada del Halcón*, *Arnés Imponente del Vigía*, *Alpargatas Arcanas de Obsidiana*.
+- Legendario: `<Nombre>, <Base> <epíteto>` → *Quimera, Espadón del Último Titán*, *Sílfide, Bastión del Abismo Sin Fin*, *Brasa, Yelmo de los Dioses Caídos*, *Augurio, Cota de Malla del Dragón Eterno*, *Nadir, Botines del Primer Amanecer*.
+
+El servidor no repite el mismo nombre legendario dos veces seguidas (si sale igual que el último, cambia el nombre propio).
+La base pertenece siempre al tipo del NFT (una *Cimitarra* es `tipo: "Espada"`), así que la web debe usar `tipo`, no el nombre, para iconos y slots.
+
+### Mints y ABI
 
 **Mints en serie**: todos los `mintItem` pasan por una cola (envío + espera del recibo), y el nonce se lleva
 en memoria: se pide al nodo con `eth_getTransactionCount(pending)` la primera vez y después de cualquier error,
@@ -115,8 +166,10 @@ Ahora está el ABI completo de la Persona A. Si el contrato cambia, ejecuta `npm
 ```bash
 npm test
 ```
-Sin red: distribución de rarezas en 100k tiradas (±1 pp), probabilidad de drop, rangos de stats (todos los valores alcanzables),
-nombres, validación de dirección y `enemyLevel`, respuestas 200/400/429/500 con un minter simulado y reloj falso,
+Sin red: distribución de rarezas por nivel y jefe en 100k tiradas (±1 pp), drop garantizado de jefes, pity
+(umbral, escalado, reinicio, memoria acotada, racha máxima de 20), rangos de stats por nivel (todos los valores alcanzables),
+nombres (vocabulario mínimo, concordancia, ≤ 60 caracteres en el peor caso, sin legendario repetido),
+validación de dirección, `enemyLevel` y `jefe`, respuestas 200/400/429/500 con un minter simulado y reloj falso,
 extracción del `tokenId` de un log `ItemMinted` codificado de verdad, serialización y nonce del minter, y configuración.
 
 ## Despliegue

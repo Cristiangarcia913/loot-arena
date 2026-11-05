@@ -3,7 +3,7 @@
 import express from 'express';
 import cors from 'cors';
 import { isAddress, getAddress, ZeroAddress } from 'ethers';
-import { tirarLoot } from './loot.js';
+import { tirarLoot, EstadoBotin } from './loot.js';
 import { RateLimiter } from './rateLimit.js';
 import { mensajeError } from './chain.js';
 import { origenCors } from './config.js';
@@ -24,19 +24,27 @@ export function validarNivel(valor) {
   return Number.isInteger(valor) && valor >= 1 && valor <= 10 ? valor : null;
 }
 
+/** Valida `jefe` (booleano opcional → false). Devuelve el booleano o null si no es válido. */
+export function validarJefe(valor) {
+  if (valor === undefined) return false;
+  return typeof valor === 'boolean' ? valor : null;
+}
+
 /**
  * @param {{
  *   mint: (to: string, item: object) => Promise<{ tokenId: string, txHash: string }>,
  *   contractAddress: string, chainId: number,
  *   dropChance?: number, rng?: () => number, now?: () => number,
  *   allowedOrigin?: string, trustProxy?: number | boolean,
- *   logger?: Pick<Console, 'log' | 'error'>
+ *   logger?: Pick<Console, 'log' | 'error'>,
+ *   estadoBotin?: EstadoBotin
  * }} deps
  */
 export function crearApp({
   mint, contractAddress, chainId,
   dropChance = 0.6, rng = Math.random, now = Date.now,
   allowedOrigin = '*', trustProxy = false, logger = console,
+  estadoBotin = new EstadoBotin(),
 }) {
   const app = express();
   app.set('trust proxy', trustProxy);
@@ -65,15 +73,21 @@ export function crearApp({
     const enemyLevel = validarNivel(body.enemyLevel);
     if (enemyLevel === null) return res.status(400).json({ error: 'enemyLevel debe ser un entero entre 1 y 10' });
 
+    const jefe = validarJefe(body.jefe);
+    if (jefe === null) return res.status(400).json({ error: 'jefe debe ser un booleano' });
+
     const porDir = limDir.hit(address);
     if (!porDir.ok) return demasiadas(res, porDir.retryAfterS);
 
-    const item = tirarLoot(rng, { dropChance });
+    const item = tirarLoot(rng, {
+      dropChance, nivel: enemyLevel, jefe, ...estadoBotin.opciones(address),
+    });
     if (!item) return res.json({ drop: false });
 
     try {
       const { tokenId, txHash } = await mint(address, item);
-      logger.log(`[mint] #${tokenId} "${item.nombre}" → ${address} (nivel ${enemyLevel}) tx ${txHash}`);
+      estadoBotin.registrar(address, item);
+      logger.log(`[mint] #${tokenId} "${item.nombre}" → ${address} (nivel ${enemyLevel}${jefe ? ', jefe' : ''}) tx ${txHash}`);
       return res.json({ drop: true, tokenId: String(tokenId), txHash, item });
     } catch (err) {
       logger.error('[mint] error:', err?.shortMessage ?? err?.message ?? err);

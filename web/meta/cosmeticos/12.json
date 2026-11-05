@@ -1,0 +1,26 @@
+{
+  "name": "Gato negro",
+  "description": "Un gato negro que acompaña al héroe. ¿Trae suerte o desgracia?",
+  "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgcng9IjEyIiBmaWxsPSIjMTQxMjFmIi8+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9Ijk0IiBoZWlnaHQ9Ijk0IiByeD0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzNiODJmNiIgc3Ryb2tlLXdpZHRoPSI0Ii8+PGVsbGlwc2UgY3g9IjUwIiBjeT0iNjAiIHJ4PSIyMiIgcnk9IjE2IiBmaWxsPSIjMjIyMjIyIi8+PGNpcmNsZSBjeD0iNTAiIGN5PSIzOCIgcj0iMTMiIGZpbGw9IiMyMjIyMjIiLz48cGF0aCBkPSJNMzkgMzBsMy0xMiA2IDl6TTYxIDMwbC0zLTEyLTYgOXoiIGZpbGw9IiMyMjIyMjIiLz48L3N2Zz4=",
+  "attributes": [
+    {
+      "trait_type": "Ranura",
+      "value": "mascota"
+    },
+    {
+      "trait_type": "Rareza",
+      "value": "Rara"
+    },
+    {
+      "trait_type": "Precio (ORO)",
+      "value": 300,
+      "display_type": "number"
+    }
+  ],
+  "properties": {
+    "id": 12,
+    "ranura": "mascota",
+    "rareza": 1,
+    "precio": 300
+  }
+}

@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loot Arena · Demo de efectos</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✨</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .demo { max-width: 1280px; margin: 0 auto; padding: 16px clamp(10px, 3vw, 32px) 40px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+    .demo > .ancho { grid-column: 1 / -1; }
+    @media (max-width: 960px) { .demo { grid-template-columns: minmax(0, 1fr); } }
+    .grupo { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .grupo h3 { width: 100%; font-size: .78rem; color: var(--tenue); text-transform: uppercase; letter-spacing: .12em; margin: 4px 0 2px; }
+    .grupo .btn { font-size: .8rem; padding: 7px 10px; }
+    .galeria { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+    .galeria figure { margin: 0; padding: 6px; border-radius: 10px; background: rgba(0,0,0,.3); border: 1px solid var(--borde-suave); text-align: center; font-size: .72rem; color: var(--tenue); }
+    .galeria figure > div { aspect-ratio: 1; }
+    .galeria .sp { width: 100%; height: 100%; overflow: visible; }
+    select { background: #120e0b; color: var(--texto); border: 1px solid var(--borde); border-radius: 8px; padding: 6px; font: inherit; font-size: .82rem; }
+    .fps { font: 600 .75rem ui-monospace, Consolas, monospace; color: var(--tenue); }
+  </style>
+</head>
+<body>
+  <div id="pantalla-portada" class="pantalla pantalla-portada" hidden>
+    <div class="portada-brasas" aria-hidden="true"></div>
+    <div class="portada-contenido">
+      <p class="portada-pre">Un mini-RPG on-chain</p>
+      <h1 class="portada-titulo" aria-label="Loot Arena"><span>Loot</span> <span>Arena</span></h1>
+      <p class="portada-lema">Lucha. Gana. Saquea. Tu botín es tuyo: NFT en Sepolia.</p>
+      <div class="portada-duelo" aria-hidden="true"></div>
+      <button id="btn-entrar" class="btn btn-gold btn-grande btn-latido" type="button">⚔️ Entrar en la arena</button>
+      <p class="portada-nota">Demo de efectos</p>
+    </div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand"><span class="logo" aria-hidden="true">✨</span><div><h1>Loot Arena</h1><p class="tagline">Demo de efectos (fx.js · audio.js · sprites.js), sin wallet</p></div></div>
+    <div class="wallet"><span class="fps" id="fps">— fps</span><button id="btn-sonido" class="btn btn-icono" type="button">🔊</button></div>
+  </header>
+
+  <main class="demo">
+    <section class="panel">
+      <div class="panel-head"><h2>La Arena</h2><div class="chips"><span id="racha" class="chip chip-racha" hidden></span><span id="hero-nivel" class="chip chip-nivel">Nv. 1</span></div></div>
+      <div id="hero-xp" class="xp" role="progressbar" aria-label="Experiencia" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="xp-fill"></div><span class="xp-text">0 XP</span></div>
+      <div id="escena" class="arena escena">
+        <div class="fighter" id="f-jugador" data-lado="heroe">
+          <div class="f-hud"><div class="f-name">Tu héroe</div><div class="hp"><div class="hp-fill" style="width:100%"></div><span class="hp-text">100 / 100</span></div><div class="f-stats">⚔️ 10 · 🛡️ 5</div><div class="estados" role="list"></div></div>
+          <div class="retrato"><div class="sprite"></div><div class="avatar" aria-hidden="true">🤺</div></div>
+        </div>
+        <div class="vs" aria-hidden="true">VS</div>
+        <div class="fighter enemy" id="f-enemigo" data-lado="enemigo">
+          <div class="f-hud"><div class="f-name">—</div><div class="hp"><div class="hp-fill" style="width:100%"></div><span class="hp-text">60 / 60</span></div><div class="f-stats">⚔️ 9 · 🛡️ 4</div><div class="estados" role="list"></div></div>
+          <div class="retrato"><div class="intencion" hidden></div><div class="sprite"></div><div class="avatar" aria-hidden="true">❔</div></div>
+        </div>
+      </div>
+      <h3 class="sub">Crónica</h3>
+      <ol id="log" class="log" aria-live="polite"></ol>
+    </section>
+
+    <section class="panel">
+      <div class="grupo"><h3>Enemigo</h3>
+        <select id="sel-enemigo" aria-label="Enemigo"></select>
+        <button class="btn btn-gold" data-a="enemigo">Mostrar</button>
+        <button class="btn btn-red" data-a="jefe">Mostrar como jefe</button>
+        <button class="btn btn-ghost" data-a="vaciar">Vaciar arena</button>
+      </div>
+      <div class="grupo"><h3>Combate</h3>
+        <button class="btn btn-red" data-a="atk-h">Héroe ataca</button>
+        <button class="btn btn-red" data-a="crit-h">Crítico del héroe</button>
+        <button class="btn btn-red" data-a="atk-e">Enemigo ataca</button>
+        <button class="btn btn-red" data-a="brutal-e">Golpe brutal</button>
+        <button class="btn btn-blue" data-a="bloq">Bloqueo</button>
+        <button class="btn btn-ghost" data-a="esq">Esquiva</button>
+        <button class="btn btn-verde" data-a="cura">Curación</button>
+        <button class="btn btn-ghost" data-a="hitstop">Hit-stop</button>
+        <button class="btn btn-ghost" data-a="sacudir">Sacudida</button>
+        <button class="btn btn-ghost" data-a="muerte-e">Muere enemigo</button>
+        <button class="btn btn-ghost" data-a="muerte-h">Muere héroe</button>
+        <button class="btn btn-ghost" data-a="revivir">Revivir</button>
+      </div>
+      <div class="grupo"><h3>Estados</h3>
+        <button class="btn btn-ghost" data-a="est-h">Héroe: escudo + furia + reflejo</button>
+        <button class="btn btn-ghost" data-a="est-e">Enemigo: veneno + sangrado + aturdido</button>
+        <button class="btn btn-ghost" data-a="est-ev">Héroe: evasión</button>
+        <button class="btn btn-ghost" data-a="est-0">Quitar estados</button>
+      </div>
+      <div class="grupo"><h3>Intención del enemigo</h3>
+        <button class="btn btn-ghost" data-a="int-atacar">Atacar</button>
+        <button class="btn btn-ghost" data-a="int-cargar">Cargar</button>
+        <button class="btn btn-ghost" data-a="int-defender">Defender</button>
+        <button class="btn btn-ghost" data-a="int-habilidad">Habilidad</button>
+        <button class="btn btn-ghost" data-a="int-def">Definitiva</button>
+        <button class="btn btn-ghost" data-a="int-no">Ocultar</button>
+      </div>
+      <div class="grupo"><h3>Botín</h3>
+        <button class="btn btn-ghost" data-a="b-0">Común</button>
+        <button class="btn btn-blue" data-a="b-1">Raro</button>
+        <button class="btn btn-gold" data-a="b-2">¡Legendario!</button>
+        <button class="btn btn-ghost" data-a="b-null">Cofre vacío</button>
+      </div>
+      <div class="grupo"><h3>Progreso y pantallas</h3>
+        <button class="btn btn-gold" data-a="nivel">Subida de nivel</button>
+        <button class="btn btn-ghost" data-a="xp">+XP</button>
+        <button class="btn btn-ghost" data-a="racha">+Racha</button>
+        <button class="btn btn-gold" data-a="victoria">Pantalla victoria</button>
+        <button class="btn btn-red" data-a="derrota">Pantalla derrota</button>
+        <button class="btn btn-ghost" data-a="portada">Portada</button>
+        <button class="btn btn-ghost" data-a="combo">▶ Combate completo</button>
+      </div>
+      <div class="grupo"><h3>Sonidos</h3><span id="sonidos" class="grupo" style="margin:0"></span>
+        <button class="btn btn-ghost" id="btn-musica">🎵 Música: no</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Equipo del héroe</h2></div>
+      <div class="grupo" id="equipo"></div>
+      <div class="panel-head"><h2>Cosméticos (§5)</h2></div>
+      <div class="grupo" id="cosmeticos"></div>
+      <h3 class="sub">previsualizarCosmetico()</h3>
+      <div class="galeria" id="galeria-cos"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Inventario (cartas)</h2></div>
+      <div id="inventario" class="inventario"></div>
+    </section>
+
+    <section class="panel ancho">
+      <div class="panel-head"><h2>Bestiario</h2></div>
+      <div class="galeria" id="galeria"></div>
+    </section>
+  </main>
+
+  <div id="pantalla-resultado" class="pantalla pantalla-resultado" role="dialog" aria-modal="true" hidden></div>
+  <div id="toasts" class="toasts"></div>
+
+  <script type="module">
+    import * as FX from "./js/fx.js";
+    import { SONIDOS, sonar, setMusica, musicaActiva } from "./js/audio.js";
+    import { spriteEnemigo, CLAVES_ENEMIGO } from "./js/sprites.js";
+
+    const BESTIARIO = [
+      ["rata", "Rata gigante", "🐀"], ["lobo", "Lobo sombrío", "🐺"], ["goblin", "Goblin saqueador", "👺"], ["esqueleto", "Esqueleto errante", "💀"],
+      ["arana", "Araña venenosa", "🕷️"], ["orco", "Orco berserker", "👹"], ["espectro", "Espectro de la cripta", "👻"], ["golem", "Gólem de piedra", "🗿"],
+      ["hechicero", "Hechicero oscuro", "🧙"], ["dragon", "Dragón ancestral", "🐉"], ["jefe", "Señor de la Arena", "😈"], ["xyz", "Criatura desconocida", "🦑"],
+    ];
+    const COS = [[1, "Armadura carmesí"], [2, "Armadura esmeralda"], [3, "Armadura obsidiana"], [4, "Capucha del cazador"], [5, "Yelmo con cuernos"], [6, "Corona del campeón"],
+      [7, "Capa de viajero"], [8, "Capa real púrpura"], [9, "Alas de fénix"], [10, "Aura de escarcha"], [11, "Aura de llamas"], [12, "Gato negro"], [13, "Mini dragón"], [14, "Poción extra"]];
+    const RANURA = { 1: "color", 2: "color", 3: "color", 4: "sombrero", 5: "sombrero", 6: "sombrero", 7: "capa", 8: "capa", 9: "capa", 10: "aura", 11: "aura", 12: "mascota", 13: "mascota" };
+    const ITEMS = [
+      { tokenId: "1", nombre: "Espada Oxidada", tipo: "Espada", rareza: 0, ataque: 3, defensa: 0 },
+      { tokenId: "2", nombre: "Escudo Rúnico de Escarcha", tipo: "Escudo", rareza: 1, ataque: 0, defensa: 9 },
+      { tokenId: "3", nombre: "Albor, Espada del Fénix Eterno", tipo: "Espada", rareza: 2, ataque: 24, defensa: 3 },
+      { tokenId: "4", nombre: "Yelmo del Centinela", tipo: "Casco", rareza: 1, ataque: 2, defensa: 7 },
+      { tokenId: "5", nombre: "Coraza de Lord Dragón", tipo: "Armadura", rareza: 2, ataque: 4, defensa: 22 },
+      { tokenId: "6", nombre: "Botas Gastadas", tipo: "Botas", rareza: 0, ataque: 1, defensa: 2 },
+    ];
+    const $ = (s) => document.querySelector(s);
+    const log = (t) => { const li = document.createElement("li"); li.textContent = t; $("#log").append(li); $("#log").scrollTop = 1e9; };
+    const vida = { heroe: [100, 100], enemigo: [60, 60] };
+    const pegar = (q, d) => { const v = vida[q]; v[0] = Math.max(0, v[0] - d); FX.actualizarVida(q, v[0], v[1]); };
+    const curar = (q, c) => { const v = vida[q]; v[0] = Math.min(v[1], v[0] + c); FX.actualizarVida(q, v[0], v[1]); };
+    let xp = 0, nivel = 1, racha = 0;
+
+    FX.iniciarInterfaz({ auto: false });
+
+    // Selector de enemigos y galería
+    const sel = $("#sel-enemigo");
+    for (const [k, n] of BESTIARIO) sel.append(new Option(n, k));
+    for (const [k, n, e] of BESTIARIO) {
+      const f = document.createElement("figure");
+      const d = document.createElement("div");
+      d.innerHTML = spriteEnemigo(k, { emoji: e });
+      f.append(d, n);
+      $("#galeria").append(f);
+    }
+    const mostrar = (jefe = false) => {
+      const [clave, nombre, emoji] = BESTIARIO.find((b) => b[0] === sel.value);
+      vida.enemigo = jefe ? [140, 140] : [60, 60];
+      $("#f-enemigo").classList.remove("vacio");
+      $("#f-enemigo .f-name").textContent = `${nombre} · Nv. 3`;
+      FX.mostrarEnemigo({ nombre, emoji, nivel: 3, jefe, clave: clave === "xyz" ? undefined : clave, titulo: jefe ? `${nombre}, el Implacable` : undefined });
+      FX.actualizarVida("enemigo", ...vida.enemigo);
+      log(`Aparece ${nombre}${jefe ? " (JEFE)" : ""}.`);
+    };
+    sel.value = "orco";
+    mostrar();
+
+    // Equipo y cosméticos
+    const equipados = new Map();
+    const ap = { color: null, sombrero: null, capa: null, aura: null, mascota: null };
+    const repintar = () => FX.actualizarHeroe([...equipados.values()], ap);
+    for (const it of ITEMS) {
+      const b = document.createElement("button");
+      b.className = "btn btn-small btn-ghost"; b.type = "button"; b.textContent = `${it.tipo} (${["común", "raro", "legendario"][it.rareza]})`;
+      b.setAttribute("aria-pressed", "false");
+      b.onclick = () => {
+        const on = equipados.get(it.tipo) === it;
+        if (on) equipados.delete(it.tipo); else equipados.set(it.tipo, it);
+        document.querySelectorAll("#equipo .btn").forEach((x, i) => x.setAttribute("aria-pressed", String(equipados.get(ITEMS[i].tipo) === ITEMS[i])));
+        document.querySelectorAll("#equipo .btn").forEach((x) => x.classList.toggle("btn-gold", x.getAttribute("aria-pressed") === "true"));
+        repintar(); galeriaCos();
+      };
+      $("#equipo").append(b);
+    }
+    for (const [id, n] of COS.filter(([id]) => id !== 14)) {
+      const b = document.createElement("button");
+      b.className = "btn btn-small btn-ghost"; b.type = "button"; b.textContent = n;
+      b.onclick = () => {
+        const r = RANURA[id];
+        ap[r] = ap[r] === id ? null : id;
+        document.querySelectorAll("#cosmeticos .btn").forEach((x) => x.classList.toggle("btn-gold", Object.values(ap).includes(Number(x.dataset.id))));
+        repintar(); galeriaCos();
+      };
+      b.dataset.id = id;
+      $("#cosmeticos").append(b);
+    }
+    function galeriaCos() {
+      const g = $("#galeria-cos");
+      g.replaceChildren();
+      for (const [id, n] of COS) {
+        const f = document.createElement("figure"); const d = document.createElement("div");
+        FX.previsualizarCosmetico(d, id);
+        f.append(d, `${id}. ${n}`); g.append(f);
+      }
+    }
+    galeriaCos();
+
+    // Inventario con cartas (marcado igual que main.js; fx las decora solo)
+    for (const it of ITEMS) {
+      const color = ["#9ca3af", "#3b82f6", "#f59e0b"][it.rareza];
+      const a = document.createElement("article");
+      a.className = `item rar-${it.rareza}`; a.style.setProperty("--rar", color);
+      a.innerHTML = `<div class="item-top"><span class="item-emoji">💎</span><span class="item-id">#${it.tokenId}</span></div>
+        <div class="item-nombre"></div><div class="item-meta"><span class="rar-tag">${["Común", "Raro", "Legendario"][it.rareza]}</span> · ${it.tipo}</div>
+        <div class="item-stats">${it.ataque ? `<span class="st st-atk">+${it.ataque} ATQ</span>` : ""}${it.defensa ? `<span class="st st-def">+${it.defensa} DEF</span>` : ""}</div>
+        <div class="item-acciones"><button class="btn btn-small btn-gold" type="button">Equipar</button></div>`;
+      a.querySelector(".item-nombre").textContent = it.nombre;
+      $("#inventario").append(a);
+    }
+
+    // Sonidos
+    for (const s of SONIDOS) { const b = document.createElement("button"); b.className = "btn btn-small btn-ghost"; b.type = "button"; b.textContent = s; b.onclick = () => sonar(s); $("#sonidos").append(b); }
+    const pintarMusica = () => { $("#btn-musica").textContent = `🎵 Música: ${musicaActiva() ? "sí" : "no"}`; };
+    $("#btn-musica").onclick = () => { setMusica(!musicaActiva()); pintarMusica(); };
+    pintarMusica();
+
+    const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+    const A = {
+      enemigo: () => mostrar(false),
+      jefe: () => mostrar(true),
+      vaciar: () => { $("#f-enemigo").classList.add("vacio"); FX.mostrarEnemigo(null); },
+      "atk-h": async () => { await FX.animarAtaque("heroe"); const d = 8 + (Math.random() * 6 | 0); pegar("enemigo", d); FX.animarGolpe("enemigo", d); log(`Golpeas por ${d}.`); },
+      "crit-h": async () => { await FX.animarAtaque("heroe", { critico: true }); const d = 22; pegar("enemigo", d); FX.animarGolpe("enemigo", d, { critico: true }); log(`¡Crítico! ${d} de daño.`); },
+      "atk-e": async () => { await FX.animarAtaque("enemigo"); const d = 6; pegar("heroe", d); FX.animarGolpe("heroe", d); log(`El enemigo te golpea por ${d}.`); },
+      "brutal-e": async () => { await FX.animarAtaque("enemigo", { brutal: true }); const d = 25; pegar("heroe", d); FX.animarGolpe("heroe", d, { critico: true }); log(`¡Golpe brutal! ${d} de daño.`); },
+      bloq: async () => { await FX.animarAtaque("enemigo"); pegar("heroe", 2); FX.animarGolpe("heroe", 2, { bloqueado: true }); log("Bloqueas casi todo."); },
+      esq: async () => { await FX.animarAtaque("enemigo"); FX.animarGolpe("heroe", 0, { esquivado: true }); log("¡Esquivas!"); },
+      cura: () => { curar("heroe", 35); FX.animarCuracion("heroe", 35); log("Bebes una poción (+35)."); },
+      hitstop: () => FX.hitStop(400),
+      sacudir: () => FX.sacudir(14, 500),
+      "muerte-e": () => FX.animarMuerte("enemigo"),
+      "muerte-h": () => FX.animarMuerte("heroe"),
+      revivir: () => { FX.revivir("heroe"); FX.revivir("enemigo"); vida.heroe[0] = 100; FX.actualizarVida("heroe", 100, 100); },
+      "est-h": () => FX.mostrarEstado("heroe", [{ tipo: "escudo", turnos: 2 }, { tipo: "furia", turnos: 2 }, { tipo: "reflejo", turnos: 1 }]),
+      "est-e": () => FX.mostrarEstado("enemigo", [{ tipo: "veneno", turnos: 3 }, { tipo: "sangrado", turnos: 2 }, { tipo: "aturdido", turnos: 1 }]),
+      "est-ev": () => FX.mostrarEstado("heroe", [{ tipo: "evasion", turnos: 1 }]),
+      "est-0": () => { FX.mostrarEstado("heroe", []); FX.mostrarEstado("enemigo", []); },
+      "int-atacar": () => FX.mostrarIntencion({ tipo: "atacar", texto: "Ataque" }),
+      "int-cargar": () => FX.mostrarIntencion({ tipo: "cargar", texto: "Enfurecerse", icono: "😤" }),
+      "int-defender": () => FX.mostrarIntencion({ tipo: "defender", texto: "Guardia de piedra" }),
+      "int-habilidad": () => FX.mostrarIntencion({ tipo: "habilidad", texto: "Picadura venenosa", icono: "🧪" }),
+      "int-def": () => FX.mostrarIntencion({ tipo: "cargar", texto: "¡Masacre! (bloquéala)", definitiva: true }),
+      "int-no": () => FX.mostrarIntencion(null),
+      "b-0": async () => log(`revelarBotin → ${await FX.revelarBotin(ITEMS[0])}`),
+      "b-1": async () => log(`revelarBotin → ${await FX.revelarBotin(ITEMS[1])}`),
+      "b-2": async () => log(`revelarBotin → ${await FX.revelarBotin(ITEMS[2])}`),
+      "b-null": async () => log(`revelarBotin → ${await FX.revelarBotin(null)}`),
+      nivel: () => { nivel++; FX.actualizarXP({ xp: 0, xpSiguiente: 100 + nivel * 20, nivel }); FX.subidaDeNivel(nivel); },
+      xp: () => { xp += 35; const sig = 100 + nivel * 20; if (xp >= sig) { xp -= sig; nivel++; FX.subidaDeNivel(nivel); } FX.actualizarXP({ xp, xpSiguiente: 100 + nivel * 20, nivel }); },
+      racha: () => FX.actualizarRacha(++racha),
+      victoria: async () => log(`mostrarResultado → ${await FX.mostrarResultado({ tipo: "victoria", enemigo: "Orco berserker", danoHecho: 87, criticos: 2, danoRecibido: 31, turnos: 7, xp: 45, racha: 3 })}`),
+      derrota: async () => log(`mostrarResultado → ${await FX.mostrarResultado({ tipo: "derrota", enemigo: "Dragón ancestral", danoHecho: 54, criticos: 1, danoRecibido: 100, turnos: 5, xp: 0 })}`),
+      portada: () => FX.mostrarPortada(),
+      combo: async () => {
+        A.revivir(); mostrar(); await esperar(700);
+        FX.mostrarIntencion({ tipo: "cargar", texto: "Enfurecerse", icono: "😤" });
+        await A["atk-h"](); await esperar(500);
+        FX.mostrarEstado("enemigo", [{ tipo: "sangrado", turnos: 2 }]);
+        await A["brutal-e"](); await esperar(600);
+        A.cura(); await esperar(700);
+        await A["crit-h"](); await esperar(500);
+        await FX.animarAtaque("heroe", { critico: true }); pegar("enemigo", 99); FX.animarGolpe("enemigo", 40, { critico: true });
+        await esperar(450); await FX.animarMuerte("enemigo");
+        A.racha(); A.xp();
+        const r = await FX.mostrarResultado({ tipo: "victoria", enemigo: "Orco berserker", danoHecho: 99, criticos: 2, danoRecibido: 25, turnos: 4, xp: 35, racha });
+        if (r) log(`→ ${await FX.revelarBotin(ITEMS[Math.random() < 0.5 ? 2 : 1])}`);
+      },
+    };
+    document.addEventListener("click", (ev) => { const b = ev.target.closest("[data-a]"); if (b) A[b.dataset.a]?.(); });
+
+    // Contador de FPS (para comprobar fluidez)
+    let n = 0, t0 = performance.now();
+    (function bucle(t) { n++; if (t - t0 >= 1000) { $("#fps").textContent = `${Math.round(n * 1000 / (t - t0))} fps`; n = 0; t0 = t; } requestAnimationFrame(bucle); })(t0);
+  </script>
+</body>
+</html>

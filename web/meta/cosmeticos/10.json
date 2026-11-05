@@ -1,0 +1,26 @@
+{
+  "name": "Aura de escarcha",
+  "description": "Un halo helado envuelve al héroe.",
+  "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgcng9IjEyIiBmaWxsPSIjMTQxMjFmIi8+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9Ijk0IiBoZWlnaHQ9Ijk0IiByeD0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzNiODJmNiIgc3Ryb2tlLXdpZHRoPSI0Ii8+PGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iMzAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzdmZGJmZiIgc3Ryb2tlLXdpZHRoPSI4IiBvcGFjaXR5PSIuOSIvPjxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjE2IiBmaWxsPSIjN2ZkYmZmIiBvcGFjaXR5PSIuNCIvPjwvc3ZnPg==",
+  "attributes": [
+    {
+      "trait_type": "Ranura",
+      "value": "aura"
+    },
+    {
+      "trait_type": "Rareza",
+      "value": "Rara"
+    },
+    {
+      "trait_type": "Precio (ORO)",
+      "value": 250,
+      "display_type": "number"
+    }
+  ],
+  "properties": {
+    "id": 10,
+    "ranura": "aura",
+    "rareza": 1,
+    "precio": 250
+  }
+}

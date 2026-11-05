@@ -1,0 +1,26 @@
+{
+  "name": "Capa de viajero",
+  "description": "Capa sencilla y resistente para largas expediciones.",
+  "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgcng9IjEyIiBmaWxsPSIjMTQxMjFmIi8+PHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9Ijk0IiBoZWlnaHQ9Ijk0IiByeD0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzlhYTRiMiIgc3Ryb2tlLXdpZHRoPSI0Ii8+PHBhdGggZD0iTTM1IDIyaDMwbDE4IDYwSDE3eiIgZmlsbD0iIzdmNmE0ZCIvPjwvc3ZnPg==",
+  "attributes": [
+    {
+      "trait_type": "Ranura",
+      "value": "capa"
+    },
+    {
+      "trait_type": "Rareza",
+      "value": "Común"
+    },
+    {
+      "trait_type": "Precio (ORO)",
+      "value": 90,
+      "display_type": "number"
+    }
+  ],
+  "properties": {
+    "id": 7,
+    "ranura": "capa",
+    "rareza": 0,
+    "precio": 90
+  }
+}

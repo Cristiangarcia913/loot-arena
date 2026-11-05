@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loot Arena · Demo de la tienda</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/tienda.css">
+  <style>
+    .demo-wrap { max-width: 1180px; margin: 0 auto; padding: 16px clamp(12px, 3vw, 32px); display: grid; gap: 16px; }
+    .demo-modos { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .demo-modos a.on { background: rgba(232, 183, 90, .2); border-color: var(--oro); }
+    .demo-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+    .demo-inv { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+    .demo-carta { padding: 10px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--borde-suave); display: flex; flex-direction: column; gap: 6px; }
+    .demo-carta.r1 { border-color: #3b82f6; } .demo-carta.r2 { border-color: #f59e0b; }
+    .demo-heroe { min-height: 170px; display: grid; place-items: center; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; color: var(--tenue); margin: 0; }
+    .panel { background: var(--panel); border: 1px solid var(--borde-suave); border-radius: 14px; padding: 16px; }
+    @media (max-width: 860px) { .demo-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">🏪</span><div><h1>Loot Arena</h1><p class="tagline">Demo de la tienda (sin wallet)</p></div></div>
+    <div class="wallet"><div id="saldo-oro"></div><span class="badge" id="demo-badge">Simulación</span></div>
+  </header>
+
+  <main class="demo-wrap">
+    <nav class="demo-modos" aria-label="Modo de la demo">
+      <span class="tn-tenue">Modo:</span>
+      <a class="btn btn-small btn-ghost" href="?modo=simulada">Economía simulada</a>
+      <a class="btn btn-small btn-ghost" href="?modo=caja-vacia">Caja de ETH vacía</a>
+      <a class="btn btn-small btn-ghost" href="?modo=sin-gas">Sin ETH para gas</a>
+      <a class="btn btn-small btn-ghost" href="?modo=demo">Sin wallet (demo)</a>
+      <a class="btn btn-small btn-ghost" href="?modo=no-desplegada">Economía no desplegada</a>
+    </nav>
+
+    <div class="demo-grid">
+      <section id="tienda" class="panel"></section>
+      <div style="display:grid;gap:16px">
+        <section class="panel">
+          <h2>Tu héroe</h2>
+          <div class="demo-heroe" id="demo-heroe"></div>
+          <pre id="demo-ap"></pre>
+        </section>
+        <section id="vestuario" class="panel"></section>
+      </div>
+    </div>
+
+    <section class="panel">
+      <h2>Inventario (cartas con botón de venta)</h2>
+      <div class="demo-inv" id="demo-inv"></div>
+    </section>
+  </main>
+  <div id="toasts" class="toasts"></div>
+
+  <script type="module">
+    import { crearEconomiaSimulada } from "./js/economy.js";
+    import * as T from "./js/tienda.js";
+
+    // fx.js es del equipo de arte. Con ?fx=1 se carga (si existe); si no, la tienda dibuja su héroe de reserva.
+    const q = new URLSearchParams(location.search);
+    let fx = null;
+    if (q.get("fx") === "1") { try { fx = await import("./js/fx.js"); } catch { console.info("[demo] fx.js no disponible"); } }
+
+    const modo = q.get("modo") ?? "simulada";
+    document.querySelectorAll(".demo-modos a").forEach((a) => a.classList.toggle("on", a.search === `?modo=${modo}`));
+    document.getElementById("demo-badge").textContent = modo;
+
+    let inventario = [
+      { tokenId: "1", nombre: "Espada Oxidada", tipo: "Espada", rareza: 0, ataque: 3, defensa: 0 },
+      { tokenId: "2", nombre: "Escudo Rúnico de Escarcha", tipo: "Escudo", rareza: 1, ataque: 1, defensa: 9, equipado: true },
+      { tokenId: "3", nombre: "Albor, Espada del Fénix Eterno", tipo: "Espada", rareza: 2, ataque: 22, defensa: 4 },
+      { tokenId: "4", nombre: "Botas de Cuero", tipo: "Botas", rareza: 0, ataque: 0, defensa: 2 },
+      { tokenId: "5", nombre: "Yelmo del Lobo Gris", tipo: "Casco", rareza: 1, ataque: 2, defensa: 7 },
+    ];
+    const dir = (n) => `0x${String(n).repeat(40)}`;
+    const cfg = { red: "sepolia", chainId: 11155111, net: { blockExplorerUrls: ["https://sepolia.etherscan.io"] } };
+
+    const opciones = {
+      cfg, fx, inventario,
+      getEquipados: () => inventario.filter((it) => it.equipado),
+      onCambioApariencia: (ap) => {
+        document.getElementById("demo-ap").textContent = `apariencia = ${JSON.stringify(ap)}`;
+        const heroe = document.getElementById("demo-heroe");
+        if (typeof fx?.actualizarHeroe !== "function") heroe.textContent = "(fx.actualizarHeroe no disponible: la apariencia se ve en el probador de la tienda)";
+      },
+      onCambioSaldo: (s) => console.info("[demo] saldo", s.oro, "ORO"),
+      onVendido: (ids) => { inventario = inventario.filter((it) => !ids.includes(it.tokenId)); pintarInventario(); },
+    };
+    if (modo === "simulada" || modo === "caja-vacia" || modo === "sin-gas") {
+      opciones.economia = crearEconomiaSimulada({
+        oro: 260, inventario, cosmeticos: { 4: 1, 12: 1, 14: 2 },
+        caja: modo === "caja-vacia" ? 0n : 10n ** 16n,
+        eth: modo === "sin-gas" ? 0n : 3n * 10n ** 16n,
+      });
+      opciones.cuenta = "0xDE00000000000000000000000000000000000001";
+    } else if (modo === "demo") {
+      cfg.economia = { oro: dir(2), cosmeticos: dir(3), mercado: dir(4) }; // direcciones ficticias; sin provider → demo
+    } // no-desplegada: config/deployments.json no tiene oro/cosmeticos/mercado
+
+    function pintarInventario() {
+      const cont = document.getElementById("demo-inv");
+      cont.replaceChildren(...inventario.map((it) => {
+        const c = document.createElement("article");
+        c.className = `demo-carta r${it.rareza}`;
+        const t = document.createElement("strong"); t.textContent = it.nombre;
+        const m = document.createElement("span"); m.className = "tn-meta"; m.textContent = `${it.tipo} · ⚔ ${it.ataque} 🛡 ${it.defensa}${it.equipado ? " · equipado" : ""}`;
+        c.append(t, m);
+        const b = T.botonVender(it);
+        if (b) c.append(b);
+        return c;
+      }));
+      T.actualizarInventario(inventario);
+    }
+
+    const r = await T.montarTienda(opciones);
+    console.info("[demo] tienda montada en modo", r.modo);
+    pintarInventario();
+  </script>
+</body>
+</html>

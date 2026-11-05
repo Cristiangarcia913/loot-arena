@@ -1,10 +1,16 @@
 {
   "localhost": {
     "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-    "chainId": 31337
+    "chainId": 31337,
+    "oro": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "cosmeticos": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "mercado": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
   },
   "sepolia": {
     "address": "0x32B89E29fACa1b1418B5802b6a2C7de71f3AdA2f",
-    "chainId": 11155111
+    "chainId": 11155111,
+    "oro": "0x9cAF63A74f3E98179102e5438181aCee67Fe49eB",
+    "cosmeticos": "0xfe09222b51A2b91F54d42e7bE4ca1E84591F9604",
+    "mercado": "0xbA659cC7AF1dDCC53Af847Aa9639bdbAC2BAa15E"
   }
 }
