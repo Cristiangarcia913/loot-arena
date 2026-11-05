@@ -71,6 +71,8 @@ sequenceDiagram
 | Owner (servidor) | [`0x903236cfeEf86D2D126CA7D7d3Cb92e9fa114C23`](https://sepolia.etherscan.io/address/0x903236cfeEf86D2D126CA7D7d3Cb92e9fa114C23) |
 | Juego | https://cristiangarcia913.github.io/loot-arena/ |
 | Servidor | https://loot-arena-cg913.onrender.com |
+| itch.io | https://cristiangarcia913.itch.io/loot-arena |
+| Descargas | [Release v1.0.0](https://github.com/Cristiangarcia913/loot-arena/releases/tag/v1.0.0) (Windows, macOS, Linux, HTML5) |
 
 ## 4. Pruebas
 

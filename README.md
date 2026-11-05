@@ -5,6 +5,7 @@ Mini-RPG de combate por turnos en el navegador. Cada objeto de equipo que consig
 | | |
 |---|---|
 | 🎮 **Jugar en el navegador** | https://cristiangarcia913.github.io/loot-arena/ |
+| 🕹️ **itch.io** (jugar o descargar) | https://cristiangarcia913.itch.io/loot-arena |
 | ⬇️ **Descargar (Windows / macOS / Linux)** | [Última versión](https://github.com/Cristiangarcia913/loot-arena/releases/latest) |
 | 📜 **Contrato (verificado)** | [`0x32B89E29fACa1b1418B5802b6a2C7de71f3AdA2f`](https://sepolia.etherscan.io/address/0x32B89E29fACa1b1418B5802b6a2C7de71f3AdA2f#code) |
 | 🖥️ **Servidor de botín** | https://loot-arena-cg913.onrender.com/health |
