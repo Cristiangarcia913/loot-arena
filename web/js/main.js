@@ -13,6 +13,10 @@ import * as ENG from "./enganche.js";
 import * as INV from "./inventario.js";
 import * as MERC from "./mercado.js";
 import * as HEROE from "./heroe.js";
+import * as GAS from "./gas.js";
+import * as TUT from "./tutorial.js";
+import * as EXP from "./expediciones.js";
+import * as TORRE from "./torre.js";
 import { reclamarBotin } from "./api.js";
 import { crearContrato, hayCodigo, leerInventario, transferir, enlacesExplorador } from "./chain.js";
 import { $, h, enlace, acortar, toast, esperar } from "./ui.js";
@@ -35,7 +39,11 @@ const S = {
   expedicion: null, // { pociones, pocionesExtra, extraGastadas }
   reclamando: false,
   desafio: null, // { rng } mientras se juega el desafío diario
-  pocionesRegalo: 0, // pociones ganadas en misiones/pase para la próxima expedición
+  pocionesRegalo: 0,
+  torre: null, // subida en curso (entre pisos)
+  torreUltimo: null, // resultado de la última subida
+  torreUltimoPiso: null, // resultado del último piso superado
+  torreRanking: null, // pociones ganadas en misiones/pase para la próxima expedición
   transfiriendo: new Set(),
   links: { tx: () => null, token: () => null },
 };
@@ -253,6 +261,9 @@ async function montarEconomia() {
   }
   if (id !== montajeEco) return;
   pintarTitulo(ENG.tituloActivo());
+  renderExp();
+  renderTorreSec();
+  R.marcarAviso("expediciones", EXP.hayExpedicionLista(claveExp()));
   ENG.registrarEvento({ tipo: "inventario", items: S.inventario });
   ENG.registrarEvento({ tipo: "nivel", valor: P.infoXp(S.progreso).nivel });
 }
@@ -266,7 +277,7 @@ function aplicarRecompensa(r) {
     renderHeroe();
     const nv = P.infoXp(S.progreso).nivel;
     if (nv > antes) { FX.subidaDeNivel(nv); ENG.registrarEvento({ tipo: "nivel", valor: nv }); }
-    toast(`✨ +${r.xp} XP${r.fuente === "pase" ? " del pase" : " por la misión"}`, "ok", 3500);
+    toast(`✨ +${r.xp} XP${({ pase: " del pase", torre: " de la torre", expedicion: " de la expedición" })[r.fuente] ?? " por la misión"}`, "ok", 3500);
   } else if (r.tipo === "pociones" && r.cantidad > 0) {
     if (S.expedicion) S.expedicion.pociones += r.cantidad;
     else S.pocionesRegalo += r.cantidad;
@@ -390,6 +401,7 @@ function alCambiarInventario() {
 function alternarEquipo(item) {
   S.equipo = E.estaEquipado(S.equipo, item.tokenId) ? E.desequipar(S.equipo, item.tokenId) : E.equipar(S.equipo, item);
   guardarEquipo();
+  if (E.estaEquipado(S.equipo, item.tokenId)) TUT.avanzarTutorial("equipar");
   alCambiarInventario();
   if (enCurso()) toast("El nuevo equipo se aplicará en el próximo combate.", "info", 3000);
 }
@@ -482,6 +494,8 @@ async function confirmarTransferencia(ev) {
   renderInventario();
   try {
     toast("Confirma la transferencia en MetaMask…", "info");
+    const gas = await GAS.asegurarGas({ provider: S.provider, cuenta: from, serverUrl: S.cfg.serverUrl, onEstado: (m) => m && toast(m, "info", 4000) });
+    if (!gas.ok) { toast(gas.mensaje || "No tienes ETH de Sepolia para el gas.", "error", 8000); return; }
     const tx = await transferir(S.provider, S.contrato, from, S.ethers.getAddress(to), item.tokenId);
     toast(h("span", {}, "Transferencia enviada. Esperando confirmación… ", enlace(S.links.tx(tx.hash), "ver tx ↗")), "info", 8000);
     await tx.wait();
@@ -616,7 +630,7 @@ function explorar() {
   const nivelA = C.nivelArena(v);
   // Los dos primeros combates son de nivel 1 para que el jugador nuevo aprenda sin frustrarse.
   const nivel = jefe || v < 2 ? nivelA : C.nivelEnemigo(nivelA);
-  const enemigo = C.generarEnemigo(nivel, Math.random, { jefe });
+  const enemigo = TUT.tutorialActivo() ? TUT.combateTutorial() : C.generarEnemigo(nivel, Math.random, { jefe });
   const heroe = { ...statsHeroe(), pociones: S.expedicion.pociones, pocionesExtra: S.expedicion.pocionesExtra };
   S.combate = C.crearCombate(heroe, enemigo);
   $("#resultado").hidden = true;
@@ -629,6 +643,7 @@ function explorar() {
   FX.mostrarIntencion(C.intencionEnemigo(S.combate));
   renderLuchadores();
   renderBotones();
+  TUT.avanzarTutorial("explorar");
 }
 
 async function accion(tipo) {
@@ -647,6 +662,8 @@ async function accion(tipo) {
     return toast(e.message, "error");
   }
   const { combate, eventos, fin } = res;
+  if (tipo === "atacar") TUT.avanzarTutorial("ataque");
+  else if (tipo && typeof tipo === "object" && tipo.habilidad) TUT.avanzarTutorial("habilidad");
   try {
     for (const ev of eventos) await animarEvento(ev, combate);
   } catch (e) {
@@ -676,6 +693,7 @@ function resultado(...contenido) {
 async function alTerminar(fin) {
   const c = S.combate;
   if (S.desafio) return terminarDesafioActual(fin);
+  if (S.torre) return terminarPisoTorre(fin);
   ENG.registrarCombate(c);
   const restantes = C.pocionesRestantes(c);
   if (S.expedicion) {
@@ -736,6 +754,128 @@ async function terminarDesafioActual(fin) {
   if (eleccion === "otra") explorar();
 }
 
+// ───────────────────────── Torre infinita ─────────────────────────
+
+function renderTorreSec() {
+  const c = $("#torre");
+  if (!c) return;
+  TORRE.renderTorre(c, {
+    estado: S.torre ?? S.torreUltimo, ranking: S.torreRanking, cuenta: S.cuenta,
+    record: TORRE.cargarRecord(globalThis.localStorage, S.cuenta), ultimo: S.torreUltimoPiso,
+    onEmpezar: empezarTorre, onSiguientePiso: siguientePisoTorre,
+  });
+}
+
+async function cargarRankingTorre() {
+  S.torreRanking = null;
+  renderTorreSec();
+  try { S.torreRanking = await TORRE.pedirRankingTorre(S.cfg.serverUrl); } catch (e) { S.torreRanking = { error: String(e?.message ?? e) }; }
+  renderTorreSec();
+}
+
+function empezarTorre() {
+  if (enCurso() || S.animando) return toast("Termina primero el combate actual.", "info");
+  S.torre = TORRE.nuevaTorre(statsHeroe());
+  S.torreUltimo = null;
+  S.torreUltimoPiso = null;
+  lanzarPisoTorre();
+}
+
+function siguientePisoTorre() {
+  if (!S.torre || enCurso() || S.animando) return;
+  lanzarPisoTorre();
+}
+
+function lanzarPisoTorre() {
+  S.combate = TORRE.combateDePiso(S.torre);
+  R.irA("arena");
+  $("#resultado").hidden = true;
+  $("#log").replaceChildren();
+  añadirLog(S.combate.log);
+  FX.revivir("heroe");
+  FX.actualizarHeroe(equipados());
+  FX.mostrarEstado("heroe", []);
+  FX.mostrarEnemigo(S.combate.enemigo);
+  FX.mostrarIntencion(C.intencionEnemigo(S.combate));
+  FX.anunciar(`TORRE · PISO ${S.torre.piso}`, TORRE.esPisoJefe(S.torre.piso) ? "¡Piso de jefe!" : "Sube todo lo que puedas");
+  renderLuchadores();
+  renderBotones();
+}
+
+async function terminarPisoTorre(fin) {
+  const c = S.combate;
+  if (fin === "victoria") {
+    const r = TORRE.trasVictoria(S.torre, c);
+    S.torre = r.torre;
+    S.torreUltimoPiso = r;
+    aplicarRecompensa({ tipo: "xp", xp: r.xp, fuente: "torre" });
+    if (S.cuenta) TORRE.enviarPiso(S.cfg.serverUrl, S.cuenta, r.superado, S.torre.turnos).catch(() => {});
+    if (r.botin && S.cuenta && redCorrecta()) {
+      const b = await reclamarBotin(S.cfg.serverUrl, S.cuenta, r.botin.nivel, { jefe: true });
+      if (b.tipo === "drop") { ENG.registrarEvento({ tipo: "botin", item: b.item }); await FX.revelarBotin(b.item); await cargarInventario(); }
+    }
+    resultado(h("div", { class: "res res-drop" },
+      h("strong", {}, `🗼 Piso ${r.superado} superado. `), `+${r.xp} XP y +${r.curacion} de vida. `,
+      h("button", { class: "btn btn-small btn-gold", type: "button", onclick: siguientePisoTorre }, `Subir al piso ${S.torre.piso}`)));
+    renderTorreSec();
+    return;
+  }
+  const res = TORRE.trasDerrota(S.torre, c, { storage: globalThis.localStorage, address: S.cuenta });
+  S.torre = null;
+  S.torreUltimo = res;
+  S.torreUltimoPiso = null;
+  resultado(h("div", { class: "res res-derrota" },
+    h("strong", {}, `🗼 Fin de la subida: ${res.pisosSuperados} piso${res.pisosSuperados === 1 ? "" : "s"}. `),
+    res.nuevoRecord ? "¡Nuevo récord personal!" : `Tu récord: ${res.record}.`));
+  await FX.mostrarResultado({ tipo: fin === "derrota" ? "derrota" : "huida", ...c.resumen, enemigo: `Torre · piso ${res.piso}` });
+  renderTorreSec();
+  R.irA("torre");
+  cargarRankingTorre();
+}
+
+// ───────────────────────── Expediciones ─────────────────────────
+
+const claveExp = () => EXP.claveExpedicion(S.cuenta);
+
+function renderExp(resultadoExp = null) {
+  const c = $("#expediciones");
+  if (!c) return;
+  EXP.renderExpediciones(c, {
+    estado: EXP.estadoExpedicion(claveExp()),
+    resultado: resultadoExp,
+    onEnviar: (id) => {
+      const r = EXP.enviar(claveExp(), id);
+      if (!r.ok) toast(r.mensaje, "info");
+      R.marcarAviso("expediciones", false);
+      renderExp();
+    },
+    onRecoger: recogerExp,
+    onLista: () => { R.marcarAviso("expediciones", true); renderExp(); },
+  });
+}
+
+async function recogerExp() {
+  const r = EXP.recoger(claveExp());
+  if (!r.ok) return toast(r.mensaje, "info");
+  R.marcarAviso("expediciones", false);
+  aplicarRecompensa({ tipo: "xp", xp: r.xp, fuente: "expedicion" });
+  if (r.pociones) aplicarRecompensa({ tipo: "pociones", cantidad: r.pociones });
+  renderExp(r);
+  if (!r.botin) return;
+  if (!S.cuenta || !redCorrecta()) return toast("Conecta tu wallet para recibir el botín de la expedición.", "info", 6000);
+  const b = await reclamarBotin(S.cfg.serverUrl, S.cuenta, r.botin.nivel, { jefe: !!r.botin.jefe });
+  if (b.tipo === "drop") {
+    EXP.resolverBotin(claveExp());
+    ENG.registrarEvento({ tipo: "botin", item: b.item });
+    await FX.revelarBotin(b.item);
+    await cargarInventario();
+  } else if (b.tipo === "sin_drop") {
+    EXP.resolverBotin(claveExp());
+  } else {
+    toast(`El botín de la expedición queda pendiente: ${b.mensaje}`, "info", 6000);
+  }
+}
+
 /** Pide el botín al servidor. Devuelve {tipo, ...} de api.js o {tipo:"demo"} sin wallet. */
 async function pedirBotin(enemigo) {
   if (!S.cuenta || !redCorrecta()) return { tipo: "demo" };
@@ -749,6 +889,7 @@ async function pedirBotin(enemigo) {
 }
 
 async function mostrarBotin(r, eleccionPrevia) {
+  if (r.tipo !== "drop") TUT.avanzarTutorial("botin");
   const enemigo = S.combate?.enemigo;
   const reintentar = h("button", { class: "btn btn-small btn-gold", type: "button", onclick: async () => mostrarBotin(await pedirBotin(enemigo), "continuar") }, "Reintentar");
   let eleccion = eleccionPrevia;
@@ -760,6 +901,7 @@ async function mostrarBotin(r, eleccionPrevia) {
         urlTx ? h("div", { class: "res-links" }, enlace(urlTx, "Ver transacción de minteo ↗")) : null));
       ENG.registrarEvento({ tipo: "botin", item: r.item });
       eleccion = await FX.revelarBotin(r.item);
+      TUT.avanzarTutorial("botin");
       await cargarInventario();
       if (r.txHash && S.provider && !S.inventario.some((it) => it.tokenId === r.tokenId)) {
         try { await S.provider.waitForTransaction(r.txHash, 1, 120_000); } catch { /* seguimos */ }
@@ -792,6 +934,14 @@ async function mostrarBotin(r, eleccionPrevia) {
 async function iniciar() {
   FX.iniciarInterfaz({ auto: false });
   cargarProgreso();
+  const empezarGuia = () => { if (TUT.iniciarTutorial({ fx: FX })) R.irA("arena"); };
+  if ($("#pantalla-portada")?.hidden) empezarGuia();
+  else $("#btn-entrar")?.addEventListener("click", () => setTimeout(empezarGuia, 450));
+  R.alCambiar((sec) => {
+    if (sec === "torre") cargarRankingTorre();
+    if (sec === "expediciones") renderExp();
+  });
+  setInterval(() => R.marcarAviso("expediciones", EXP.hayExpedicionLista(claveExp())), 30_000);
   $("#btn-explorar").addEventListener("click", explorar);
   $("#btn-atacar").addEventListener("click", () => accion("atacar"));
   $("#btn-defender").addEventListener("click", () => accion("defender"));

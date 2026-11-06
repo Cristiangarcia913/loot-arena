@@ -1,0 +1,40 @@
+/* Torre infinita (renderTorre en js/torre.js). Usa las variables de style.css. */
+.torre-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 720px) { .torre-grid { grid-template-columns: minmax(0, 1fr); } }
+.torre-estado, .torre-top { background: var(--panel); border: 1px solid var(--borde-suave); border-radius: var(--radio); padding: 16px; min-width: 0; }
+.torre-titulo { margin: 0 0 10px; font-family: var(--titulo); color: var(--oro); font-size: 1.35rem; }
+.torre-subtitulo { margin: 0 0 10px; font-family: var(--titulo); color: var(--oro); font-size: 1.05rem; }
+.torre-tenue { color: var(--tenue); font-size: .85rem; margin: 10px 0 0; }
+.torre-aviso { margin: 0 0 10px; padding: 8px 10px; border-radius: 10px; background: rgba(74, 222, 128, .1); border: 1px solid rgba(74, 222, 128, .35); font-size: .9rem; }
+
+.torre-piso { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 10px; }
+.torre-piso-num { font-family: var(--titulo); font-size: 2rem; font-weight: 700; color: var(--texto); line-height: 1.1; }
+.torre-piso-info { color: var(--tenue); font-size: .9rem; }
+.torre-piso-jefe .torre-piso-num { color: #f87171; text-shadow: 0 0 12px rgba(239, 68, 68, .45); }
+.torre-piso-jefe .torre-piso-info { color: #fca5a5; font-weight: 600; }
+
+.torre-vida { position: relative; height: 24px; border-radius: 999px; background: rgba(0, 0, 0, .4); border: 1px solid var(--borde); overflow: hidden; }
+.torre-vida-barra { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #22c55e, #4ade80); transition: width .4s ease; }
+.torre-vida-media .torre-vida-barra { background: linear-gradient(90deg, #ca8a04, #facc15); }
+.torre-vida-baja .torre-vida-barra { background: linear-gradient(90deg, #b91c1c, var(--rojo)); }
+.torre-vida span { position: relative; display: block; text-align: center; font-size: .8rem; font-weight: 700; line-height: 22px; text-shadow: 0 1px 2px #000; }
+
+.torre-datos { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; padding: 0; }
+.torre-datos li { padding: 4px 10px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--borde-suave); font-size: .85rem; white-space: nowrap; }
+.torre-btn { width: 100%; font-size: 1.05rem; padding-block: 12px; }
+
+.torre-final { text-align: center; margin-bottom: 12px; }
+.torre-final-titulo { font-family: var(--titulo); font-size: 1.5rem; margin: 4px 0 8px; }
+.torre-final .torre-datos { justify-content: center; }
+.torre-final-record .torre-final-titulo { color: var(--oro); text-shadow: 0 0 14px rgba(232, 183, 90, .55); animation: torre-brillo 1.6s ease-in-out infinite alternate; }
+@keyframes torre-brillo { to { text-shadow: 0 0 4px rgba(232, 183, 90, .2); } }
+@media (prefers-reduced-motion: reduce) { .torre-final-record .torre-final-titulo { animation: none; } .torre-vida-barra { transition: none; } }
+
+.torre-ranking { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.torre-fila { display: grid; grid-template-columns: 2.2em minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 8px; font-size: .9rem; }
+.torre-fila:nth-child(odd) { background: rgba(255, 255, 255, .03); }
+.torre-pos { text-align: center; font-weight: 700; color: var(--tenue); }
+.torre-dir { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.torre-pisos { font-weight: 700; white-space: nowrap; }
+.torre-yo { background: rgba(232, 183, 90, .16) !important; outline: 1px solid var(--oro); }
+.torre-yo .torre-dir, .torre-yo .torre-pos { color: var(--oro); font-weight: 700; }

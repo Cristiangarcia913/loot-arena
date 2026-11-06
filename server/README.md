@@ -35,6 +35,7 @@ npm start
 | `MERCADO_ADDRESS` | no¹ | Dirección del `Mercado` de la 1.2 (`shared/deployments.json` → `sepolia.mercado`). |
 | `RECOMPENSAS_ADDRESS` | no¹ | Dirección de `Recompensas` (`sepolia.recompensas`). La wallet de `PRIVATE_KEY` debe ser su `operador`. |
 | `DEPLOY_BLOCK` | no¹ | Bloque desde el que se indexa el ranking: el del **despliegue de GameItem** (el más antiguo de los tres). |
+| `GAS_TOPE_DIARIO` | no (0.01) | ETH máximo que el grifo de gas (`POST /gas`) reparte al día entre todos los jugadores. |
 | `TEMPORADA_INICIO` | no | Inicio de la temporada 1 del pase (ISO UTC). Por defecto `2026-11-02T00:00:00Z`. Debe coincidir con `web/js/pase.js`. |
 
 ¹ Sin `MERCADO_ADDRESS` + `RECOMPENSAS_ADDRESS` + `DEPLOY_BLOCK`, `GET /ranking*` responde 503; sin `RECOMPENSAS_ADDRESS`,
@@ -77,7 +78,7 @@ Body: `{ "address": "0x...", "enemyLevel": 1, "jefe": false }`
 - `jefe`: **booleano** opcional, por defecto `false`. `true` = el combate ganado era contra un jefe
   (siempre suelta objeto y mejora rareza y stats). Cualquier otro tipo (`"true"`, `1`, `null`…) → 400.
 
-La forma de la respuesta no cambia respecto a la 1.0.
+La forma de la respuesta no cambia respecto a la 1.0, salvo el campo opcional `primerBotin` (1.3, ver abajo).
 
 | Código | Cuerpo |
 |---|---|
@@ -93,6 +94,17 @@ La forma de la respuesta no cambia respecto a la 1.0.
 
 **Límites** (en memoria, una sola instancia): 30 peticiones/hora por IP (se cuenta antes de validar) y
 1 petición cada 10 s por dirección (se cuenta tras validar, también si no hay drop).
+
+**Primer botín garantizado (1.3).** La primera victoria de cada dirección suelta **siempre un objeto Raro** (`rareza: 1`),
+aunque el RNG dijera "sin drop" y aunque fuera un jefe; tipo, nombre y stats se sortean como siempre según `enemyLevel`/`jefe`.
+La respuesta añade `"primerBotin": true`:
+```json
+{ "drop": true, "tokenId": "12", "txHash": "0x...", "primerBotin": true,
+  "item": { "nombre": "Calzas Ancestrales de los Ecos", "tipo": "Botas", "rareza": 1, "ataque": 4, "defensa": 11 } }
+```
+Si el mint falla, no cuenta: la siguiente victoria vuelve a ser el primer botín.
+> **Límite: en memoria.** El servidor no sabe si una dirección ganó antes de arrancar: tras cada reinicio (Render se duerme
+> en el plan gratis) la siguiente victoria de **cada** dirección vuelve a dar un Raro. Es asumible en red de pruebas.
 
 ### `GET /ranking` (1.2)
 Salón de la fama on-chain: top 20 por categoría, leído de los eventos de los contratos (no se puede falsear).
@@ -220,6 +232,72 @@ Tabla (la misma que `Recompensas.tablaDiaria` del contrato), por día del ciclo:
 > o completado sus misiones (eso vive en el `localStorage` de la web): solo limita cuánto y cuántas veces paga.
 > Lo que acota el daño son los topes on-chain. Para mainnet haría falta mover el progreso al servidor o a la cadena.
 
+### Grifo de gas: `POST /gas` y `GET /gas/:address` (1.3)
+
+Para que nadie se quede sin poder vender, comprar o abrir cofres por no tener ETH de Sepolia, el servidor regala un poco
+desde su propia wallet (la misma que mintea; los envíos van por **la misma cola y el mismo nonce** que los mints y las
+recompensas, así que nunca chocan).
+
+Reglas:
+- Solo si el jugador tiene **menos de 0,0003 ETH**; se le envían **0,0005 ETH**.
+- **1 vez por dirección y día UTC** (se reinicia a las 00:00 UTC).
+- **Tope global diario** `GAS_TOPE_DIARIO` (por defecto 0,01 ETH = 20 envíos).
+- **Nunca deja la wallet del servidor por debajo de 0,002 ETH** (si `saldo − 0,0005 < 0,002`, no envía).
+
+`POST /gas` — body `{ "address": "0x..." }`. La respuesta llega cuando la tx está **minada** (1 confirmación, ~12-15 s en Sepolia):
+
+| Código | Cuerpo |
+|---|---|
+| 200 enviado | `{ "ok": true, "enviado": 0.0005, "txHash": "0x..." }` |
+| 200 no hace falta | `{ "ok": true, "enviado": 0, "motivo": "ya tienes gas", "saldo": "0.0012" }` (no gasta la petición del día) |
+| 400 | `{ "error": "Dirección inválida" }` |
+| 409 | `{ "error": "Ya has pedido gas hoy; vuelve mañana", "proximoEn": 43200 }` |
+| 429 | `{ "error": "Demasiadas peticiones, espera N s" }` + `Retry-After` |
+| 500 | `{ "error": "No se pudo conectar con la red Ethereum" }` u otro mensaje legible (la petición del día no se gasta) |
+| 502 | `{ "error": "No se pudo conectar con la red Ethereum; inténtalo de nuevo" }` (fallo al leer saldos) |
+| 503 | `{ "error": "El servidor se ha quedado sin ETH para regalar; inténtalo más tarde" }` · `{ "error": "Se ha agotado el gas de hoy para todos; vuelve mañana", "proximoEn": N }` |
+
+`GET /gas/:address` — solo lee, no envía nada:
+```json
+{ "saldo": "0.0001", "puedePedir": true, "proximoEn": 0 }
+{ "saldo": "0.0006", "puedePedir": false, "proximoEn": 43200, "motivo": "Ya has pedido gas hoy" }
+{ "saldo": "0.01",   "puedePedir": false, "proximoEn": 0, "motivo": "ya tienes gas" }
+```
+`saldo` es el ETH del jugador (string). `proximoEn` son segundos hasta las 00:00 UTC si ya lo pidió hoy (si no, 0).
+`motivo` solo aparece cuando `puedePedir` es `false`. `puedePedir` no mira el saldo del servidor (eso solo lo sabe `POST`).
+
+**Límites:** `POST /gas` 10/hora por IP y 1 cada 10 s por dirección; `GET /gas/:address` 60/minuto por IP.
+
+> **Limitaciones.** El registro (quién pidió hoy, total repartido) vive **en memoria**: tras un reinicio se olvida y
+> una dirección podría pedir dos veces el mismo día (como mucho, otra vez el tope diario). Una persona con muchas
+> direcciones puede pedir para cada una: lo acotan el tope global y la reserva de 0,002 ETH. Vigila `/health`
+> (`alertaSaldoBajo`) y recarga la wallet del servidor con un faucet.
+
+### Torre infinita: `POST /torre` y `GET /torre/ranking` (1.3)
+
+`POST /torre` — body `{ "address": "0x...", "piso": 3, "turnos": 14 }`. Guarda el mejor piso de cada dirección.
+- `piso`: pisos superados, entero 0..100000 (0 = no cambia nada); `turnos`: entero 0..10000000 (desempata el ranking: menos turnos, mejor).
+- **El récord sube de uno en uno:** se acepta `piso ≤ récord + 1`. Por eso la web debe enviar `POST /torre` **al superar
+  cada piso** (1, 2, 3…), no solo al caer; si no, una primera partida que llegue al piso 7 sería rechazada.
+
+| Código | Cuerpo |
+|---|---|
+| 200 | `{ "ok": true, "record": 3, "nuevoRecord": true }` (si no mejora: `nuevoRecord: false` y `record` = el récord guardado) |
+| 400 | `{ "error": "Dirección inválida" }` · `{ "error": "piso debe ser un entero entre 0 y 100000" }` · `{ "error": "turnos debe ser un entero entre 0 y 10000000" }` |
+| 409 | `{ "error": "Piso no válido: tu récord es 2, solo puedes registrar hasta el piso 3", "maximo": 3 }` |
+| 429 | `{ "error": "Demasiadas peticiones, espera N s" }` + `Retry-After` |
+
+`GET /torre/ranking` → top 20, de más a menos piso:
+```json
+[ { "address": "0x7099...79C8", "piso": 12 }, { "address": "0x3C44...93BC", "piso": 9 } ]
+```
+
+**Límites:** `POST /torre` 300/hora por IP y 1 cada 2 s por dirección; `GET /torre/ranking` 60/minuto por IP.
+
+> **Confianza en el cliente y memoria.** El servidor no rejuega los combates: solo exige subir de piso en piso.
+> Es red de pruebas, así que basta. Los récords viven en memoria (hasta 50 000 direcciones) y **se pierden al
+> reiniciar** el servidor.
+
 ## Cómo funciona
 
 ```
@@ -332,6 +410,9 @@ errores transitorios, nodo desfasado, solape sin duplicados, margen, logs invál
 reclamo único, límites, reintento tras fallo, errores del contrato), 503 sin variables con `/ganar` intacto,
 emisor compartido de tx, comparación de los ABIs mínimos con los de `shared/`, respuestas 200/400/429/500 con un minter simulado y reloj falso,
 extracción del `tokenId` de un log `ItemMinted` codificado de verdad, serialización y nonce del minter, y configuración.
+1.3: grifo de gas con provider simulado (umbral, 1 por día UTC, tope global, reserva de 0,002 ETH, fallo y reintento,
+peticiones simultáneas, `GET /gas/:address`, `GAS_TOPE_DIARIO`), nonces en serie entre gas y mints con el mismo emisor,
+primer botín Raro (también tras un mint fallido) y torre (subida de piso en piso, ranking, límites, validación).
 
 ## Despliegue
 

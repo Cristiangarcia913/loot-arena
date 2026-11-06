@@ -1,5 +1,5 @@
 // Lectura y validación de la configuración (SPEC.md §2). Función pura sobre `env`.
-import { isAddress, getAddress, ZeroAddress } from 'ethers';
+import { isAddress, getAddress, ZeroAddress, parseEther } from 'ethers';
 
 /**
  * @param {Record<string, string | undefined>} env
@@ -62,10 +62,20 @@ export function cargarConfig(env = process.env) {
     else avisos.push(`TEMPORADA_INICIO no es una fecha válida ("${tiTxt}"); se usa la de por defecto.`);
   }
 
+  // ── 1.3: tope global diario del grifo de gas (ETH) ──
+  const gtTxt = limpio('GAS_TOPE_DIARIO');
+  let gasTopeDiario = null; // null → el de por defecto (0,01 ETH)
+  if (gtTxt) {
+    let wei = null;
+    try { if (/^\d+(\.\d+)?$/.test(gtTxt)) wei = parseEther(gtTxt); } catch { wei = null; }
+    if (wei === null) avisos.push(`GAS_TOPE_DIARIO debe ser una cantidad de ETH como 0.01 ("${gtTxt}"); se usa 0.01.`);
+    else gasTopeDiario = wei;
+  }
+
   return {
     config: {
       rpcUrl, privateKey, contractAddress, port, dropChance, allowedOrigin, trustProxy,
-      mercadoAddress, recompensasAddress, deployBlock, inicioTemporadas,
+      mercadoAddress, recompensasAddress, deployBlock, inicioTemporadas, gasTopeDiario,
     },
     errores,
     avisos,

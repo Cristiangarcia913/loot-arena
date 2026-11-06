@@ -46,7 +46,7 @@ describe('API HTTP (contrato simulado, sin red)', () => {
     mints = [];
     mintFalla = null;
     estadoBotin = new EstadoBotin();
-    const app = crearApp({
+    const app = crearApp({ primerBotin: false, // el primer botín garantizado se prueba en primer-botin.test.js
       mint: async (to, item) => {
         if (mintFalla) throw mintFalla;
         mints.push({ to, item });
@@ -216,7 +216,7 @@ describe('1.2: GET /ranking y POST /recompensa', () => {
   const HOY = Date.UTC(2026, 10, 5, 12);
 
   const arrancar = async (extra = {}) => {
-    srv = await levantar(crearApp({
+    srv = await levantar(crearApp({ primerBotin: false,
       mint: async () => ({ tokenId: 1n, txHash: '0x' + 'cd'.repeat(32) }),
       contractAddress: CONTRATO, chainId: 11155111, rng: () => 0.99, now: () => reloj, logger: loggerMudo,
       ...opciones, ...extra,

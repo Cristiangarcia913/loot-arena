@@ -11,6 +11,9 @@
   <link rel="stylesheet" href="css/tienda.css">
   <link rel="stylesheet" href="css/enganche.css">
   <link rel="stylesheet" href="css/secciones.css">
+  <link rel="stylesheet" href="css/tutorial.css">
+  <link rel="stylesheet" href="css/expediciones.css">
+  <link rel="stylesheet" href="css/torre.css">
   <script type="module" src="js/main.js"></script>
 </head>
 <body class="app">
@@ -59,6 +62,8 @@
       <a class="menu-item" href="#/mercado" data-ir="mercado"><span class="menu-ico" aria-hidden="true">🏪</span><span class="menu-txt">Mercado</span><span class="insignia" hidden></span></a>
       <a class="menu-item" href="#/misiones" data-ir="misiones"><span class="menu-ico" aria-hidden="true">📜</span><span class="menu-txt">Misiones</span><span class="insignia" hidden></span></a>
       <a class="menu-item" href="#/logros" data-ir="logros"><span class="menu-ico" aria-hidden="true">🏅</span><span class="menu-txt">Logros</span><span class="insignia" hidden></span></a>
+      <a class="menu-item" href="#/expediciones" data-ir="expediciones"><span class="menu-ico" aria-hidden="true">🧭</span><span class="menu-txt">Expediciones</span><span class="insignia" hidden></span></a>
+      <a class="menu-item" href="#/torre" data-ir="torre"><span class="menu-ico" aria-hidden="true">🗼</span><span class="menu-txt">Torre</span><span class="insignia" hidden></span></a>
       <a class="menu-item" href="#/ranking" data-ir="ranking"><span class="menu-ico" aria-hidden="true">🏆</span><span class="menu-txt">Ranking</span><span class="insignia" hidden></span></a>
       <div class="menu-pie"><span id="contrato-info"></span></div>
     </nav>
@@ -196,6 +201,16 @@
           <section id="logros" class="panel bloque" aria-label="Logros"></section>
           <section id="coleccion" class="panel bloque" aria-label="Colección"></section>
         </div>
+      </section>
+
+      <!-- 🧭 Expediciones -->
+      <section id="seccion-expediciones" class="seccion" data-seccion="expediciones" aria-label="Expediciones" tabindex="-1" hidden>
+        <div id="expediciones" class="panel bloque"></div>
+      </section>
+
+      <!-- 🗼 Torre -->
+      <section id="seccion-torre" class="seccion" data-seccion="torre" aria-label="Torre infinita" tabindex="-1" hidden>
+        <div id="torre" class="panel bloque"></div>
       </section>
 
       <!-- 🏆 Ranking -->

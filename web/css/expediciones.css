@@ -1,0 +1,69 @@
+/* Expediciones (MEJORAS-1.3.md §4). Usa las variables de style.css. */
+.exp { display: grid; gap: 14px; min-width: 0; }
+.exp-cabecera h2 { margin: 0; font-family: var(--titulo); color: var(--oro); font-size: 1.25rem; }
+.exp-sub { margin: 4px 0 0; color: var(--tenue); font-size: .9rem; }
+
+.exp-tarjetas { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 10px; }
+.exp-tarjeta {
+  display: grid; gap: 4px; justify-items: start; text-align: left; padding: 12px; min-width: 0;
+  background: var(--panel-2); color: var(--texto); border: 1px solid var(--borde); border-radius: var(--radio);
+  font: inherit; cursor: pointer; transition: transform .15s, border-color .15s, box-shadow .15s;
+}
+.exp-tarjeta:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--oro); box-shadow: 0 6px 18px rgba(232, 183, 90, .18); }
+.exp-tarjeta:focus-visible { outline: 2px solid var(--oro); outline-offset: 2px; }
+.exp-tarjeta:disabled { opacity: .45; cursor: not-allowed; }
+.exp-icono { font-size: 1.8rem; line-height: 1; }
+.exp-nombre { font-family: var(--titulo); color: var(--oro); }
+.exp-tiempo { font-size: .85rem; color: var(--tenue); }
+.exp-premios { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: .8rem; }
+
+.exp-activa {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 14px;
+  background: linear-gradient(135deg, rgba(232, 183, 90, .08), transparent 60%), var(--panel-2);
+  border: 1px solid var(--borde); border-radius: var(--radio);
+}
+.exp-escena { position: relative; width: 96px; height: 54px; border-bottom: 2px dashed var(--borde); overflow: hidden; }
+.exp-heroe, .exp-destino, .exp-cofre { position: absolute; bottom: 2px; font-size: 1.6rem; line-height: 1; }
+.exp-destino { right: 0; opacity: .8; }
+.exp-heroe { left: 0; animation: exp-caminar 2.4s ease-in-out infinite alternate; }
+.exp-info { display: grid; gap: 6px; min-width: 0; }
+.exp-barra { display: block; height: 10px; border-radius: 999px; background: rgba(0, 0, 0, .35); border: 1px solid var(--borde-suave); overflow: hidden; }
+.exp-barra-relleno { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--oro-2), var(--oro)); transition: width .25s linear; }
+.exp-cuenta { font-variant-numeric: tabular-nums; font-size: 1.15rem; font-weight: 700; color: var(--texto); }
+.exp-nota { margin: 0; font-size: .8rem; color: var(--tenue); }
+
+/* Regreso: el héroe vuelve con un cofre y el panel brilla. */
+.exp-lista { border-color: var(--oro); animation: exp-brillo 1.6s ease-in-out infinite; }
+.exp-lista .exp-heroe { animation: exp-volver .9s cubic-bezier(.2, .8, .3, 1.2) both; }
+.exp-lista .exp-cofre { left: 34px; animation: exp-salto .9s .5s ease-out both, exp-flotar 1.4s 1.4s ease-in-out infinite; }
+.exp-lista .exp-cuenta { color: var(--oro); }
+.exp-recoger { white-space: nowrap; }
+.exp-lista .exp-recoger:not(:disabled) { animation: exp-latido 1.2s ease-in-out infinite; }
+
+.exp-resultado {
+  display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--radio);
+  background: rgba(74, 222, 128, .08); border: 1px solid rgba(74, 222, 128, .45);
+  animation: exp-aparecer .45s ease-out both;
+}
+.exp-res-lista { display: flex; flex-wrap: wrap; gap: 8px; }
+.exp-res-item { padding: 4px 10px; border-radius: 999px; background: rgba(0, 0, 0, .3); font-size: .9rem; animation: exp-aparecer .4s ease-out both; }
+.exp-res-item:nth-child(2) { animation-delay: .15s; }
+.exp-res-item:nth-child(3) { animation-delay: .3s; }
+.exp-res-botin { background: rgba(232, 183, 90, .2); color: var(--oro); font-weight: 700; }
+
+@keyframes exp-caminar { from { transform: translateX(0) rotate(-4deg); } to { transform: translateX(46px) rotate(4deg); } }
+@keyframes exp-volver { from { transform: translateX(70px) scale(.6); opacity: 0; } to { transform: translateX(0) scale(1); opacity: 1; } }
+@keyframes exp-salto { 0% { transform: translateY(20px) scale(0); opacity: 0; } 70% { transform: translateY(-10px) scale(1.2); opacity: 1; } 100% { transform: none; } }
+@keyframes exp-flotar { 50% { transform: translateY(-4px); } }
+@keyframes exp-brillo { 50% { box-shadow: 0 0 18px rgba(232, 183, 90, .35); } }
+@keyframes exp-latido { 50% { transform: scale(1.06); } }
+@keyframes exp-aparecer { from { transform: translateY(6px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+
+@media (max-width: 560px) {
+  .exp-activa { grid-template-columns: auto minmax(0, 1fr); }
+  .exp-recoger { grid-column: 1 / -1; width: 100%; }
+  .exp-tarjetas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .exp *, .exp { animation: none !important; transition: none !important; }
+}

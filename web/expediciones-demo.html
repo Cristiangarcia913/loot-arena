@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loot Arena · Demo de expediciones</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/expediciones.css">
+  <style>
+    .demo-wrap { max-width: 900px; margin: 0 auto; padding: 14px clamp(10px, 3vw, 28px) 60px; display: grid; gap: 14px; }
+    .panel { background: var(--panel); border: 1px solid var(--borde-suave); border-radius: 14px; padding: 16px; min-width: 0; }
+    .demo-barra { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .demo-barra .on { background: rgba(232, 183, 90, .2); border-color: var(--oro); }
+    .insignia-demo { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: #dc4c3e; color: #fff; font-size: .7rem; line-height: 18px; text-align: center; }
+    #demo-log { margin: 0; padding-left: 18px; color: var(--tenue); font-size: .85rem; max-height: 180px; overflow: auto; }
+    #demo-reloj { font-variant-numeric: tabular-nums; color: var(--oro); }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">🧭</span><div><h1>Loot Arena</h1><p class="tagline">Demo de expediciones (reloj acelerado, sin servidor)</p></div></div>
+  </header>
+
+  <main class="demo-wrap">
+    <nav class="demo-barra" aria-label="Reloj de la demo">
+      <span>Menú: <button type="button" class="btn btn-small btn-ghost">🧭 Expediciones<span class="insignia-demo" id="aviso" hidden>!</span></button></span>
+      <span>Velocidad:</span>
+      <button type="button" class="btn btn-small btn-ghost" data-vel="1">×1</button>
+      <button type="button" class="btn btn-small btn-ghost on" data-vel="60">×60</button>
+      <button type="button" class="btn btn-small btn-ghost" data-vel="600">×600</button>
+      <button type="button" class="btn btn-small btn-ghost" data-vel="3600">×3600</button>
+      <button type="button" class="btn btn-small" id="saltar">⏩ Saltar al final</button>
+      <button type="button" class="btn btn-small btn-red" id="borrar">Reiniciar</button>
+      <span id="demo-reloj"></span>
+    </nav>
+    <section id="expediciones" class="panel"></section>
+    <section class="panel"><strong>Registro (lo que haría main.js)</strong><ol id="demo-log"></ol></section>
+  </main>
+
+  <script type="module">
+    import { crearExpediciones, claveExpedicion, renderExpediciones } from "./js/expediciones.js";
+
+    // Reloj acelerado: tiempo virtual = base + (real − inicioReal) × velocidad.
+    let base = Date.now(), inicioReal = Date.now(), vel = 60;
+    const reloj = () => base + (Date.now() - inicioReal) * vel;
+    const cambiarVel = (v) => { base = reloj(); inicioReal = Date.now(); vel = v; };
+
+    const E = crearExpediciones({ reloj });
+    const CLAVE = claveExpedicion("0xDEMO000000000000000000000000000000000000");
+    const cont = document.querySelector("#expediciones");
+    const log = (t) => document.querySelector("#demo-log").prepend(Object.assign(document.createElement("li"), { textContent: t }));
+
+    function pintar(resultado = null) {
+      renderExpediciones(cont, {
+        estado: E.estadoExpedicion(CLAVE), resultado, reloj,
+        onEnviar: (id) => {
+          const r = E.enviar(CLAVE, id);
+          log(r.ok ? `Enviado: ${r.estado.duracion.nombre} (${r.estado.duracion.etiqueta})` : `No enviado: ${r.mensaje}`);
+          pintar();
+        },
+        onRecoger: () => {
+          const r = E.recoger(CLAVE);
+          if (!r.ok) { log(r.mensaje); return pintar(); }
+          log(`Recogido: +${r.xp} XP → P.sumarXp · +${r.pociones} pociones → S.pocionesRegalo`);
+          if (r.botin) { log(`POST /ganar {enemyLevel:${r.botin.nivel}${r.botin.jefe ? ", jefe:true" : ""}} (simulado) → resolverBotin`); E.resolverBotin(CLAVE); }
+          pintar(r);
+        },
+        onLista: () => { log("¡La expedición ha vuelto! (aviso en el menú)"); aviso(); },
+      });
+      aviso();
+    }
+    const aviso = () => { document.querySelector("#aviso").hidden = !E.hayExpedicionLista(CLAVE); };
+
+    document.querySelectorAll("[data-vel]").forEach((b) => b.addEventListener("click", () => {
+      cambiarVel(Number(b.dataset.vel));
+      document.querySelectorAll("[data-vel]").forEach((x) => x.classList.toggle("on", x === b));
+      pintar();
+    }));
+    document.querySelector("#saltar").addEventListener("click", () => {
+      const e = E.estadoExpedicion(CLAVE);
+      if (e.estado === "en_curso") { base += e.restanteMs; pintar(); }
+    });
+    document.querySelector("#borrar").addEventListener("click", () => { localStorage.removeItem(CLAVE); log("Reiniciado"); pintar(); });
+    setInterval(() => { document.querySelector("#demo-reloj").textContent = `Reloj: ${new Date(reloj()).toLocaleTimeString("es-ES")}`; }, 250);
+    pintar();
+  </script>
+</body>
+</html>

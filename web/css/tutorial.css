@@ -1,0 +1,90 @@
+/* Tutorial del primer minuto (MEJORAS-1.3 §3). Prefijo tut- para no chocar con style.css.
+   z-index 90: por encima del menú inferior móvil (70) y por debajo del revelado de botín (100) y los anuncios (126). */
+:root {
+  --tut-oro: var(--oro, #e8b75a);
+  --tut-panel: var(--panel, #231b15);
+  --tut-borde: var(--borde, #5b4530);
+  --tut-texto: var(--texto, #f3e9d7);
+  --tut-tenue: var(--tenue, #b9a88e);
+  --tut-velo: rgba(8, 5, 3, .66);
+}
+
+.tut-capa { position: fixed; inset: 0; z-index: 90; pointer-events: none; }
+.tut-capa.sin-objetivo { background: var(--tut-velo); }
+
+/* El agujero: su sombra gigante es el velo; el interior queda transparente y se puede pulsar lo de debajo. */
+.tut-agujero {
+  position: fixed; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 9999px var(--tut-velo), 0 0 0 3px var(--tut-oro), 0 0 22px 6px rgba(232, 183, 90, .55);
+  transition: left .25s ease, top .25s ease, width .25s ease, height .25s ease;
+  animation: tut-latido 1.6s ease-in-out infinite;
+}
+@keyframes tut-latido {
+  0%, 100% { box-shadow: 0 0 0 9999px var(--tut-velo), 0 0 0 3px var(--tut-oro), 0 0 14px 3px rgba(232, 183, 90, .45); }
+  50% { box-shadow: 0 0 0 9999px var(--tut-velo), 0 0 0 3px var(--tut-oro), 0 0 28px 10px rgba(232, 183, 90, .7); }
+}
+
+.tut-flecha {
+  position: fixed; width: 30px; height: 30px; color: var(--tut-oro); pointer-events: none;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .6));
+  animation: tut-bote-abajo 0.9s ease-in-out infinite alternate;
+}
+.tut-flecha svg { display: block; }
+.tut-flecha.arriba { transform: rotate(180deg); animation-name: tut-bote-arriba; }
+@keyframes tut-bote-abajo { from { translate: 0 -4px; } to { translate: 0 3px; } }
+@keyframes tut-bote-arriba { from { translate: 0 4px; } to { translate: 0 -3px; } }
+
+.tut-bocadillo {
+  position: fixed; pointer-events: auto; box-sizing: border-box;
+  padding: 12px 14px 10px; border-radius: 14px;
+  background: linear-gradient(180deg, #2f241b, var(--tut-panel));
+  border: 1px solid var(--tut-oro); color: var(--tut-texto);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .55);
+  font-family: var(--cuerpo, system-ui, sans-serif);
+  transition: left .25s ease, top .25s ease;
+  animation: tut-entra .3s ease-out;
+}
+@keyframes tut-entra { from { opacity: 0; transform: translateY(6px) scale(.97); } to { opacity: 1; transform: none; } }
+
+.tut-cab { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.tut-cuenta { font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--tut-tenue); }
+.tut-puntos { display: flex; gap: 5px; }
+.tut-punto { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, .15); }
+.tut-punto.hecho { background: var(--tut-oro); opacity: .6; }
+.tut-punto.actual { background: var(--tut-oro); box-shadow: 0 0 0 2px rgba(232, 183, 90, .35); }
+
+.tut-titulo { margin: 0 0 4px; font-family: var(--titulo, Georgia, serif); font-size: 1.05rem; color: var(--tut-oro); }
+.tut-texto { margin: 0; font-size: .92rem; line-height: 1.4; }
+
+.tut-acciones { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 10px; }
+.tut-pista { font-size: .72rem; color: var(--tut-tenue); margin-right: auto; }
+.tut-saltar {
+  font: inherit; font-size: .82rem; cursor: pointer; min-height: 34px;
+  padding: 5px 12px; border-radius: 999px;
+  background: transparent; color: var(--tut-texto); border: 1px solid var(--tut-borde);
+}
+.tut-saltar:hover { border-color: var(--tut-oro); color: var(--tut-oro); }
+.tut-saltar:focus-visible, .tut-ayuda:focus-visible { outline: 3px solid var(--tut-oro); outline-offset: 2px; }
+
+/* Botón de ayuda flotante para repetir el tutorial. */
+.tut-ayuda {
+  position: fixed; right: 14px; bottom: 14px; z-index: 69;
+  width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
+  font: 700 1.1rem/1 var(--titulo, Georgia, serif);
+  background: var(--tut-panel); color: var(--tut-oro); border: 1px solid var(--tut-oro);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .45);
+}
+.tut-ayuda:hover { background: #3a2c20; }
+
+/* Móvil: el menú es una barra fija abajo; el «?» sube por encima de ella y el bocadillo se ajusta. */
+@media (max-width: 760px) {
+  .tut-ayuda { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); right: 10px; width: 38px; height: 38px; }
+  .tut-texto { font-size: .9rem; }
+  .tut-pista { display: none; }
+}
+
+.tut-sin-trans .tut-agujero, .tut-sin-trans .tut-bocadillo { transition: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tut-agujero, .tut-flecha, .tut-bocadillo { animation: none; transition: none; }
+}

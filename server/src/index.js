@@ -11,6 +11,7 @@ import { crearApp } from './app.js';
 import { ABI_RECOMPENSAS } from './abis.js';
 import { IndexadorRanking, guardaSincronizando } from './ranking.js';
 import { INICIO_TEMPORADAS } from './recompensa.js';
+import { RegistroGas, TOPE_DIARIO_POR_DEFECTO } from './gas.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(here, '../.env') }); // las variables del entorno real tienen prioridad
@@ -109,6 +110,13 @@ async function main() {
     };
   }
 
+  // ── 1.3: grifo de gas. Mismo emisor (cola + nonce) que los mints y las recompensas. ──
+  const gasTopeDiario = config.gasTopeDiario ?? TOPE_DIARIO_POR_DEFECTO;
+  const enviarGas = async (to, wei) => {
+    const { tx } = await emisor((o) => wallet.sendTransaction({ to, value: wei, ...o }));
+    return { txHash: tx.hash };
+  };
+
   const app = crearApp({
     mint: crearMinter(contract, { emisor }),
     ranking,
@@ -123,6 +131,9 @@ async function main() {
     trustProxy: config.trustProxy,
     // /health informa del saldo de la wallet del servidor (alerta si baja de 0,002 ETH).
     obtenerSaldo: () => provider.getBalance(wallet.address),
+    saldoDe: (address) => provider.getBalance(address),
+    enviarGas,
+    registroGas: new RegistroGas({ topeDiario: gasTopeDiario }),
   });
 
   // El guard va delante de la app: mientras no hay índice, GET /ranking responde 503 + Retry-After
@@ -136,6 +147,7 @@ async function main() {
     console.log(`  chainId ${chainId} · contrato ${config.contractAddress}`);
     console.log(`  minter ${wallet.address} (${formatEther(saldo)} ETH) · DROP_CHANCE ${config.dropChance} · CORS ${config.allowedOrigin}`);
     console.log(`  ranking ${ranking ? `activo desde el bloque ${config.deployBlock}` : 'desactivado'} · recompensas ${pagarRecompensa ? 'activas' : 'desactivadas'}`);
+    console.log(`  grifo de gas activo (tope diario ${formatEther(gasTopeDiario)} ETH)`);
     ranking?.iniciar(60_000);
   });
 

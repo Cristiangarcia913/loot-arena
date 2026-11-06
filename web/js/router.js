@@ -12,7 +12,7 @@
 //   alCambiar((nueva, anterior) => …);
 
 /** Secciones válidas, en el orden del menú. */
-export const SECCIONES = Object.freeze(["arena", "heroe", "inventario", "mercado", "misiones", "logros", "ranking"]);
+export const SECCIONES = Object.freeze(["arena", "heroe", "inventario", "mercado", "misiones", "logros", "expediciones", "torre", "ranking"]);
 
 const K_ULTIMA = "lootarena:seccion";
 const oyentes = new Set();

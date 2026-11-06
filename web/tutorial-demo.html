@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Loot Arena · Demo del tutorial</title>
+  <meta name="theme-color" content="#120e0b">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/secciones.css">
+  <link rel="stylesheet" href="css/tutorial.css">
+  <style>
+    /* Solo para la demo: escena simplificada y panel de control. */
+    .demo-escena { display: flex; justify-content: space-around; align-items: center; gap: 12px; padding: 18px 10px; border-radius: 14px; border: 1px solid var(--borde-suave); background: rgba(0, 0, 0, .25); min-height: 150px; }
+    .demo-luchador { text-align: center; min-width: 0; }
+    .demo-luchador .ico { font-size: 3rem; display: block; }
+    .demo-luchador .vida { font-variant-numeric: tabular-nums; color: var(--tenue); font-size: .9rem; }
+    .demo-control { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 14px 0 0; font-size: .8rem; color: var(--tenue); }
+    .demo-control code { font-size: .78rem; }
+    #demo-estado { font: .8rem ui-monospace, Consolas, monospace; color: var(--tenue); margin-top: 8px; white-space: pre-wrap; }
+    .log { max-height: 140px; overflow: auto; font-size: .82rem; }
+  </style>
+</head>
+<body class="app">
+  <header class="topbar">
+    <a class="brand" href="#/arena" aria-label="Loot Arena: ir a la arena"><span class="logo" aria-hidden="true">⚔️</span><span class="brand-nombre">Loot Arena</span></a>
+    <span class="badge">Demo del tutorial</span>
+  </header>
+
+  <div class="app-cuerpo">
+    <nav id="menu" class="menu" aria-label="Secciones">
+      <a class="menu-item" href="#/arena" data-ir="arena"><span class="menu-ico" aria-hidden="true">⚔️</span><span class="menu-txt">Arena</span></a>
+      <a class="menu-item" href="#/heroe" data-ir="heroe"><span class="menu-ico" aria-hidden="true">🧝</span><span class="menu-txt">Héroe</span></a>
+      <a class="menu-item" href="#/inventario" data-ir="inventario"><span class="menu-ico" aria-hidden="true">🎒</span><span class="menu-txt">Inventario</span></a>
+      <a class="menu-item" href="#/mercado" data-ir="mercado"><span class="menu-ico" aria-hidden="true">🏪</span><span class="menu-txt">Mercado</span></a>
+    </nav>
+
+    <main id="secciones" class="secciones">
+      <section id="seccion-arena" class="seccion" data-seccion="arena" aria-labelledby="t-arena" tabindex="-1">
+        <div class="seccion-head"><h2 id="t-arena">La Arena</h2></div>
+        <div class="demo-escena">
+          <div class="demo-luchador"><span class="ico" aria-hidden="true">🧝</span><strong>Tu héroe</strong><div id="vida-heroe" class="vida">100 / 100</div></div>
+          <div class="demo-luchador"><span id="ico-enemigo" class="ico" aria-hidden="true">❔</span><strong id="nombre-enemigo">Nadie a la vista</strong><div id="vida-enemigo" class="vida">—</div></div>
+        </div>
+        <div class="actions">
+          <button id="btn-explorar" class="btn btn-gold" type="button">🧭 Explorar</button>
+          <button id="btn-atacar" class="btn btn-red" type="button" disabled>⚔️ Atacar</button>
+          <div id="skills" class="skills" role="group" aria-label="Habilidades"></div>
+          <button id="btn-pocion" class="btn btn-verde" type="button" disabled>🧪 Poción</button>
+        </div>
+        <div id="resultado" class="resultado" aria-live="polite" hidden></div>
+        <ol id="log" class="log" aria-live="polite"></ol>
+        <div class="demo-control">
+          <span>Demo:</span>
+          <button id="demo-reiniciar" class="btn btn-small btn-ghost" type="button">Reiniciar tutorial</button>
+          <button id="demo-sinbotin" class="btn btn-small btn-ghost" type="button">Próxima victoria sin botín</button>
+          <code>localStorage["lootarena:tutorial"]</code>
+        </div>
+        <div id="demo-estado" aria-live="off"></div>
+      </section>
+
+      <section id="seccion-heroe" class="seccion" data-seccion="heroe" aria-labelledby="t-heroe" tabindex="-1" hidden>
+        <div class="seccion-head"><h2 id="t-heroe">Héroe</h2></div><p class="seccion-sub">(sección simulada)</p>
+      </section>
+
+      <section id="seccion-inventario" class="seccion" data-seccion="inventario" aria-labelledby="t-inv" tabindex="-1" hidden>
+        <div class="seccion-head"><h2 id="t-inv">Inventario</h2></div>
+        <p class="seccion-sub">Tus objetos NFT. Aquí los ves y te equipas.</p>
+        <div class="inv-layout">
+          <section class="panel inv-equipo" aria-labelledby="t-ranuras"><h3 class="sub" id="t-ranuras">Equipado</h3><div id="inv-ranuras" class="inv-ranuras"></div></section>
+          <section class="panel inv-mochila" aria-labelledby="t-mochila"><h3 class="sub" id="t-mochila">Mochila</h3><div id="inventario" class="inventario"></div></section>
+        </div>
+      </section>
+
+      <section id="seccion-mercado" class="seccion" data-seccion="mercado" aria-labelledby="t-merc" tabindex="-1" hidden>
+        <div class="seccion-head"><h2 id="t-merc">Mercado</h2></div><p class="seccion-sub">(sección simulada)</p>
+      </section>
+    </main>
+  </div>
+
+  <script type="module">
+    import * as TUT from "./js/tutorial.js";
+    import * as C from "./js/combat.js";
+    import * as Sk from "./js/skills.js";
+    import * as E from "./js/equipment.js";
+    import * as FX from "./js/fx.js";
+    import { renderInventario, renderRanuras } from "./js/inventario.js";
+
+    const $ = (s) => document.querySelector(s);
+    const S = { combate: null, inventario: [], equipo: {}, sinBotin: false, siguienteId: 101 };
+    const heroeBase = { vida: C.STATS_BASE.vida, ataque: C.STATS_BASE.ataque, defensa: C.STATS_BASE.defensa };
+
+    // Router mínimo como el de la app (#/arena, #/inventario…).
+    function irA() {
+      const ruta = (location.hash.match(/^#\/(\w+)/) || [])[1] || "arena";
+      document.querySelectorAll("[data-seccion]").forEach((s) => { s.hidden = s.dataset.seccion !== ruta; });
+      document.querySelectorAll(".menu-item").forEach((a) => a.classList.toggle("activo", a.dataset.ir === ruta));
+    }
+    addEventListener("hashchange", irA);
+    irA();
+
+    function log(t) { $("#log").prepend(Object.assign(document.createElement("li"), { textContent: t })); }
+
+    function pintar() {
+      const c = S.combate, lucha = c?.fase === "en_curso";
+      $("#btn-explorar").disabled = lucha;
+      $("#btn-atacar").disabled = !lucha;
+      $("#btn-pocion").disabled = !lucha || c.jugador.vida >= c.jugador.vidaMax || c.jugador.pociones <= 0;
+      $("#vida-heroe").textContent = c ? `${c.jugador.vida} / ${c.jugador.vidaMax}` : "100 / 100";
+      $("#vida-enemigo").textContent = c ? `${Math.max(0, c.enemigo.vida)} / ${c.enemigo.vidaMax}` : "—";
+      $("#nombre-enemigo").textContent = c ? `${c.enemigo.nombre} (nv. ${c.enemigo.nivel})` : "Nadie a la vista";
+      $("#ico-enemigo").textContent = c ? c.enemigo.emoji : "❔";
+      const habs = Sk.habilidadesDisponibles({ habilidades: c ? c.jugador.habilidades : Sk.HABILIDADES_BASE });
+      $("#skills").replaceChildren(...habs.map((hb) => {
+        const b = document.createElement("button");
+        b.className = "btn btn-skill"; b.type = "button";
+        b.textContent = `${hb.icono} ${hb.nombre}${hb.restante ? ` (${hb.restante})` : ""}`;
+        b.disabled = !lucha || hb.restante > 0;
+        b.addEventListener("click", () => accion({ habilidad: hb.id }));
+        return b;
+      }));
+      $("#demo-estado").textContent = `tutorialActivo() = ${TUT.tutorialActivo()}\npasoActual() = ${JSON.stringify(TUT.pasoActual())}`;
+    }
+
+    function explorar() {
+      const enemigo = TUT.tutorialActivo() ? TUT.combateTutorial() : C.generarEnemigo(1);
+      S.combate = C.crearCombate(heroeBase, enemigo);
+      $("#resultado").hidden = true;
+      log(`¡Un ${enemigo.nombre} salta a la arena!`);
+      TUT.avanzarTutorial("explorar");                       // ← punto de integración
+      pintar();
+    }
+
+    async function accion(tipo) {
+      if (S.combate?.fase !== "en_curso") return;
+      const v = C.validarAccion(S.combate, tipo);
+      if (!v.ok) return log(v.motivo);
+      const r = C.turnoJugador(S.combate, tipo);
+      S.combate = r.combate;
+      for (const ev of r.eventos) if (ev.texto) log(ev.texto);
+      if (tipo === "atacar") TUT.avanzarTutorial("ataque"); // ← punto de integración
+      else if (tipo?.habilidad) TUT.avanzarTutorial("habilidad");
+      pintar();
+      if (S.combate.fase === "victoria") await victoria();
+      else if (S.combate.fase === "derrota") { $("#resultado").hidden = false; $("#resultado").textContent = "💀 Derrota. Explora de nuevo."; }
+    }
+
+    async function victoria() {
+      const res = $("#resultado");
+      res.hidden = false;
+      if (S.sinBotin) {
+        S.sinBotin = false;
+        res.textContent = "🏆 ¡Victoria! Esta vez el enemigo no llevaba nada.";
+        return;                                             // sin botín: el tutorial sigue en «botín»
+      }
+      const tipo = E.TIPOS[0];
+      const item = { tokenId: String(S.siguienteId++), nombre: "Espada de entrenamiento", tipo, rareza: 1, ataque: 6, defensa: 1 };
+      res.textContent = `🎁 ¡Botín! «${item.nombre}».`;
+      TUT.avanzarTutorial("botin");                         // ← punto de integración (antes del revelado)
+      await FX.revelarBotin(item);
+      S.inventario.push(item);
+      pintarInventario();
+      pintar();
+    }
+
+    function pintarInventario() {
+      renderInventario($("#inventario"), S.inventario, S.equipo, {
+        onEquipar: (it, quiere) => {
+          S.equipo = quiere ? E.equipar(S.equipo, it) : E.desequipar(S.equipo, it.tokenId);
+          if (quiere) TUT.avanzarTutorial("equipar");       // ← punto de integración
+          pintarInventario();
+          pintar();
+        },
+      });
+      renderRanuras($("#inv-ranuras"), S.equipo, S.inventario);
+    }
+
+    $("#btn-explorar").addEventListener("click", explorar);
+    $("#btn-atacar").addEventListener("click", () => accion("atacar"));
+    $("#btn-pocion").addEventListener("click", () => accion("pocion"));
+    $("#demo-reiniciar").addEventListener("click", () => { TUT.reiniciarTutorial(); location.hash = "#/arena"; pintar(); });
+    $("#demo-sinbotin").addEventListener("click", () => { S.sinBotin = true; log("(demo) La próxima victoria no dará botín."); });
+
+    pintarInventario();
+    TUT.iniciarTutorial({ fx: FX, alPaso: (p) => { console.info("[tutorial] paso", p); pintar(); } });
+    pintar();
+    window.TUT = TUT; // para inspección desde la consola
+  </script>
+</body>
+</html>

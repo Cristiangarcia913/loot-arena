@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loot Arena · Demo de la Torre</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/torre.css">
+  <style>
+    .demo-wrap { max-width: 1100px; margin: 0 auto; padding: 14px clamp(10px, 3vw, 28px) 60px; display: grid; gap: 14px; }
+    .demo-barra { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .demo-barra .on { background: rgba(232, 183, 90, .2); border-color: var(--oro); }
+    .demo-arena { background: var(--panel); border: 1px solid var(--borde-suave); border-radius: 14px; padding: 16px; display: grid; gap: 10px; }
+    .demo-arena h3 { margin: 0; font-family: var(--titulo); color: var(--oro); }
+    .demo-lado { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .demo-lado p { margin: 0 0 4px; font-size: .9rem; }
+    .demo-acciones { display: flex; flex-wrap: wrap; gap: 6px; }
+    .demo-log { max-height: 160px; overflow: auto; font-size: .82rem; color: var(--tenue); margin: 0; padding-left: 18px; }
+    #demo-intencion { font-size: .85rem; color: #fca5a5; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">🗼</span><div><h1>Loot Arena</h1><p class="tagline">Demo de la Torre infinita (datos simulados)</p></div></div>
+  </header>
+  <main class="demo-wrap">
+    <nav class="demo-barra" aria-label="Opciones de demo">
+      <button type="button" class="btn btn-small btn-ghost on" data-heroe="sin">Héroe nv 1 sin equipo</button>
+      <button type="button" class="btn btn-small btn-ghost" data-heroe="medio">Héroe nv 1 con equipo medio</button>
+      <button type="button" class="btn btn-small btn-ghost" id="demo-sin-cuenta">Sin cartera</button>
+      <button type="button" class="btn btn-small btn-ghost" id="demo-borrar">Borrar récord</button>
+    </nav>
+    <div id="torre"></div>
+    <section class="demo-arena" id="arena" hidden aria-label="Combate (arena simplificada de la demo)">
+      <h3 id="demo-titulo">Combate</h3>
+      <div class="demo-lado">
+        <div><p><strong>Tú</strong></p><div id="demo-vida-j"></div></div>
+        <div><p><strong id="demo-nombre-e"></strong></p><div id="demo-vida-e"></div><p id="demo-intencion"></p></div>
+      </div>
+      <div class="demo-acciones">
+        <button type="button" class="btn btn-red" data-acc="atacar">⚔️ Atacar</button>
+        <button type="button" class="btn btn-blue" data-acc="defender">🛡️ Defender</button>
+        <button type="button" class="btn btn-verde" data-acc="pocion">🧪 Poción</button>
+        <button type="button" class="btn btn-gold" data-acc="auto">🤖 Resolver con IA</button>
+      </div>
+      <ol class="demo-log" id="demo-log"></ol>
+    </section>
+  </main>
+  <script type="module">
+    import * as C from "./js/combat.js";
+    import * as P from "./js/progression.js";
+    import * as T from "./js/torre.js";
+    import { habilidadesDisponibles } from "./js/skills.js";
+
+    const it = (tipo, ataque, defensa, rareza = 0) => ({ tipo, ataque, defensa, rareza });
+    const EQUIPO_MEDIO = [it("Espada", 7, 2, 1), it("Escudo", 2, 6), it("Casco", 1, 5), it("Armadura", 2, 7, 1), it("Botas", 1, 4)];
+    const YO = "0x9F3c2bA1d4E5f60718293a4B5c6D7e8F90a1B2c3";
+    // Ranking simulado (lo que devolvería GET /torre/ranking); tu entrada se actualiza al caer.
+    let ranking = Array.from({ length: 20 }, (_, i) => ({ address: "0x" + ((i + 7) * 2654435761 % 0xffffffff).toString(16).padStart(8, "0") + "a1b2c3d4e5f60718293a4b5c6d7e8f9", piso: 31 - i * 1.5 | 0 }));
+    ranking[16] = { address: YO, piso: 6 };
+    ranking = T.normalizarRanking(ranking);
+
+    const $ = (s) => document.querySelector(s);
+    let modo = "sin", cuenta = YO, torre = null, combate = null, ultimo = null;
+    const heroe = () => P.statsHeroe(P.progresoNuevo(), modo === "medio" ? EQUIPO_MEDIO : []);
+
+    function pintar() {
+      T.renderTorre($("#torre"), {
+        estado: torre, ranking, cuenta, ultimo,
+        record: T.cargarRecord(localStorage, cuenta),
+        onEmpezar: () => { torre = T.nuevaTorre(heroe()); ultimo = null; pintar(); },
+        onSiguientePiso: () => { combate = T.combateDePiso(torre); $("#demo-log").innerHTML = ""; log(combate.log[0].texto); pintarArena(); },
+      });
+      $("#arena").hidden = !combate;
+    }
+    const barra = (v, m) => `<div class="torre-vida${v / m <= .3 ? " torre-vida-baja" : v / m <= .6 ? " torre-vida-media" : ""}"><div class="torre-vida-barra" style="width:${Math.round(100 * v / m)}%"></div><span>${v} / ${m}</span></div>`;
+    function log(t) { const li = document.createElement("li"); li.textContent = t; $("#demo-log").prepend(li); }
+    function pintarArena() {
+      $("#arena").hidden = false;
+      $("#demo-titulo").textContent = `Piso ${combate.piso}${combate.jefe ? " · 👑 Jefe" : ""}`;
+      $("#demo-vida-j").innerHTML = barra(combate.jugador.vida, combate.jugador.vidaMax);
+      $("#demo-nombre-e").textContent = `${combate.enemigo.emoji} ${combate.enemigo.nombre} (nv ${combate.enemigo.nivel})`;
+      $("#demo-vida-e").innerHTML = barra(combate.enemigo.vida, combate.enemigo.vidaMax);
+      $("#demo-intencion").textContent = C.intencionEnemigo(combate)?.texto ?? "";
+      document.querySelector('[data-acc="pocion"]').textContent = `🧪 Poción (${combate.jugador.pociones})`;
+      document.querySelector('[data-acc="pocion"]').disabled = combate.jugador.pociones <= 0;
+    }
+    function ia(c) {
+      if (C.jugadorAturdido(c)) return "atacar";
+      const j = c.jugador;
+      if (C.intencionEnemigo(c)?.telegrafiado) return "defender";
+      if (j.vida < j.vidaMax * 0.35 && j.pociones > 0) return "pocion";
+      const listas = new Set(habilidadesDisponibles(j).filter((h) => h.lista).map((h) => h.id));
+      if (listas.has("golpe_poderoso")) return { habilidad: "golpe_poderoso" };
+      return "atacar";
+    }
+    function accion(a) {
+      const r = C.turnoJugador(combate, a);
+      combate = r.combate;
+      r.eventos.forEach((e) => log(e.texto));
+      if (!r.fin) return pintarArena();
+      if (r.fin === "victoria") {
+        const v = T.trasVictoria(torre, combate);
+        torre = v.torre; ultimo = v;
+        // En main.js: enviarPiso(serverUrl, cuenta, v.superado, torre.turnos) y, si v.botin, reclamarBotin(..., {jefe:true}).
+      } else {
+        torre = T.trasDerrota(torre, combate, { storage: localStorage, address: cuenta });
+        ultimo = null;
+        if (cuenta) {
+          ranking = T.normalizarRanking([...ranking.filter((e) => e.address.toLowerCase() !== cuenta.toLowerCase()), { address: cuenta, piso: torre.record }]);
+        }
+      }
+      combate = null;
+      pintar();
+    }
+    document.querySelectorAll("[data-acc]").forEach((b) => b.addEventListener("click", () => {
+      if (!combate) return;
+      if (b.dataset.acc !== "auto") return accion(b.dataset.acc);
+      while (combate) accion(ia(combate));
+    }));
+    document.querySelectorAll("[data-heroe]").forEach((b) => b.addEventListener("click", () => {
+      modo = b.dataset.heroe;
+      document.querySelectorAll("[data-heroe]").forEach((x) => x.classList.toggle("on", x === b));
+      torre = null; combate = null; ultimo = null; pintar();
+    }));
+    $("#demo-sin-cuenta").addEventListener("click", (e) => { cuenta = cuenta ? null : YO; e.target.classList.toggle("on", !cuenta); pintar(); });
+    $("#demo-borrar").addEventListener("click", () => { localStorage.removeItem(T.claveRecord(YO)); localStorage.removeItem(T.claveRecord(null)); pintar(); });
+    pintar();
+  </script>
+</body>
+</html>

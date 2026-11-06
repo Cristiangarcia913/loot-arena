@@ -17,6 +17,7 @@ import {
   crearEconomiaChain,
 } from "./economy.js";
 import { mensajeErrorTransaccion, evaluarGas, hastaQue } from "./wallet-errores.js";
+import { asegurarGas, GAS_ESPERA_MAX_MS } from "./gas.js";
 
 export { CATALOGO } from "./economy.js";
 
@@ -472,7 +473,8 @@ function renderAvisos() {
     avisos.push(h("div", { class: "tn-aviso tn-aviso-gas", role: "alert" },
       h("strong", {}, "⛽ Te falta ETH para el gas. "),
       `Vender, comprar y abrir cofres son transacciones tuyas y cuestan un poco de ETH de Sepolia (tienes ${formatearEth(S.eth ?? 0n, { decimales: 5 })}). `,
-      esSepolia() ? ["Consigue ETH gratis en el ", enlaceFaucet(), "."] : null));
+      hayGrifo() ? "Al vender, comprar o abrir un cofre te enviaremos gas gratis automáticamente (una vez al día). " : null,
+      esSepolia() ? [hayGrifo() ? "También puedes conseguirlo en el " : "Consigue ETH gratis en el ", enlaceFaucet(), "."] : null));
   }
   const r = restanteHoy();
   if (activo() && S.infoEth?.caja != null && S.infoEth.caja < recompensaEthLocal({ rareza: 0 })) {
@@ -683,6 +685,7 @@ function aviso(contenido, tipo = "info", ms = 5000) {
   const t = h("div", { class: `toast toast-${tipo}`, role: "status" }, contenido);
   cont.append(t);
   setTimeout(() => { t.classList.add("salida"); setTimeout(() => t.remove(), 400); }, ms);
+  return t;
 }
 
 function marcarOcupado(v) {
@@ -731,19 +734,59 @@ const releerOroHasta = (antes) => releerHasta(() => refrescarSaldo(), (v) => v !
 /** Lectura de ORO antes de enviar (null si el RPC falla) para comparar después. */
 const oroAhora = () => S.eco.saldoOro().then((x) => x, () => null);
 
+/** ¿Se puede pedir gas gratis al servidor? (solo con la economía real y servidor configurado) */
+function hayGrifo() { return S?.modo === "chain" && !!S.o.cfg?.serverUrl; }
+
 /**
- * Comprueba el ETH para gas, leyendo el saldo de la cadena. Bloquea (con explicación y enlace al faucet)
- * si no llega ni para un par de transacciones; avisa si queda poco. Si el saldo no se sabe, deja pasar.
+ * Pide gas gratis al servidor (gas.js) con un aviso intermedio «Consiguiendo gas gratis…» y la tienda
+ * bloqueada mientras llega. @returns {Promise<Awaited<ReturnType<typeof asegurarGas>>|null>} null si se desmontó
+ */
+async function pedirGasGratis() {
+  const gen = S.gen;
+  let toast = null;
+  const estado = (texto) => { toast?.remove(); toast = aviso(h("span", {}, h("span", { class: "spinner" }), " ", texto), "info", GAS_ESPERA_MAX_MS + 15_000); };
+  marcarOcupado(true);
+  try {
+    const r = await asegurarGas({
+      cuenta: S.o.cuenta, serverUrl: S.o.cfg.serverUrl, leerSaldo: () => S.eco.saldoEth(), onEstado: estado,
+    });
+    return gen === generacion ? r : null;
+  } finally {
+    toast?.remove();
+    if (gen === generacion) marcarOcupado(false);
+  }
+}
+
+/**
+ * Comprueba el ETH para gas, leyendo el saldo de la cadena. Si falta, primero pide gas gratis al
+ * servidor (POST /gas) y espera a que llegue; solo si eso falla bloquea con la explicación y el enlace
+ * al faucet. Avisa si queda poco. Si el saldo no se sabe, deja pasar.
  */
 async function hayGas() {
   if (!activo()) return false;
-  const eth = (await S.eco.saldoEth()) ?? S.eth;
-  const { nivel } = evaluarGas(eth);
+  let eth = (await S.eco.saldoEth()) ?? S.eth;
+  let { nivel } = evaluarGas(eth);
+  let fallo = null;
+  if (nivel !== "ok" && nivel !== "desconocido" && hayGrifo()) {
+    const r = await pedirGasGratis();
+    if (!r || !S) return false;
+    if (r.pedido) await refrescarSaldo();
+    if (r.ok) {
+      if (r.mensaje) aviso([r.mensaje, " ", r.txHash ? enlaceTx(r.txHash) : null], "ok", 6000);
+      if (r.codigo === "recibido" || r.codigo === "en-camino") return true;
+    } else {
+      fallo = r.mensaje;
+    }
+    eth = r.saldo ?? eth;
+    ({ nivel } = evaluarGas(eth));
+    if (r.ok && nivel === "bloqueo") nivel = "aviso"; // gas.js ya ha comprobado que llega para firmar
+  }
   if (nivel === "aviso") aviso(["⛽ Te queda poco ETH para el gas. ", esSepolia() ? ["Recarga en el ", enlaceFaucet(), "."] : null], "info", 7000);
   if (nivel !== "bloqueo") return true;
   await confirmar({
     titulo: "⛽ Necesitas ETH de Sepolia",
     cuerpo: [h("p", {}, "Vender, comprar y abrir cofres son transacciones que firmas tú, y la red cobra un poco de gas en ETH de Sepolia (gratis, es una red de pruebas)."),
+      fallo ? h("p", { class: "tn-dlg-alerta" }, fallo) : null,
       esSepolia() ? h("p", {}, "Consigue unos céntimos de prueba en el ", enlaceFaucet(), " y vuelve a intentarlo.") : null],
     aceptar: "Entendido", soloAceptar: true,
   });

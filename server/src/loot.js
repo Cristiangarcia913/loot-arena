@@ -293,7 +293,8 @@ export function generarStats(rng, tipo, rareza, { nivel = 1, jefe = false } = {}
 // ─── Objeto completo ──────────────────────────────────────────────────────────
 
 /**
- * @typedef {{ nivel?: number, jefe?: boolean, sinLegendario?: number, evitarNombre?: string|null }} OpcionesBotin
+ * @typedef {{ nivel?: number, jefe?: boolean, sinLegendario?: number, evitarNombre?: string|null, rareza?: number|null }} OpcionesBotin
+ * `rareza` fija la rareza en vez de sortearla (primer botín garantizado).
  */
 
 /**
@@ -301,8 +302,8 @@ export function generarStats(rng, tipo, rareza, { nivel = 1, jefe = false } = {}
  * @param {() => number} rng
  * @param {OpcionesBotin} [opts]
  */
-export function generarObjeto(rng, { nivel = 1, jefe = false, sinLegendario = 0, evitarNombre = null } = {}) {
-  const rareza = sortearRareza(rng, nivel, { jefe, sinLegendario });
+export function generarObjeto(rng, { nivel = 1, jefe = false, sinLegendario = 0, evitarNombre = null, rareza: fija = null } = {}) {
+  const rareza = fija ?? sortearRareza(rng, nivel, { jefe, sinLegendario });
   const tipo = sortearTipo(rng);
   const nombre = generarNombre(rng, tipo, rareza, { evitar: evitarNombre });
   const { ataque, defensa } = generarStats(rng, tipo, rareza, { nivel, jefe });
@@ -355,4 +356,46 @@ export class EstadoBotin {
     }
     this.contadores.set(direccion, n);
   }
+}
+
+// ─── Primer botín garantizado (1.3) ───────────────────────────────────────────
+
+/**
+ * Tirada de la PRIMERA victoria de una dirección: siempre cae un objeto Raro
+ * (tipo, nombre y stats se sortean como siempre, según el nivel y el jefe).
+ */
+export function tirarPrimerBotin(rng = Math.random, opts = {}) {
+  return generarObjeto(rng, { ...opts, rareza: RAREZA.RARO });
+}
+
+/**
+ * Direcciones que ya recibieron su primer botín. EN MEMORIA: se pierde al
+ * reiniciar el servidor (tras un reinicio, la siguiente victoria de cada
+ * dirección vuelve a ser Rara). Acotado a `maxDirecciones` (se olvida la más antigua).
+ */
+export class RegistroPrimerBotin {
+  constructor({ maxDirecciones = 100_000 } = {}) {
+    this.maxDirecciones = maxDirecciones;
+    this.entregados = new Set();
+    this.enCurso = new Set();
+  }
+
+  /** ¿Le toca el primer botín? Si sí, lo aparta (llama luego a confirmar o liberar). */
+  reservar(direccion) {
+    if (this.entregados.has(direccion) || this.enCurso.has(direccion)) return false;
+    this.enCurso.add(direccion);
+    return true;
+  }
+
+  confirmar(direccion) {
+    this.enCurso.delete(direccion);
+    if (this.entregados.size >= this.maxDirecciones) {
+      this.entregados.delete(this.entregados.values().next().value);
+    }
+    this.entregados.add(direccion);
+  }
+
+  liberar(direccion) { this.enCurso.delete(direccion); }
+
+  yaEntregado(direccion) { return this.entregados.has(direccion); }
 }

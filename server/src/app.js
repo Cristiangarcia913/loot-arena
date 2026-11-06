@@ -3,7 +3,9 @@
 import express from 'express';
 import cors from 'cors';
 import { isAddress, getAddress, ZeroAddress, formatEther, parseEther } from 'ethers';
-import { tirarLoot, EstadoBotin } from './loot.js';
+import { tirarLoot, tirarPrimerBotin, EstadoBotin, RegistroPrimerBotin } from './loot.js';
+import { crearRouterGas, RegistroGas } from './gas.js';
+import { crearRouterTorre, RegistroTorre } from './torre.js';
 import { RateLimiter } from './rateLimit.js';
 import { mensajeError } from './chain.js';
 import { origenCors } from './config.js';
@@ -57,7 +59,12 @@ export function validarJefe(valor) {
  *   registroRecompensas?: RegistroRecompensas,
  *   registroDiario?: RegistroDiario,
  *   obtenerSaldo?: (() => Promise<bigint>) | null,
- *   inicioTemporadas?: number
+ *   inicioTemporadas?: number,
+ *   primerBotin?: boolean, registroPrimerBotin?: RegistroPrimerBotin,
+ *   saldoDe?: ((address: string) => Promise<bigint>) | null,
+ *   enviarGas?: ((to: string, wei: bigint) => Promise<{ txHash: string }>) | null,
+ *   registroGas?: RegistroGas, gasNoDisponible?: string,
+ *   registroTorre?: RegistroTorre
  * }} deps
  */
 export function crearApp({
@@ -71,6 +78,10 @@ export function crearApp({
   registroRecompensas = new RegistroRecompensas({ inicio: inicioTemporadas }),
   registroDiario = new RegistroDiario(),
   obtenerSaldo = null,
+  primerBotin = true, registroPrimerBotin = new RegistroPrimerBotin(),
+  saldoDe = null, enviarGas = null, registroGas = new RegistroGas(),
+  gasNoDisponible = 'El grifo de gas no está disponible en este servidor',
+  registroTorre = new RegistroTorre({ now }),
 }) {
   const app = express();
   app.set('trust proxy', trustProxy);
@@ -125,17 +136,20 @@ export function crearApp({
     const porDir = limDir.hit(address);
     if (!porDir.ok) return demasiadas(res, porDir.retryAfterS);
 
-    const item = tirarLoot(rng, {
-      dropChance, nivel: enemyLevel, jefe, ...estadoBotin.opciones(address),
-    });
+    // Primera victoria de esta dirección (desde que arrancó el servidor): siempre un Raro.
+    const esPrimera = primerBotin && registroPrimerBotin.reservar(address);
+    const opciones = { dropChance, nivel: enemyLevel, jefe, ...estadoBotin.opciones(address) };
+    const item = esPrimera ? tirarPrimerBotin(rng, opciones) : tirarLoot(rng, opciones);
     if (!item) return res.json({ drop: false });
 
     try {
       const { tokenId, txHash } = await mint(address, item);
       estadoBotin.registrar(address, item);
-      logger.log(`[mint] #${tokenId} "${item.nombre}" → ${address} (nivel ${enemyLevel}${jefe ? ', jefe' : ''}) tx ${txHash}`);
-      return res.json({ drop: true, tokenId: String(tokenId), txHash, item });
+      if (esPrimera) registroPrimerBotin.confirmar(address);
+      logger.log(`[mint] #${tokenId} "${item.nombre}" → ${address} (nivel ${enemyLevel}${jefe ? ', jefe' : ''}${esPrimera ? ', primer botín' : ''}) tx ${txHash}`);
+      return res.json({ drop: true, tokenId: String(tokenId), txHash, item, ...(esPrimera ? { primerBotin: true } : {}) });
     } catch (err) {
+      if (esPrimera) registroPrimerBotin.liberar(address);
       logger.error('[mint] error:', err?.shortMessage ?? err?.message ?? err);
       return res.status(500).json({ error: mensajeError(err) });
     }
@@ -278,6 +292,13 @@ export function crearApp({
       return responderErrorPago(err, res);
     }
   });
+
+  // ── 1.3: grifo de gas y torre infinita ────────────────────────────────────
+  app.use(crearRouterGas({
+    saldoDe, enviarGas, saldoServidor: obtenerSaldo, validarDireccion,
+    registro: registroGas, now, logger, noDisponible: gasNoDisponible,
+  }));
+  app.use(crearRouterTorre({ validarDireccion, now, registro: registroTorre }));
 
   app.use((_req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 
