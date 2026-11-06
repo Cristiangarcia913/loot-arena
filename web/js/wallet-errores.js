@@ -12,6 +12,8 @@ export const GAS_MAXIMO = 3000000n;
 /** Tope de maxFeePerGas y de maxPriorityFeePerGas en Sepolia (gwei). Evita tarifas absurdas. */
 export const MAX_FEE_GWEI = 40n;
 export const MAX_PRIORITY_GWEI = 2n;
+/** Propina sugerida cuando se conoce la tarifa base (wei): 0,01 gwei basta para entrar en bloque en Sepolia. */
+export const PROPINA_SEPOLIA_WEI = 10_000_000n;
 /** Umbrales de ETH para gas (wei): por debajo de BLOQUEO no se firma; por debajo de AVISO se avisa. */
 export const ETH_BLOQUEO_GAS = 10n ** 14n; // 0,0001 ETH
 export const ETH_AVISO_GAS = 10n ** 15n;   // 0,001 ETH
@@ -158,6 +160,16 @@ const aBig = (v) => {
  * @returns {{maxFeePerGas?:bigint, maxPriorityFeePerGas?:bigint}}
  */
 export function tarifasAcotadas(feeData, { maxFeeGwei = MAX_FEE_GWEI, maxPrioGwei = MAX_PRIORITY_GWEI } = {}) {
+  // Con la tarifa base real del último bloque se sugiere lo justo: 2 × base + propina pequeña.
+  // MetaMask usa esta sugerencia ("Sitio sugerido"); con su propia estimación (≈1 gwei) en Sepolia
+  // pedía 0,0005 ETH por venta y bloqueaba a jugadores con poco ETH de prueba.
+  const base = aBig(feeData?.baseFeePerGas);
+  if (base != null) {
+    const prio = PROPINA_SEPOLIA_WEI;
+    const maxFee = base * 2n + prio;
+    const tope = maxFeeGwei * GWEI;
+    return { maxFeePerGas: maxFee > tope ? tope : maxFee, maxPriorityFeePerGas: prio > maxFee ? maxFee : prio };
+  }
   const mf = aBig(feeData?.maxFeePerGas);
   if (mf == null) return {};
   const tope = maxFeeGwei * GWEI, topePrio = maxPrioGwei * GWEI;

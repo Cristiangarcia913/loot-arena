@@ -148,6 +148,17 @@ test("tarifas acotadas a 40 gwei y prioridad a 2 gwei; sin datos → vacío", ()
   assert.deepEqual(W.tarifasAcotadas({}), {});
 });
 
+test("con tarifa base: sugiere 2 × base + propina de 0,01 gwei (venta de ~420k gas cuesta céntimos de ETH de prueba)", () => {
+  const prio = W.PROPINA_SEPOLIA_WEI;
+  assert.equal(prio, 10_000_000n);
+  // Sepolia real: base ≈ 20 wei
+  assert.deepEqual(W.tarifasAcotadas({ baseFeePerGas: 20n }), { maxFeePerGas: 40n + prio, maxPriorityFeePerGas: prio });
+  const coste = 420000n * (40n + prio);
+  assert.ok(coste < 10n ** 13n, "una venta debe costar menos de 0,00001 ETH"); // jugador con 0,00037 ETH puede vender
+  // Base disparada: se respeta el tope de 40 gwei
+  assert.deepEqual(W.tarifasAcotadas({ baseFeePerGas: 100n * GWEI }), { maxFeePerGas: 40n * GWEI, maxPriorityFeePerGas: prio });
+});
+
 test("evaluarGas: bloquea por debajo de 0,0001 ETH, avisa por debajo de 0,001", () => {
   assert.equal(W.evaluarGas(0n).nivel, "bloqueo");
   assert.equal(W.evaluarGas(10n ** 14n - 1n).nivel, "bloqueo");

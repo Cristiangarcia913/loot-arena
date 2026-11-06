@@ -564,7 +564,12 @@ export function crearEconomiaChain({ ethers, provider, signer, cuenta, cfg, dire
   };
 
   // ── Envío: red → estimación de gas → tarifas acotadas → firma ──
-  const tarifas = async () => tarifasAcotadas(await provider.getFeeData().catch(() => null));
+  const tarifas = async () => {
+    // La tarifa base del último bloque es la referencia real; getFeeData de MetaMask la infla (~1 gwei).
+    const bloque = typeof provider.getBlock === "function" ? await provider.getBlock("latest").catch(() => null) : null;
+    if (bloque?.baseFeePerGas != null) return tarifasAcotadas({ baseFeePerGas: bloque.baseFeePerGas });
+    return tarifasAcotadas(await provider.getFeeData().catch(() => null));
+  };
   /**
    * Envía una transacción de escritura. Si la estimación revierte, lanza el error (para decodificarlo);
    * si falla por el RPC (no por un revert), usa un gas de respaldo y envía igualmente.
