@@ -335,12 +335,15 @@ const MSG_ERROR_DIARIA = "No se pudo completar la recompensa. Inténtalo de nuev
 const baseServidor = (u) => String(u ?? "").replace(/\/+$/, "");
 const numero = (v) => { const n = Number(v); return v == null || v === "" || !Number.isFinite(n) ? null : n; };
 
-/** Instante → ms epoch. Acepta ms, segundos epoch, texto ISO o numérico. null si no es válido. */
-export function aInstanteMs(v) {
+/**
+ * `proximoEn` del servidor → instante (ms). El servidor manda los SEGUNDOS QUE FALTAN hasta medianoche UTC
+ * (segundosHastaManana), así que se suman a `ahora`. Un texto ISO se interpreta como fecha. null si no es válido.
+ */
+export function aInstanteMs(v, ahora = Date.now()) {
   if (v == null || v === "") return null;
-  if (typeof v === "number") return !Number.isFinite(v) ? null : v < 1e11 ? v * 1000 : v;
-  if (typeof v === "string" && /^\d+$/.test(v.trim())) return aInstanteMs(Number(v));
-  const f = Date.parse(v);
+  const s = typeof v === "string" && /^\s*-?\d+(\.\d+)?\s*$/.test(v) ? Number(v) : v;
+  if (typeof s === "number") return Number.isFinite(s) ? ahora + Math.max(0, s) * 1000 : null;
+  const f = Date.parse(s);
   return Number.isFinite(f) ? f : null;
 }
 
@@ -367,7 +370,7 @@ async function peticionJson(f, url, init, timeoutMs) {
  * >}
  *   Un 503 tras agotar los intentos, un timeout (60 s) o un fallo de red dan `despertando:true`.
  */
-export async function pedirRecompensaDiaria(serverUrl, address, { fetch: f = globalThis.fetch, timeoutMs = 60_000, intentos = 2, esperar = dormir } = {}) {
+export async function pedirRecompensaDiaria(serverUrl, address, { fetch: f = globalThis.fetch, timeoutMs = 60_000, intentos = 2, esperar = dormir, ahora = Date.now() } = {}) {
   const url = `${baseServidor(serverUrl)}/recompensa`;
   const init = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address, motivo: "diaria" }) };
   for (let intento = 1; ; intento++) {
@@ -382,7 +385,7 @@ export async function pedirRecompensaDiaria(serverUrl, address, { fetch: f = glo
     if (res.ok) {
       return { ok: true, dia: numero(body?.dia), racha: numero(body?.racha), oro: numero(body?.oro), bonusDia7: numero(body?.bonusDia7) ?? 0, txHash: body?.txHash ?? body?.hash ?? null };
     }
-    if (res.status === 409) return { ok: false, status: 409, yaReclamado: true, mensaje: "Ya reclamaste la recompensa de hoy.", proximoEn: aInstanteMs(body?.proximoEn) };
+    if (res.status === 409) return { ok: false, status: 409, yaReclamado: true, mensaje: "Ya reclamaste la recompensa de hoy.", proximoEn: aInstanteMs(body?.proximoEn, ahora) };
     return { ok: false, status: res.status, mensaje: body?.error ?? MSG_ERROR_DIARIA };
   }
 }
@@ -394,7 +397,7 @@ export async function pedirRecompensaDiaria(serverUrl, address, { fetch: f = glo
  *   {ok:false, despertando?:true, mensaje:string}
  * >}
  */
-export async function estadoRecompensaDiaria(serverUrl, address, { fetch: f = globalThis.fetch, timeoutMs = 60_000 } = {}) {
+export async function estadoRecompensaDiaria(serverUrl, address, { fetch: f = globalThis.fetch, timeoutMs = 60_000, ahora = Date.now() } = {}) {
   let r;
   try { r = await peticionJson(f, `${baseServidor(serverUrl)}/recompensa/diaria/${encodeURIComponent(address ?? "")}`, { method: "GET" }, timeoutMs); }
   catch { return { ok: false, despertando: true, mensaje: MSG_DESPIERTANDO }; }
@@ -403,7 +406,7 @@ export async function estadoRecompensaDiaria(serverUrl, address, { fetch: f = gl
   if (!res.ok) return { ok: false, mensaje: body?.error ?? "No se pudo leer tu racha." };
   return {
     ok: true, racha: numero(body?.racha) ?? 0, dia: numero(body?.dia) ?? 1, puedeReclamar: !!body?.puedeReclamar,
-    proximoEn: aInstanteMs(body?.proximoEn), proximaOro: numero(body?.proximaOro),
+    proximoEn: aInstanteMs(body?.proximoEn, ahora), proximaOro: numero(body?.proximaOro),
   };
 }
 

@@ -310,12 +310,23 @@ test("pedirRecompensaDiaria: POST {address, motivo:'diaria'} y 200 con el premio
   assert.equal(sinBonus.bonusDia7, 0);
 });
 
-test("pedirRecompensaDiaria: 409 → ya reclamado con proximoEn (segundos epoch o ISO)", async () => {
+test("pedirRecompensaDiaria: 409 → ya reclamado; proximoEn son segundos que faltan (o ISO)", async () => {
   const manana = Date.UTC(2026, 10, 6);
-  const r = await G.pedirRecompensaDiaria("http://srv", "0xabc", { fetch: async () => respuesta(409, { error: "Ya", proximoEn: manana / 1000 }) });
+  const segundos = (manana - T) / 1000; // 12:00 UTC → faltan 43200 s hasta medianoche
+  const r = await G.pedirRecompensaDiaria("http://srv", "0xabc", { ahora: T, fetch: async () => respuesta(409, { error: "Ya", proximoEn: segundos }) });
   assert.deepEqual(r, { ok: false, status: 409, yaReclamado: true, mensaje: "Ya reclamaste la recompensa de hoy.", proximoEn: manana });
-  const iso = await G.pedirRecompensaDiaria("http://srv", "0xabc", { fetch: async () => respuesta(409, { proximoEn: "2026-11-06T00:00:00Z" }) });
+  const iso = await G.pedirRecompensaDiaria("http://srv", "0xabc", { ahora: T, fetch: async () => respuesta(409, { proximoEn: "2026-11-06T00:00:00Z" }) });
   assert.equal(iso.proximoEn, manana);
+});
+
+test("cuenta atrás tras reclamar: proximoEn (segundos restantes) → horas, minutos y segundos reales hasta medianoche UTC", async () => {
+  const manana = Date.UTC(2026, 10, 6);
+  assert.equal(G.aInstanteMs(43200, T), manana);
+  assert.equal(G.formatearCuentaAtras(G.aInstanteMs(43200, T) - T), "12:00:00");
+  assert.equal(G.formatearCuentaAtras(G.aInstanteMs(3725, T) - T), "01:02:05");
+  const est = await G.estadoRecompensaDiaria("http://srv", "0xabc", { ahora: T, fetch: async () => respuesta(200, { racha: 3, dia: 3, puedeReclamar: false, proximoEn: 43200, proximaOro: 20 }) });
+  assert.equal(est.proximoEn, manana);
+  assert.equal(G.formatearCuentaAtras(est.proximoEn - T), "12:00:00");
 });
 
 test("pedirRecompensaDiaria: 503 reintenta una vez respetando Retry-After; 503 persistente → despertando", async () => {

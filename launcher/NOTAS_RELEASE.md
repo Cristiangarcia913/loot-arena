@@ -3,7 +3,7 @@
 | Archivo | Para |
 |---|---|
 | `LootArena-Windows.zip` | Windows 10/11 (x64) |
-| `LootArena-macOS.zip` | macOS (Apple Silicon) |
+| `LootArena-macOS.zip` | macOS (Intel x64; en Apple Silicon funciona con Rosetta 2) |
 | `LootArena-Linux.zip` | Linux (x64) |
 | `LootArena-HTML5.zip` | Subir a itch.io / Game Jolt o servir en cualquier web |
 
