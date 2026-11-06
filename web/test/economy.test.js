@@ -222,3 +222,134 @@ test("economía simulada: bienvenida, venta ORO+ETH con límite diario, compra y
   assert.equal(antes - (await eco.saldoOro()), 120n * UNO);
   await assert.rejects(eco.comprar(13, 10)); // 9000 ORO: no alcanza
 });
+
+// ───── Flujo en cadena con contratos y MetaMask falsos (sin red) ─────
+
+/** Contrato falso: cada función registra la llamada; `ctx.vistas` da valores de lectura y `ctx.fallos` errores de estimateGas. */
+function fabricaEthers(ctx) {
+  const fn = (address, nombre) => {
+    const f = async (...args) => {
+      if (nombre in ctx.vistas) return ctx.vistas[nombre];
+      ctx.llamadas.push({ address, fn: nombre, args });
+      return { hash: `0x${nombre}`, wait: async () => ({ status: 1, logs: [] }) };
+    };
+    f.estimateGas = async (...args) => {
+      ctx.estimadas.push({ address, fn: nombre, args });
+      if (ctx.fallos[nombre]) throw ctx.fallos[nombre];
+      return 100000n;
+    };
+    return f;
+  };
+  class FakeContract {
+    constructor(address, abi) {
+      const obj = { address, interface: { fragments: (Array.isArray(abi) ? abi : []).filter((x) => typeof x === "object") } };
+      const proxy = new Proxy(obj, {
+        get(t, p) {
+          if (p === "connect") return () => proxy;
+          if (p in t || typeof p !== "string" || p === "then") return t[p];
+          return fn(address, p);
+        },
+      });
+      return proxy;
+    }
+  }
+  return { Contract: FakeContract };
+}
+
+function fabricaWallet(chainId = "0x1") {
+  const w = { chain: chainId, metodos: [], rechazar: false };
+  w.request = async ({ method, params }) => {
+    w.metodos.push(method);
+    if (method === "eth_chainId") return w.chain;
+    if (method === "wallet_switchEthereumChain") {
+      if (w.rechazar) throw Object.assign(new Error("User rejected"), { code: 4001 });
+      w.chain = params[0].chainId;
+      return null;
+    }
+    if (method === "wallet_watchAsset") return true;
+    throw new Error(`método no simulado: ${method}`);
+  };
+  return w;
+}
+
+function economiaDePrueba({ chain = "0x1", ctx = {}, mercadoAbi = [] } = {}) {
+  const c = { llamadas: [], estimadas: [], vistas: {}, fallos: {}, ...ctx };
+  const w = fabricaWallet(chain);
+  const provider = { getFeeData: async () => ({ maxFeePerGas: 500n * 10n ** 9n, maxPriorityFeePerGas: 3n * 10n ** 9n }) };
+  const eco = E.crearEconomiaChain({
+    ethers: fabricaEthers(c), provider, signer: {}, cuenta: "0x1111111111111111111111111111111111111111",
+    cfg: { address: "0x2222222222222222222222222222222222222222", chainId: 11155111,
+      net: { chainIdHex: "0xaa36a7", chainName: "Sepolia", rpcUrls: ["https://rpc"], nativeCurrency: { name: "S", symbol: "S", decimals: 18 }, blockExplorerUrls: [] } },
+    direcciones: { oro: "0x3333333333333333333333333333333333333333", cosmeticos: "0x4444444444444444444444444444444444444444", mercado: "0x5555555555555555555555555555555555555555" },
+    abis: { oro: [], cosmeticos: [], mercado: mercadoAbi, completos: {} },
+    eip1193: w,
+  });
+  return { eco, c, w };
+}
+
+test("cadena: en otra red, MetaMask cambia a Sepolia antes de firmar la venta", async () => {
+  const { eco, c, w } = economiaDePrueba({ chain: "0x1" });
+  assert.equal(await eco.redCorrecta(), false);
+  const op = await eco.vender(["7"]);
+  assert.equal(w.chain, "0xaa36a7");
+  assert.ok(w.metodos.includes("wallet_switchEthereumChain"));
+  assert.equal(c.llamadas.at(-1).fn, "venderItem");
+  assert.ok(op.hash);
+});
+
+test("cadena: si el usuario rechaza cambiar de red, el error llega con código 4001 y no se envía nada", async () => {
+  const { eco, c, w } = economiaDePrueba({ chain: "0x1" });
+  w.rechazar = true;
+  await assert.rejects(eco.vender(["7"]), (e) => e.code === 4001);
+  assert.equal(c.llamadas.length, 0);
+});
+
+test("cadena: un revert en la estimación se lanza (decodificable) y no se envía", async () => {
+  const revert = Object.assign(new Error("execution reverted"), { code: "CALL_EXCEPTION", revert: { name: "NoEresDueno", args: [] } });
+  const { eco, c } = economiaDePrueba({ chain: "0xaa36a7", ctx: { fallos: { venderItem: revert } } });
+  await assert.rejects(eco.vender(["7"]), (e) => e === revert);
+  assert.equal(c.llamadas.length, 0);
+});
+
+test("cadena: si la estimación falla por el RPC, envía con gas de respaldo y tarifas acotadas", async () => {
+  const rpc = Object.assign(new Error("could not coalesce error"), { code: "NETWORK_ERROR" });
+  const { eco, c } = economiaDePrueba({ chain: "0xaa36a7", ctx: { fallos: { venderItem: rpc } } });
+  await eco.vender(["7"]);
+  const envio = c.llamadas.at(-1);
+  assert.equal(envio.fn, "venderItem");
+  const opciones = envio.args.at(-1);
+  assert.equal(opciones.gasLimit, 350000n);
+  assert.equal(opciones.maxFeePerGas, 40n * 10n ** 9n);
+  assert.equal(opciones.maxPriorityFeePerGas, 2n * 10n ** 9n);
+});
+
+test("cadena: con estimación correcta, gasLimit = estimación + 20 %", async () => {
+  const { eco, c } = economiaDePrueba({ chain: "0xaa36a7" });
+  await eco.vender(["7", "8"]);
+  const envio = c.llamadas.at(-1);
+  assert.equal(envio.fn, "venderVarios");
+  assert.deepEqual(envio.args[0], ["7", "8"]);
+  assert.equal(envio.args.at(-1).gasLimit, 120000n);
+});
+
+test("cadena: aprobar pide setApprovalForAll al Mercado en GameItem", async () => {
+  const { eco, c } = economiaDePrueba({ chain: "0xaa36a7" });
+  await eco.aprobar();
+  const envio = c.llamadas.at(-1);
+  assert.equal(envio.fn, "setApprovalForAll");
+  assert.equal(envio.address, "0x2222222222222222222222222222222222222222");
+  assert.deepEqual(envio.args.slice(0, 2), ["0x5555555555555555555555555555555555555555", true]);
+});
+
+test("cadena: el límite diario usa ethRestanteHoy del contrato cuando existe", async () => {
+  const abi = [{ type: "function", name: "ethRestanteHoy", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }], constant: true }];
+  const { eco } = economiaDePrueba({ chain: "0xaa36a7", mercadoAbi: abi, ctx: { vistas: { ethRestanteHoy: 3n * 10n ** 15n } } });
+  const info = await eco.infoEth();
+  assert.equal(info.restanteHoy, 3n * 10n ** 15n);
+});
+
+test("cadena: añadir ORO a MetaMask con 18 decimales y símbolo ORO", async () => {
+  const { eco, w } = economiaDePrueba({ chain: "0xaa36a7" });
+  assert.equal(await eco.anadirAMetaMask(), true);
+  assert.ok(w.metodos.includes("wallet_watchAsset"));
+});

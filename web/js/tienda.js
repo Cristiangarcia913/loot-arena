@@ -14,8 +14,9 @@ import {
   FAUCET_SEPOLIA, ETH_MINIMO_GAS, MAX_ETH_DIARIO, cosmetico, precioVentaLocal, recompensaEthLocal,
   estimarEthVenta, formatearOro, formatearEth, oroEntero, aUnidades, aparienciaVacia, equiparCosmetico,
   quitarRanura, sanearApariencia, cargarApariencia, guardarApariencia, resolverDirecciones, cargarAbis,
-  crearEconomiaChain, mensajeErrorEconomia,
+  crearEconomiaChain,
 } from "./economy.js";
+import { mensajeErrorTransaccion, evaluarGas, hastaQue } from "./wallet-errores.js";
 
 export { CATALOGO } from "./economy.js";
 
@@ -53,7 +54,8 @@ let generacion = 0;
 let S = null;
 
 const MODOS_ACTIVOS = new Set(["chain", "simulada"]);
-const activo = () => S && MODOS_ACTIVOS.has(S.modo);
+/** La tienda opera solo con economía montada y MetaMask en la red correcta (redOk !== false). */
+const activo = () => !!S && MODOS_ACTIVOS.has(S.modo) && S.redOk !== false;
 
 function estadoInicial(o) {
   return {
@@ -71,7 +73,8 @@ function estadoInicial(o) {
     seleccion: new Set(),
     precios: new Map(),      // tokenId → ORO (del contrato)
     recompensas: new Map(),  // tokenId → wei
-    infoEth: null,           // {caja, max, pagadoHoy}
+    infoEth: null,           // {caja, max, restanteHoy, pagadoHoy}
+    redOk: null,             // true = MetaMask en la red de la config; false = otra red; null = no se sabe
     precioCofre: PRECIO_COFRE,
     preciosCos: new Map(CATALOGO.map((x) => [x.id, x.precio])),
     bienvenida: null,        // true = ya reclamada, false = pendiente, null = desconocido
@@ -141,21 +144,24 @@ export async function montarTienda(o = {}) {
       else {
         const ethers = o.ethers ?? (await import("./wallet.js")).cargarEthers().then((x) => x);
         const [eth, abis] = await Promise.all([ethers, cargarAbis()]);
-        const code = await o.provider.getCode(dirs.mercado).catch(() => "0x");
-        if (!code || code === "0x") modo = "no-desplegada";
-        else {
-          S.eco = crearEconomiaChain({
-            ethers: eth, provider: o.provider, signer: o.signer ?? (await o.provider.getSigner()),
-            cuenta: o.cuenta, cfg: o.cfg, direcciones: dirs, abis, eip1193: o.eip1193 ?? globalThis.ethereum,
-          });
-          modo = "chain";
+        S.eco = crearEconomiaChain({
+          ethers: eth, provider: o.provider, signer: o.signer ?? (await o.provider.getSigner()),
+          cuenta: o.cuenta, cfg: o.cfg, direcciones: dirs, abis, eip1193: o.eip1193 ?? globalThis.ethereum,
+        });
+        S.redOk = await S.eco.redCorrecta();
+        modo = "chain";
+        // Con MetaMask en otra red no se mira el código del contrato (daría "0x" y un mensaje engañoso):
+        // la tienda se muestra bloqueada con el aviso «cambia a Sepolia».
+        if (S.redOk !== false) {
+          const code = await o.provider.getCode(dirs.mercado);
+          if (!code || code === "0x") modo = "no-desplegada";
         }
       }
     }
   } catch (e) {
     console.warn("[tienda] no se pudo preparar la economía:", e);
     modo = "error";
-    S.error = mensajeErrorEconomia(e).texto;
+    S.error = mensajeErrorTransaccion(e).texto;
   }
   if (gen !== generacion) return { modo: "desmontada" };
   S.modo = modo;
@@ -240,12 +246,25 @@ export function pocionesExtra() {
  */
 export async function gastarPociones(n) {
   if (!activo() || !(n > 0)) return false;
-  const ok = await ejecutar(`Gastar ${n} poción(es) extra`, () => S.eco.gastarPociones(Math.min(n, pocionesExtra())));
+  const ok = await ejecutar(`Gastar ${n} poción(es) extra`, () => S.eco.gastarPociones(Math.min(n, pocionesExtra())),
+    { reintentar: () => gastarPociones(n) });
   if (ok) await refrescarCosmeticos();
   return !!ok;
 }
 
 /** Apariencia actual (copia). */
+/** Compra un cosmético (lo usa el Mercado de la interfaz nueva). */
+export const comprarCosmetico = (id, btn = null) => comprar(id, btn);
+
+/** Abre un cofre cosmético (lo usa el Mercado de la interfaz nueva). */
+export const abrirCofreCosmetico = () => abrirCofre();
+
+/** Cambia la apariencia guardada (ranuras color, sombrero, capa, aura, mascota). */
+export const cambiarAparienciaExterna = (ap) => cambiarApariencia(ap);
+
+/** Ids de cosméticos que posee la cuenta conectada (balance > 0). */
+export const cosmeticosPosee = () => Object.entries(S?.cosmeticos ?? {}).filter(([, n]) => Number(n) > 0).map(([id]) => Number(id));
+
 export const aparienciaActual = () => ({ ...(S?.apariencia ?? aparienciaVacia()) });
 
 /** Modo actual de la tienda o null si no está montada. */
@@ -309,7 +328,9 @@ const precioOro = (it) => S.precios.get(String(it.tokenId)) ?? precioVentaLocal(
 const recompensa = (it) => S.recompensas.get(String(it.tokenId)) ?? recompensaEthLocal(it);
 const restanteHoy = () => {
   const i = S.infoEth;
-  if (!i || i.pagadoHoy == null) return null;
+  if (!i) return null;
+  if (i.restanteHoy != null) return i.restanteHoy > 0n ? i.restanteHoy : 0n;   // ethRestanteHoy(address) del contrato
+  if (i.pagadoHoy == null) return null;
   const r = (i.max ?? MAX_ETH_DIARIO) - i.pagadoHoy;
   return r > 0n ? r : 0n;
 };
@@ -440,6 +461,12 @@ function renderAvisos() {
   const avisos = [];
   if (S.modo === "demo") {
     avisos.push(h("div", { class: "tn-aviso tn-aviso-info" }, "🦊 Conecta MetaMask para vender objetos, comprar cosméticos y abrir cofres. Mientras, puedes mirar el catálogo y probar los cosméticos."));
+  }
+  if (S.modo === "chain" && S.redOk === false) {
+    avisos.push(h("div", { class: "tn-aviso tn-aviso-gas", role: "alert" },
+      h("strong", {}, "🦊 MetaMask está en otra red. "),
+      "La tienda funciona en Sepolia y está bloqueada hasta que cambies. ",
+      h("button", { type: "button", class: "btn btn-small btn-gold", onclick: cambiarASepolia }, "Cambiar a Sepolia")));
   }
   if (activo() && S.eth != null && S.eth < ETH_MINIMO_GAS) {
     avisos.push(h("div", { class: "tn-aviso tn-aviso-gas", role: "alert" },
@@ -665,14 +692,55 @@ function marcarOcupado(v) {
   renderVenta(); renderCatalogo(); renderCofre(); actualizarBotonesVenta();
 }
 
-/** Comprueba el ETH para gas. Devuelve false (y explica) si no hay nada. */
-async function hayGas() {
-  if (S.modo !== "chain" && S.modo !== "simulada") return false;
-  const eth = S.eth ?? await S.eco.saldoEth();
-  if (eth == null || eth > 0n) {
-    if (eth != null && eth < ETH_MINIMO_GAS) aviso(["⛽ Te queda poco ETH para el gas. ", esSepolia() ? ["Recarga en el ", enlaceFaucet(), "."] : null], "info", 7000);
-    return true;
+/** Cambia MetaMask a Sepolia (si hace falta) y vuelve a leer la tienda. */
+async function cambiarASepolia() {
+  if (!S?.eco) return;
+  try {
+    await S.eco.asegurarRed();
+    S.redOk = true;
+    renderTodo();
+    await refrescarTodo();
+  } catch (e) {
+    const m = mensajeErrorTransaccion(e);
+    aviso(m.texto, m.codigo === "rechazado" ? "info" : "error", 7000);
   }
+}
+
+/** Botones de acción de un aviso de error (faucet, reintentar, cambiar de red, actualizar saldos). */
+function accionesError(m, reintentar) {
+  const out = [];
+  if (m.accion === "faucet" && esSepolia()) out.push(" Consigue ETH en el ", enlaceFaucet(), ".");
+  const boton = (texto, fn) => h("button", { type: "button", class: "btn btn-small btn-gold tn-toast-accion", onclick: fn }, texto);
+  if (m.accion === "reintentar" && reintentar) out.push(boton("Reintentar", () => reintentar()));
+  if (m.accion === "cambiar-red") out.push(boton("Cambiar a Sepolia", cambiarASepolia));
+  if (m.accion === "refrescar") out.push(boton("Actualizar saldos", () => refrescarTodo()));
+  return out;
+}
+
+/**
+ * Relee de la cadena hasta que `listo(valor)`: los RPC públicos a veces devuelven datos desfasados
+ * justo después de minar, así que no se confía en el evento ni en una sola lectura.
+ */
+async function releerHasta(leer, listo) {
+  const r = await hastaQue(leer, listo, { intentos: 4, esperaMs: 1200 });
+  if (!r.ok && S) aviso("Tu saldo aún no aparece actualizado en la red. Puede tardar unos segundos; pulsa «Actualizar saldos» si no cambia.", "info", 7000);
+  return r.valor;
+}
+/** Relee el ORO hasta que cambie respecto a `antes` (bigint o null si no se sabía). */
+const releerOroHasta = (antes) => releerHasta(() => refrescarSaldo(), (v) => v != null && (antes == null || v.oroUnidades !== antes));
+/** Lectura de ORO antes de enviar (null si el RPC falla) para comparar después. */
+const oroAhora = () => S.eco.saldoOro().then((x) => x, () => null);
+
+/**
+ * Comprueba el ETH para gas, leyendo el saldo de la cadena. Bloquea (con explicación y enlace al faucet)
+ * si no llega ni para un par de transacciones; avisa si queda poco. Si el saldo no se sabe, deja pasar.
+ */
+async function hayGas() {
+  if (!activo()) return false;
+  const eth = (await S.eco.saldoEth()) ?? S.eth;
+  const { nivel } = evaluarGas(eth);
+  if (nivel === "aviso") aviso(["⛽ Te queda poco ETH para el gas. ", esSepolia() ? ["Recarga en el ", enlaceFaucet(), "."] : null], "info", 7000);
+  if (nivel !== "bloqueo") return true;
   await confirmar({
     titulo: "⛽ Necesitas ETH de Sepolia",
     cuerpo: [h("p", {}, "Vender, comprar y abrir cofres son transacciones que firmas tú, y la red cobra un poco de gas en ETH de Sepolia (gratis, es una red de pruebas)."),
@@ -686,7 +754,7 @@ async function hayGas() {
  * Ejecuta una operación con mensajes: "confirma en MetaMask" → "enviada" → resultado.
  * @returns {Promise<any|false>} resultado de esperar() o false si falló/se canceló
  */
-async function ejecutar(descripcion, enviar, { alEnviar } = {}) {
+async function ejecutar(descripcion, enviar, { alEnviar, reintentar } = {}) {
   const gen = S.gen;
   try {
     if (S.modo === "chain") aviso(`🦊 ${descripcion}: confirma en MetaMask…`, "info", 4000);
@@ -697,9 +765,9 @@ async function ejecutar(descripcion, enviar, { alEnviar } = {}) {
     return gen === generacion ? (r ?? true) : false;
   } catch (e) {
     if (gen !== generacion) return false;
-    const m = mensajeErrorEconomia(e);
-    if (!m.rechazado) console.warn(`[tienda] ${descripcion}:`, e);
-    aviso([m.texto, m.gas && esSepolia() ? [" Consigue ETH en el ", enlaceFaucet(), "."] : null], m.rechazado ? "info" : "error", 7000);
+    const m = mensajeErrorTransaccion(e);
+    if (m.codigo !== "rechazado") console.warn(`[tienda] ${descripcion} (${m.codigo}):`, e);
+    aviso([m.texto, ...accionesError(m, reintentar)], m.codigo === "rechazado" ? "info" : "error", 9000);
     return false;
   }
 }
@@ -730,7 +798,10 @@ export async function venderObjetos(items, origen) {
   if (!(await hayGas())) return false;
   marcarOcupado(true);
   try {
-    if (!(await S.eco.aprobado())) {
+    let aprobado;
+    try { aprobado = await S.eco.aprobado(); }
+    catch (e) { const m = mensajeErrorTransaccion(e); aviso(m.texto, "error", 7000); return false; }
+    if (!aprobado) {
       const si = await confirmar({
         titulo: "Permiso para el Mercado (solo la primera vez)",
         cuerpo: [
@@ -741,10 +812,12 @@ export async function venderObjetos(items, origen) {
         aceptar: "Dar permiso",
       });
       if (!si || !S) return false;
-      if (!(await ejecutar("Permiso al Mercado", () => S.eco.aprobar()))) return false;
+      if (!(await ejecutar("Permiso al Mercado", () => S.eco.aprobar(), { reintentar: () => venderObjetos(items, origen) }))) return false;
     }
     const ids = items.map((it) => String(it.tokenId));
-    const res = await ejecutar(items.length === 1 ? "Venta" : `Venta de ${items.length} objetos`, () => S.eco.vender(ids));
+    const oroAntes = await oroAhora();
+    const res = await ejecutar(items.length === 1 ? "Venta" : `Venta de ${items.length} objetos`, () => S.eco.vender(ids),
+      { reintentar: () => venderObjetos(items, origen) });
     if (!res || !S) return false;
     const pago = res === true ? null : res;
     const oro = pago?.oro ?? aUnidades(est.oro), eth = pago?.eth ?? null;
@@ -756,7 +829,8 @@ export async function venderObjetos(items, origen) {
     for (const reg of [...S.botones]) if (ids.includes(String(reg.item.tokenId))) { reg.btn.remove(); S.botones.delete(reg); }
     S.o.onVendido?.(ids, ganado);
     await esperar(movimientoReducido() ? 0 : 650);
-    await Promise.allSettled([refrescarSaldo(), cargarPrecios()]);
+    await releerOroHasta(oroAntes);
+    await cargarPrecios();
     return ganado;
   } finally {
     marcarOcupado(false);
@@ -770,11 +844,12 @@ async function comprar(id, btn) {
   if (!(await hayGas())) return;
   marcarOcupado(true);
   try {
-    const ok = await ejecutar(`Compra de ${cos.nombre}`, () => S.eco.comprar(id, 1));
+    const oroAntes = await oroAhora();
+    const ok = await ejecutar(`Compra de ${cos.nombre}`, () => S.eco.comprar(id, 1), { reintentar: () => comprar(id, btn) });
     if (!ok || !S) return;
     volarMonedas(null, { oro: -precio, hacia: btn });
     aviso(`✨ ¡${cos.nombre} es tuyo!`, "ok");
-    await Promise.allSettled([refrescarSaldo(), refrescarCosmeticos()]);
+    await Promise.allSettled([releerOroHasta(oroAntes), refrescarCosmeticos()]);
     if (cos.ranura !== "consumible" && S.apariencia[cos.ranura] == null) cambiarApariencia(equiparCosmetico(S.apariencia, id));
   } finally {
     marcarOcupado(false);
@@ -786,13 +861,14 @@ async function reclamarBienvenida(btn) {
   if (!(await hayGas())) return;
   marcarOcupado(true);
   try {
-    const ok = await ejecutar("Bono de bienvenida", () => S.eco.reclamarBienvenida());
+    const oroAntes = await oroAhora();
+    const ok = await ejecutar("Bono de bienvenida", () => S.eco.reclamarBienvenida(), { reintentar: () => reclamarBienvenida(btn) });
     if (!S) return;
     if (ok) {
       S.bienvenida = true;
       volarMonedas(btn, { oro: ORO_BIENVENIDA });
       aviso(`🎁 ¡+${ORO_BIENVENIDA} ORO de bienvenida!`, "ok");
-      await refrescarSaldo();
+      await releerOroHasta(oroAntes);
     } else {
       S.bienvenida = await S.eco.bienvenidaReclamada();
     }
@@ -807,7 +883,7 @@ async function anadirAMetaMask() {
     const ok = await S.eco.anadirAMetaMask();
     aviso(ok ? "🦊 ORO añadido a MetaMask." : "MetaMask no añadió el token.", ok ? "ok" : "info");
   } catch (e) {
-    aviso(mensajeErrorEconomia(e).texto, "error");
+    aviso(mensajeErrorTransaccion(e).texto, "error");
   }
 }
 
@@ -820,13 +896,15 @@ async function abrirCofre() {
   marcarOcupado(true);
   const ov = crearOverlayCofre();
   try {
+    const oroAntes = await oroAhora();
     ov.estado(S.modo === "chain" ? "Confirma en MetaMask…" : "Abriendo…");
     const id = await ejecutar("Cofre cosmético", () => S.eco.abrirCofre(), {
       alEnviar: () => { ov.estado("El cofre tiembla…"); ov.temblar(); },
+      reintentar: () => { ov.cerrar(); setTimeout(abrirCofre, 320); },
     });
     if (!S) { ov.cerrar(); return; }
     if (id === false) { ov.cerrar(); return; }
-    await refrescarSaldo();
+    await releerOroHasta(oroAntes);
     if (typeof id !== "number") {
       ov.cerrar();
       aviso("Cofre abierto. Revisa tu vestuario.", "ok");

@@ -3,12 +3,13 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import dotenv from 'dotenv';
+import express from 'express';
 import { JsonRpcProvider, Network, Wallet, Contract, FetchRequest, formatEther } from 'ethers';
 import { cargarConfig } from './config.js';
 import { cargarAbi, crearMinter, crearEmisor, nonceDeFirmante, RUTA_ABI } from './chain.js';
 import { crearApp } from './app.js';
 import { ABI_RECOMPENSAS } from './abis.js';
-import { IndexadorRanking } from './ranking.js';
+import { IndexadorRanking, guardaSincronizando } from './ranking.js';
 import { INICIO_TEMPORADAS } from './recompensa.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -84,7 +85,7 @@ async function main() {
     ranking = new IndexadorRanking({
       provider, gameItem: config.contractAddress, mercado: config.mercadoAddress,
       recompensas: config.recompensasAddress, deployBlock: config.deployBlock,
-    }).iniciar(60_000);
+    });
   }
 
   let pagarRecompensa = null;
@@ -122,11 +123,18 @@ async function main() {
     trustProxy: config.trustProxy,
   });
 
-  const server = app.listen(config.port, () => {
+  // El guard va delante de la app: mientras no hay índice, GET /ranking responde 503 + Retry-After
+  // en vez de colgar. El indexado inicial arranca después de escuchar, en segundo plano.
+  const raiz = express();
+  raiz.use(guardaSincronizando(() => ranking));
+  raiz.use(app);
+
+  const server = raiz.listen(config.port, () => {
     console.log(`✓ Loot Arena server en http://localhost:${server.address().port}`);
     console.log(`  chainId ${chainId} · contrato ${config.contractAddress}`);
     console.log(`  minter ${wallet.address} (${formatEther(saldo)} ETH) · DROP_CHANCE ${config.dropChance} · CORS ${config.allowedOrigin}`);
     console.log(`  ranking ${ranking ? `activo desde el bloque ${config.deployBlock}` : 'desactivado'} · recompensas ${pagarRecompensa ? 'activas' : 'desactivadas'}`);
+    ranking?.iniciar(60_000);
   });
 
   const cerrar = () => { console.log('Cerrando servidor…'); ranking?.detener(); server.close(() => process.exit(0)); };

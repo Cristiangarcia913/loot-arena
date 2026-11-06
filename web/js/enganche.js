@@ -436,23 +436,51 @@ export function crearRecompensasSimulada({ racha = 0, ultimoDia = null, latencia
   };
 }
 
-/** GET /ranking y, si hay cuenta, GET /ranking/:address. @returns {Promise<{ranking, posicion}|{error:string}>} */
-export async function pedirRanking(serverUrl, cuenta, { fetch: f = globalThis.fetch, timeoutMs = 20_000 } = {}) {
+/** Espera (ms) que indica Retry-After (segundos o fecha HTTP), acotada a 30 s; sin cabecera, 5 s. */
+export function esperaRetryAfter(valor, ahora = Date.now()) {
+  if (valor == null || String(valor).trim() === "") return 5000;
+  const s = Number(valor);
+  if (Number.isFinite(s)) return Math.min(30_000, Math.max(0, s * 1000));
+  const f = Date.parse(valor);
+  return Number.isFinite(f) ? Math.min(30_000, Math.max(0, f - ahora)) : 5000;
+}
+
+const MSG_SINCRONIZANDO = "El ranking aún no está disponible: el servidor lo está sincronizando con la blockchain.";
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * GET /ranking y, si hay cuenta, GET /ranking/:address. Un 503 (el servidor está indexando; la primera
+ * vez tarda ~30 s) se reintenta esperando Retry-After, hasta `intentos` peticiones en total.
+ * `onEstado({estado:"sincronizando", intento, de, esperaMs})` avisa antes de cada espera.
+ * @returns {Promise<{ranking, posicion}|{error:string, sincronizando?:true}>}
+ */
+export async function pedirRanking(serverUrl, cuenta, { fetch: f = globalThis.fetch, timeoutMs = 60_000, intentos = 3, esperar = dormir, onEstado } = {}) {
   const base = String(serverUrl ?? "").replace(/\/+$/, "");
-  const get = async (ruta) => {
+  // Una petición con timeout: {status:503, retryAfter} | {json} | {error}.
+  const una = async (ruta) => {
     const ctl = typeof AbortController === "function" ? new AbortController() : null;
     const t = ctl && setTimeout(() => ctl.abort(), timeoutMs);
     try {
       const res = await f(`${base}${ruta}`, { signal: ctl?.signal, cache: "no-store" });
-      if (res.status === 503) return { error: "El ranking aún no está disponible en el servidor." };
+      if (res.status === 503) return { status: 503, retryAfter: res.headers?.get?.("Retry-After") ?? null };
       if (!res.ok) return { error: `El servidor respondió ${res.status}.` };
       return { json: await res.json() };
     } catch (e) {
       return { error: e?.name === "AbortError" ? "El servidor tarda en responder (puede estar despertando)." : "No se pudo contactar con el servidor." };
     } finally { if (t) clearTimeout(t); }
   };
-  const [r, p] = await Promise.all([get("/ranking"), cuenta ? get(`/ranking/${cuenta}`) : Promise.resolve(null)]);
-  if (r.error) return { error: r.error };
+  const get = async (ruta, avisar) => {
+    for (let intento = 1; ; intento++) {
+      const r = await una(ruta);
+      if (r.status !== 503) return r;
+      if (intento >= intentos) return { error: MSG_SINCRONIZANDO, sincronizando: true };
+      const esperaMs = esperaRetryAfter(r.retryAfter);
+      if (avisar) { try { onEstado?.({ estado: "sincronizando", intento, de: intentos, esperaMs }); } catch { /* solo UI */ } }
+      await esperar(esperaMs);
+    }
+  };
+  const [r, p] = await Promise.all([get("/ranking", true), cuenta ? get(`/ranking/${cuenta}`, false) : Promise.resolve(null)]);
+  if (r.error) return r.sincronizando ? { error: r.error, sincronizando: true } : { error: r.error };
   return { ranking: normalizarRanking(r.json), posicion: p?.json ? normalizarPosicion(p.json) : null };
 }
 
@@ -542,7 +570,7 @@ export async function montarEnganche(o = {}) {
     els: Object.fromEntries(Object.entries(IDS).map(([k, id]) => [k, o.raiz?.[k] ?? document.getElementById(id)])),
     E: {}, propio: cargarPropio(o.cuenta ?? null, o.storage),
     diario: null, modoDiario: "sin-wallet", rec: null,
-    ranking: null, posicion: null, errorRanking: null, catRanking: "objetos", cargandoRanking: false,
+    ranking: null, posicion: null, errorRanking: null, catRanking: "objetos", cargandoRanking: false, sincronizando: false,
     ocupado: new Set(), timer: null, avisos: {},
   };
   for (const k of SISTEMAS) {
@@ -702,10 +730,13 @@ async function refrescarRanking() {
   if (!S || !S.els.ranking) return;
   if (!S.serverUrl && !S.o.fetch) { S.errorRanking = "Sin servidor configurado."; renderRanking(); return; }
   const gen = S.gen;
-  S.cargandoRanking = true; renderRanking();
-  const r = await pedirRanking(S.serverUrl, S.cuenta, { fetch: S.o.fetch ?? globalThis.fetch });
+  S.cargandoRanking = true; S.sincronizando = false; S.errorRanking = null; renderRanking();
+  const r = await pedirRanking(S.serverUrl, S.cuenta, {
+    fetch: S.o.fetch ?? globalThis.fetch,
+    onEstado: (e) => { if (S && gen === S.gen) { S.sincronizando = e.estado === "sincronizando"; renderRanking(); } },
+  });
   if (!S || gen !== S.gen) return;
-  S.cargandoRanking = false;
+  S.cargandoRanking = false; S.sincronizando = false;
   if (r.error) S.errorRanking = r.error; else { S.errorRanking = null; S.ranking = r.ranking; S.posicion = r.posicion; }
   renderRanking();
 }
@@ -997,32 +1028,77 @@ function jugarDesafio() {
 }
 
 // ── Logros ──
+// Categorías de logros (las de logros.js; "otros" recoge cualquier categoría nueva que no conozcamos).
+const GRUPOS_LOGROS = Object.freeze([
+  { id: "primeros", nombre: "Primeros pasos", icono: "🚩" },
+  { id: "combate", nombre: "Combate", icono: "⚔️" },
+  { id: "heroe", nombre: "Héroe", icono: "🧝" },
+  { id: "coleccion", nombre: "Colección", icono: "📖" },
+  { id: "economia", nombre: "Economía", icono: "🪙" },
+  { id: "constancia", nombre: "Constancia", icono: "📅" },
+  { id: "otros", nombre: "Otros", icono: "✨" },
+]);
+
+const fechaLogro = (ms) => new Date(ms).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+
+/** Tarjeta de un logro: medalla (color + fecha si está conseguido) o barra hacia su objetivo. */
+function tarjetaLogro(l, { nuevo, cerca }) {
+  const progreso = Math.min(l.progreso ?? 0, l.objetivo ?? 1);
+  return h("li", { class: `eg-logro ${l.conseguido ? "conseguido" : "bloqueado"}${nuevo ? " nuevo" : ""}${cerca ? " cerca" : ""}`, "data-logro": l.id, title: l.descripcion },
+    h("span", { class: "eg-logro-medalla", "aria-hidden": "true" }, l.conseguido ? l.icono : "🔒"),
+    h("div", { class: "eg-logro-cuerpo" },
+      h("strong", { class: "eg-logro-nombre" }, l.nombre),
+      h("span", { class: "eg-logro-desc eg-tenue eg-mini" }, l.descripcion),
+      l.conseguido
+        ? h("span", { class: "eg-logro-fecha eg-mini" }, `✔ Desbloqueado${l.fecha ? ` el ${fechaLogro(l.fecha)}` : ""}`)
+        : [barra(progreso, l.objetivo, "eg-logro-barra"), h("span", { class: "eg-mini eg-tenue" }, `${progreso}/${l.objetivo} · siguiente escalón`)],
+      l.titulo ? h("span", { class: "eg-chip eg-chip-titulo" }, `«${l.titulo}»`) : null),
+    nuevo ? h("span", { class: "eg-nuevo" }, "¡Nuevo!") : cerca ? h("span", { class: "eg-cerca" }, "🎯 Más cerca") : null);
+}
+
 function renderLogros(lista) {
   const el = S?.els.logros;
   if (!el) return;
-  if (!lista) { poner(el, noDisponible("🏅 Logros")); return; }
+  if (!Array.isArray(lista)) { poner(el, noDisponible("🏅 Logros")); return; }
+  const total = lista.length;
   const conseguidos = lista.filter((l) => l.conseguido);
   const titulos = S.A.logros.titulos(S.E.logros, S.A.pase?.titulos);
   const actual = S.A.logros.tituloActual(S.E.logros);
+  const elegido = titulos.find((t) => t.id === actual) ?? null;
   const nuevos = new Set(conseguidos.filter((l) => !S.propio.vistos.includes(l.id)).map((l) => l.id));
+  const pct = total ? conseguidos.length / total : 0;
+
+  // Agrupa por categoría (orden de GRUPOS_LOGROS); dentro de cada grupo, el orden de logros.js.
+  const conocidas = new Set(GRUPOS_LOGROS.map((g) => g.id));
+  const grupos = GRUPOS_LOGROS.map((g) => ({ ...g, items: lista.filter((l) => (g.id === "otros" ? !conocidas.has(l.categoria) : l.categoria === g.id)) }))
+    .filter((g) => g.items.length);
+
   poner(el,
-    h("div", { class: "eg-cabeza" }, h("h3", {}, "🏅 Logros"), h("span", { class: "eg-chip" }, `${conseguidos.length}/${lista.length}`),
+    h("div", { class: "eg-cabeza" }, h("h3", {}, "🏅 Logros"),
       nuevos.size ? h("button", { type: "button", class: "btn btn-small btn-ghost", onclick: () => { S.propio.vistos = conseguidos.map((l) => l.id); guardarPropio(S.cuenta, S.propio, S.o.storage); renderTodo(); } }, `Marcar ${nuevos.size} como vistos`) : null),
-    h("label", { class: "eg-titulo-sel" }, "Título junto a tu nombre: ",
-      h("select", { disabled: !titulos.length, onchange: (ev) => cambiarTitulo(ev.target.value || null) },
-        h("option", { value: "" }, titulos.length ? "— ninguno —" : "— consigue logros para ganar títulos —"),
-        titulos.map((t) => h("option", { value: t.id, selected: actual === t.id }, t.texto)))),
-    h("ul", { class: "eg-medallas" }, lista.map((l) => h("li", {
-      class: `eg-medalla${l.conseguido ? " conseguida" : ""}${nuevos.has(l.id) ? " nueva" : ""}`,
-      title: `${l.nombre}: ${l.descripcion}${l.titulo ? ` · Título «${l.titulo}»` : ""}`,
-    },
-    h("span", { class: "eg-medalla-ico", "aria-hidden": "true" }, l.conseguido ? l.icono : "🔒"),
-    h("strong", {}, l.nombre),
-    h("span", { class: "eg-mini eg-tenue" }, l.descripcion),
-    !l.conseguido && l.objetivo > 1 ? barra(l.progreso, l.objetivo) : null,
-    !l.conseguido && l.objetivo > 1 ? h("span", { class: "eg-mini eg-tenue" }, `${l.progreso}/${l.objetivo}`) : null,
-    l.titulo ? h("span", { class: "eg-chip eg-chip-titulo" }, `«${l.titulo}»`) : null,
-    nuevos.has(l.id) ? h("span", { class: "eg-nuevo" }, "¡Nuevo!") : null))));
+    h("div", { class: "eg-logros-total" },
+      h("div", { class: "eg-logros-total-txt" },
+        h("strong", {}, `${conseguidos.length}/${total} logros`),
+        h("span", { class: "eg-tenue eg-mini" }, pct >= 1 ? "¡Todos conseguidos!" : `${Math.round(pct * 100)} % completado`)),
+      barra(conseguidos.length, total, "dorada")),
+    h("div", { class: "eg-titulo-box" },
+      h("label", { class: "eg-titulo-sel" }, "Título junto a tu nombre",
+        h("select", { disabled: !titulos.length, onchange: (ev) => cambiarTitulo(ev.target.value || null) },
+          h("option", { value: "" }, titulos.length ? "— ninguno —" : "— consigue logros para ganar títulos —"),
+          titulos.map((t) => h("option", { value: t.id, selected: actual === t.id }, t.texto)))),
+      h("div", { class: "eg-titulo-prev", "aria-live": "polite" },
+        h("span", { class: "eg-tenue eg-mini" }, "Vista previa:"),
+        h("span", { class: "eg-nombre-prev" }, S.cuenta ? acortar(S.cuenta) : "Invitado"),
+        elegido ? h("span", { class: "eg-chip eg-chip-titulo eg-chip-grande" }, `«${elegido.texto}»`) : h("span", { class: "eg-tenue eg-mini" }, "sin título"))),
+    grupos.map((g) => {
+      const hechos = g.items.filter((l) => l.conseguido).length;
+      // "Más cerca": el logro bloqueado con mayor progreso del grupo.
+      const cerca = g.items.filter((l) => !l.conseguido).reduce((mejor, l) => (!mejor || (l.progreso / l.objetivo) > (mejor.progreso / mejor.objetivo) ? l : mejor), null);
+      return h("section", { class: "eg-grupo", "data-grupo": g.id },
+        h("h4", {}, `${g.icono} ${g.nombre} · ${hechos}/${g.items.length}`),
+        barra(hechos, g.items.length),
+        h("ul", { class: "eg-logros-grid" }, g.items.map((l) => tarjetaLogro(l, { nuevo: nuevos.has(l.id), cerca: cerca?.id === l.id }))));
+    }));
 }
 
 function cambiarTitulo(id, { guardar = true } = {}) {
@@ -1081,8 +1157,11 @@ function renderRanking() {
     }, h("span", { "aria-hidden": "true" }, c.icono), " ", c.nombre))),
     h("p", { class: "eg-tenue eg-mini" }, `${cat.largo}. Datos leídos de la cadena: no se pueden falsear.`,
       S.ranking?.actualizado ? ` Actualizado a las ${new Date(S.ranking.actualizado).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}.` : ""),
-    S.errorRanking && !S.ranking ? h("p", { class: "eg-aviso" }, `⚠️ ${S.errorRanking}`) : null,
-    S.cargandoRanking && !S.ranking ? h("p", { class: "eg-tenue" }, "Cargando ranking…") : null,
+    S.sincronizando ? h("div", { class: "eg-sync", role: "status", "aria-live": "polite" }, h("span", { class: "eg-spinner", "aria-hidden": "true" }),
+      h("span", {}, "Sincronizando el ranking con la blockchain… (puede tardar medio minuto la primera vez)")) : null,
+    !S.sincronizando && S.cargandoRanking && !S.ranking ? h("div", { class: "eg-sync", role: "status" }, h("span", { class: "eg-spinner", "aria-hidden": "true" }), h("span", {}, "Cargando ranking…")) : null,
+    S.errorRanking && !S.cargandoRanking ? h("div", { class: "eg-aviso eg-aviso-fila", role: "alert" }, h("span", {}, `⚠️ ${S.errorRanking}`),
+      h("button", { type: "button", class: "btn btn-small", onclick: refrescarRanking }, "Reintentar")) : null,
     S.ranking && !lista.length ? h("p", { class: "eg-tenue" }, "Todavía nadie en esta categoría. ¡Sé el primero!") : null,
     lista.length ? h("ol", { class: "eg-ranking" }, lista.map((x) => h("li", { class: `eg-fila${x.address.toLowerCase() === yo ? " yo" : ""}${x.posicion <= 3 ? ` top${x.posicion}` : ""}` },
       h("span", { class: "eg-pos" }, medalla(x.posicion)),

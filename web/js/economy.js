@@ -7,6 +7,10 @@
 //   3. Dos "economías" con la misma interfaz: `crearEconomiaChain` (ethers v6 + MetaMask)
 //      y `crearEconomiaSimulada` (en memoria, para el modo demo y tienda-demo.html).
 
+import {
+  ETH_AVISO_GAS, TIMEOUT_TX_MS, conMargenGas, esFalloDeRed, gasRespaldo, tarifasAcotadas,
+} from "./wallet-errores.js";
+
 // ───────────────────────── 1. Constantes ─────────────────────────
 
 /** Base del precio de venta por rareza (Común, Raro, Legendario). Igual que en Mercado.sol. */
@@ -39,7 +43,7 @@ export const MAX_ETH_DIARIO = 5n * 10n ** 15n;
 /** Faucet de ETH de Sepolia (Google Cloud Web3). */
 export const FAUCET_SEPOLIA = "https://cloud.google.com/application/web3/faucet/ethereum/sepolia";
 /** Por debajo de este saldo de ETH (0,001) se avisa de que puede faltar gas. */
-export const ETH_MINIMO_GAS = 10n ** 15n;
+export const ETH_MINIMO_GAS = ETH_AVISO_GAS;
 
 const c = (id, ranura, nombre, rareza, precio, icono, tono) =>
   Object.freeze({ id, ranura, nombre, rareza, precio, icono, tono });
@@ -514,6 +518,8 @@ export async function cargarAbis({ fetch: f = globalThis.fetch, base = import.me
  * @property {() => Promise<Operacion>} reclamarBienvenida
  * @property {(n:number) => Promise<Operacion>} gastarPociones  quema n pociones (id 14)
  * @property {() => Promise<boolean>} anadirAMetaMask   wallet_watchAsset
+ * @property {() => Promise<boolean|null>} redCorrecta  ¿MetaMask está en la red de la config? (null = no se sabe)
+ * @property {() => Promise<void>} asegurarRed  cambia MetaMask a la red de la config (o la añade); lanza RED_INCORRECTA si no puede
  */
 
 const buscarFn = (contrato, pred) => contrato.interface.fragments.find((f) => f.type === "function" && pred(f)) ?? null;
@@ -533,13 +539,48 @@ export function crearEconomiaChain({ ethers, provider, signer, cuenta, cfg, dire
   const item = new C(cfg.address, unirAbi(abiDe(cfg.abi), ABI_GAMEITEM_APROBACION), provider);
   const conFirma = (k) => k.connect(signer);
 
-  /** Envuelve una tx de ethers en {hash, esperar}. */
-  const op = async (txPromesa, alMinar = () => null) => {
-    const tx = await txPromesa;
+  // ── Red: MetaMask debe estar en la red de la config antes de firmar ──
+  const chainIdWallet = async () => Number(await eip1193.request({ method: "eth_chainId" }));
+  const redCorrecta = async () => {
+    if (!eip1193?.request || !cfg?.chainId) return null;
+    try { return (await chainIdWallet()) === Number(cfg.chainId); } catch { return null; }
+  };
+  /** Si MetaMask está en otra red, la cambia (o la añade si no la conoce). Lanza RED_INCORRECTA si no lo consigue. */
+  const asegurarRed = async () => {
+    if (!eip1193?.request || !cfg?.chainId) return;
+    if ((await chainIdWallet()) === Number(cfg.chainId)) return;
+    const net = cfg.net;
+    if (net?.chainIdHex) {
+      try {
+        await eip1193.request({ method: "wallet_switchEthereumChain", params: [{ chainId: net.chainIdHex }] });
+      } catch (e) {
+        if ((e?.code ?? e?.data?.originalError?.code) !== 4902) throw e;
+        const params = { chainId: net.chainIdHex, chainName: net.chainName, rpcUrls: net.rpcUrls, nativeCurrency: net.nativeCurrency };
+        if (net.blockExplorerUrls?.length) params.blockExplorerUrls = net.blockExplorerUrls;
+        await eip1193.request({ method: "wallet_addEthereumChain", params: [params] });
+      }
+    }
+    if ((await chainIdWallet()) !== Number(cfg.chainId)) throw Object.assign(new Error("Red incorrecta"), { code: "RED_INCORRECTA" });
+  };
+
+  // ── Envío: red → estimación de gas → tarifas acotadas → firma ──
+  const tarifas = async () => tarifasAcotadas(await provider.getFeeData().catch(() => null));
+  /**
+   * Envía una transacción de escritura. Si la estimación revierte, lanza el error (para decodificarlo);
+   * si falla por el RPC (no por un revert), usa un gas de respaldo y envía igualmente.
+   * @returns {Promise<{hash:string, esperar:() => Promise<any>}>}
+   */
+  const enviar = async (contrato, fn, args, { objetos = 1, alMinar = () => null } = {}) => {
+    await asegurarRed();
+    const k = conFirma(contrato);
+    let gasLimit;
+    try { gasLimit = conMargenGas(await k[fn].estimateGas(...args)); }
+    catch (e) { if (!esFalloDeRed(e)) throw e; gasLimit = gasRespaldo(objetos); }
+    const tx = await k[fn](...args, { ...(await tarifas()), gasLimit });
     return {
       hash: tx.hash,
       esperar: async () => {
-        const rec = await tx.wait();
+        const rec = await tx.wait(1, TIMEOUT_TX_MS);
         if (rec && rec.status === 0) throw Object.assign(new Error("La transacción falló"), { code: "CALL_EXCEPTION" });
         return alMinar(rec);
       },
@@ -551,7 +592,10 @@ export function crearEconomiaChain({ ethers, provider, signer, cuenta, cfg, dire
     f.inputs[0].type === "address" && f.outputs[0]?.type === "bool");
   const fnCofre = buscarFn(mer, (f) => /cofre/i.test(f.name) && /precio/i.test(f.name) && f.constant && f.inputs.length === 0);
   // ETH pagado hoy por la cuenta: mapping(address => uint) o mapping(address => mapping(dia => uint)).
-  const fnEthHoy = buscarFn(mer, (f) => /eth/i.test(f.name) && !/max|caja|recompensa/i.test(f.name) && f.constant &&
+  // Límite diario: `ethRestanteHoy(address)` (lo que queda) es lo preferido; `ethPagadoDia(address,dia)` lo pagado.
+  // Se buscan por nombre; si no existen, se cae a la búsqueda por forma (ABI distinto).
+  const fnRestante = buscarFn(mer, (f) => f.name === "ethRestanteHoy" && f.inputs.length === 1);
+  const fnEthHoy = buscarFn(mer, (f) => f.name === "ethPagadoDia" && f.inputs.length === 2) ?? buscarFn(mer, (f) => /eth/i.test(f.name) && !/max|caja|recompensa|restante|porventa/i.test(f.name) && f.constant &&
     f.inputs[0]?.type === "address" && (f.inputs.length === 1 || (f.inputs.length === 2 && /^uint/.test(f.inputs[1].type))) &&
     /^uint/.test(f.outputs[0]?.type ?? ""));
   const recompensas = new Map();
@@ -593,24 +637,29 @@ export function crearEconomiaChain({ ethers, provider, signer, cuenta, cfg, dire
     saldoEth: async () => { try { return aBigInt(await provider.getBalance(cuenta)); } catch { return null; } },
     precioVenta: async (it) => normalizarPrecio(await mer.precioVenta(it.tokenId)),
     aprobado: async () => !!(await item.isApprovedForAll(cuenta, direcciones.mercado)),
-    aprobar: () => op(conFirma(item).setApprovalForAll(direcciones.mercado, true)),
     recompensaEth: async (it) => {
       const r = Number(it.rareza);
       if (!recompensas.has(r)) recompensas.set(r, opcional(async () => aBigInt(await mer.recompensaEth(r)), recompensaEthLocal(it)));
       return recompensas.get(r);
     },
     infoEth: async () => {
-      const [caja, max, pagadoHoy] = await Promise.all([
+      const [caja, max, restanteHoy, pagadoHoy] = await Promise.all([
         opcional(async () => aBigInt(await mer.cajaEth()), null),
         opcional(async () => aBigInt(await mer.maxEthDiario()), MAX_ETH_DIARIO),
+        fnRestante ? opcional(async () => aBigInt(await mer.ethRestanteHoy(cuenta)), null) : null,
         fnEthHoy ? opcional(async () => aBigInt(await (fnEthHoy.inputs.length === 1
           ? mer[fnEthHoy.name](cuenta) : mer[fnEthHoy.name](cuenta, diaOnChain()))), null) : null,
       ]);
-      return { caja, max, pagadoHoy };
+      return { caja, max, restanteHoy, pagadoHoy };
     },
-    vender: (ids) => op(ids.length === 1 ? conFirma(mer).venderItem(ids[0]) : conFirma(mer).venderVarios(ids), ventasDe),
-    comprar: (id, n) => op(conFirma(mer).comprarCosmetico(id, n)),
-    abrirCofre: () => op(conFirma(mer).abrirCofre(), idDeCofre),
+    asegurarRed,
+    redCorrecta,
+    aprobar: () => enviar(item, "setApprovalForAll", [direcciones.mercado, true]),
+    vender: (ids) => ids.length === 1
+      ? enviar(mer, "venderItem", [ids[0]], { alMinar: ventasDe })
+      : enviar(mer, "venderVarios", [ids], { objetos: ids.length, alMinar: ventasDe }),
+    comprar: (id, n) => enviar(mer, "comprarCosmetico", [id, n]),
+    abrirCofre: () => enviar(mer, "abrirCofre", [], { alMinar: idDeCofre }),
     precioCofre: async () => {
       if (!fnCofre) return PRECIO_COFRE;
       try { return normalizarPrecio(await mer[fnCofre.name]()); } catch { return PRECIO_COFRE; }
@@ -628,8 +677,8 @@ export function crearEconomiaChain({ ethers, provider, signer, cuenta, cfg, dire
       if (!fnBienvenida) return null;
       try { return !!(await mer[fnBienvenida.name](cuenta)); } catch { return null; }
     },
-    reclamarBienvenida: () => op(conFirma(mer).reclamarBienvenida()),
-    gastarPociones: (n) => op(conFirma(cos).burn(cuenta, ID_POCION, n)),
+    reclamarBienvenida: () => enviar(mer, "reclamarBienvenida", []),
+    gastarPociones: (n) => enviar(cos, "burn", [cuenta, ID_POCION, n]),
     anadirAMetaMask: async () => {
       const req = eip1193?.request ? (m, p) => eip1193.request({ method: m, params: p }) : (m, p) => provider.send(m, p);
       return !!(await req("wallet_watchAsset", { type: "ERC20", options: { address: direcciones.oro, symbol: "ORO", decimals: DECIMALES_ORO } }));

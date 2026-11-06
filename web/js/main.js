@@ -10,6 +10,9 @@ import * as FX from "./fx.js";
 import * as T from "./tienda.js";
 import * as R from "./router.js";
 import * as ENG from "./enganche.js";
+import * as INV from "./inventario.js";
+import * as MERC from "./mercado.js";
+import * as HEROE from "./heroe.js";
 import { reclamarBotin } from "./api.js";
 import { crearContrato, hayCodigo, leerInventario, transferir, enlacesExplorador } from "./chain.js";
 import { $, h, enlace, acortar, toast, esperar } from "./ui.js";
@@ -216,6 +219,8 @@ async function montarEconomia() {
       fx: FX,
       inventario: inventarioConEquipo(),
       getEquipados: equipados,
+      raiz: contenedoresTienda(),
+      onCambioSaldo: (sal) => { S.saldoOro = sal?.oro ?? 0; S.saldoEth = sal?.eth ?? null; renderMercadoSec(); },
       onVendido: async (ids, pago) => {
         ENG.registrarEvento({ tipo: "venta", cantidad: ids?.length ?? 1, oro: pago ? Number(pago.oro / 10n ** 18n) : 0 });
         await cargarInventario();
@@ -228,6 +233,7 @@ async function montarEconomia() {
   if (id !== montajeEco) return;
   FX.actualizarHeroe(equipados(), T.aparienciaGuardada(S.cuenta));
   renderInventario();
+  renderMercadoSec();
   try {
     await ENG.montarEnganche({
       provider: signer ? S.provider : null,
@@ -348,8 +354,33 @@ async function cargarInventario() {
   alCambiarInventario();
 }
 
+/** Contenedores ocultos de la tienda antigua: su interfaz vive ahora en Mercado y Héroe. */
+let ocultosTienda = null;
+function contenedoresTienda() {
+  if (!ocultosTienda) {
+    // Fuera del documento: la tienda antigua no debe verse en ninguna sección.
+    const crear = () => document.createElement("div");
+    ocultosTienda = { tienda: crear(), vestuario: crear() };
+  }
+  return ocultosTienda;
+}
+
+/** Pinta la sección Mercado (vender y comprar) con el estado actual. */
+function renderMercadoSec() {
+  const sec = $("#seccion-mercado");
+  if (!sec) return;
+  MERC.renderMercado(sec, {
+    inventario: inventarioConEquipo().filter((it) => !it.equipado),
+    saldos: { oro: S.saldoOro ?? 0, cajaEth: undefined, restanteHoyEth: undefined },
+    onVender: (items) => T.venderObjetos(items, "mercado"),
+    onComprar: (c) => T.comprarCosmetico(c.id),
+    onAbrirCofre: () => T.abrirCofreCosmetico(),
+  });
+}
+
 function alCambiarInventario() {
   T.actualizarInventario(inventarioConEquipo());
+  renderMercadoSec();
   ENG.registrarEvento({ tipo: "inventario", items: S.inventario });
   FX.actualizarHeroe(equipados());
   renderInventario();
@@ -370,7 +401,6 @@ function tarjetaItem(item, { acciones = true } = {}) {
   const stats = [];
   if (item.ataque) stats.push(h("span", { class: "st st-atk" }, `+${item.ataque} ATQ`));
   if (item.defensa) stats.push(h("span", { class: "st st-def" }, `+${item.defensa} DEF`));
-  const vender = acciones && !equipado && !enviando ? T.botonVender(item) : null;
 
   return h("article", { class: `item rar-${r.id}${equipado ? " equipado" : ""}`, style: `--rar:${r.color}`, "data-token": item.tokenId },
     h("div", { class: "item-top" },
@@ -384,7 +414,6 @@ function tarjetaItem(item, { acciones = true } = {}) {
     acciones && h("div", { class: "item-acciones" },
       h("button", { class: `btn btn-small ${equipado ? "btn-ghost" : "btn-gold"}`, type: "button", disabled: enviando, onclick: () => alternarEquipo(item) },
         equipado ? "Desequipar" : "Equipar"),
-      vender,
       h("button", { class: "btn btn-small btn-ghost", type: "button", disabled: enviando, onclick: () => abrirTransferencia(item) },
         enviando ? "Enviando…" : "Transferir"),
       enlace(S.links.token(item.tokenId), "Etherscan ↗"),
@@ -393,31 +422,31 @@ function tarjetaItem(item, { acciones = true } = {}) {
 }
 
 function renderInventario() {
-  $("#inventario").replaceChildren(...E.ordenarInventario(S.inventario, S.equipo).map((it) => tarjetaItem(it)));
+  INV.renderInventario($("#inv-grid"), inventarioConEquipo(), S.equipo, {
+    onEquipar: (it, quiere) => { if (quiere !== E.estaEquipado(S.equipo, it.tokenId)) alternarEquipo(it); },
+    onTransferir: (it) => abrirTransferencia(it),
+  });
+  INV.renderRanuras($("#inv-ranuras"), S.equipo, S.inventario, {
+    onDesequipar: (id) => { const it = S.inventario.find((x) => x.tokenId === id); if (it) alternarEquipo(it); },
+  });
 }
 
 function renderHeroe() {
   const s = statsHeroe();
-  const bonus = (n) => (n ? h("small", { class: "bonus" }, ` (+${n})`) : null);
-  const pct = (x) => `${Math.round(x * 100)} %`;
-  $("#stats").replaceChildren(
-    h("div", { class: "stat" }, h("span", { class: "stat-ico" }, "❤️"), h("span", { class: "stat-lbl" }, "Vida"), h("b", {}, String(s.vidaMax))),
-    h("div", { class: "stat" }, h("span", { class: "stat-ico" }, "⚔️"), h("span", { class: "stat-lbl" }, "Ataque"), h("b", {}, String(s.ataque), bonus(s.bonusAtaque))),
-    h("div", { class: "stat" }, h("span", { class: "stat-ico" }, "🛡️"), h("span", { class: "stat-lbl" }, "Defensa"), h("b", {}, String(s.defensa), bonus(s.bonusDefensa))),
-    h("div", { class: "stat" }, h("span", { class: "stat-ico" }, "💥"), h("span", { class: "stat-lbl" }, "Crítico"), h("b", {}, pct(s.critico))),
-    h("div", { class: "stat" }, h("span", { class: "stat-ico" }, "💨"), h("span", { class: "stat-lbl" }, "Esquiva"), h("b", {}, pct(s.esquiva))),
-  );
-
-  const porId = new Map(S.inventario.map((it) => [it.tokenId, it]));
-  $("#slots").replaceChildren(...E.TIPOS.map((tipo) => {
-    const it = porId.get(S.equipo[tipo]);
-    const r = it && E.rareza(it.rareza);
-    return h("li", { class: `slot${it ? " lleno" : ""}`, style: it ? `--rar:${r.color}` : null },
-      h("span", { class: "slot-ico", "aria-hidden": "true" }, E.emojiTipo(tipo)),
-      h("span", { class: "slot-tipo" }, tipo),
-      h("span", { class: "slot-item" }, it ? it.nombre : "— vacío —"),
-    );
-  }));
+  const xp = P.infoXp(S.progreso);
+  HEROE.renderHeroe($("#seccion-heroe"), {
+    stats: { vida: s.vidaMax, ataque: s.ataque, defensa: s.defensa, critico: s.critico, esquiva: s.esquiva },
+    nivel: xp.nivel, xp: xp.xp, xpSiguiente: xp.necesaria || 1,
+    equipo: S.equipo, inventario: S.inventario,
+    apariencia: T.aparienciaActual(),
+    cosmeticosPosee: T.cosmeticosPosee(),
+    onVestir: (id, ranura) => {
+      const ap = { ...T.aparienciaActual(), [ranura]: id ?? null };
+      T.cambiarAparienciaExterna(ap);
+      FX.actualizarHeroe(equipados(), ap);
+      renderHeroe();
+    },
+  });
 
   renderProgreso();
   if (!enCurso()) renderLuchadores();

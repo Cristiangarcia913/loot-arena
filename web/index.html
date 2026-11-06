@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/tienda.css">
   <link rel="stylesheet" href="css/enganche.css">
+  <link rel="stylesheet" href="css/secciones.css">
   <script type="module" src="js/main.js"></script>
 </head>
 <body class="app">
@@ -126,19 +127,19 @@
           <h2 id="t-heroe">Tu héroe <span id="heroe-titulo" class="heroe-titulo"></span></h2>
           <div class="chips"><span id="victorias" class="chip">0 victorias</span></div>
         </div>
-        <div class="heroe-rejilla">
-          <div class="panel heroe-retrato">
-            <div class="heroe-grande heroe-mini" aria-hidden="true"></div>
-            <div class="stats" id="stats"></div>
+        <div class="hr-layout">
+          <div class="panel hr-retrato">
+            <div id="heroe-retrato" class="heroe-grande heroe-mini" role="img" aria-label="Retrato de tu héroe"></div>
           </div>
-          <div class="panel">
-            <h3 class="sub">Equipo</h3>
-            <ul class="slots" id="slots"></ul>
+          <div class="panel hr-datos">
+            <h3 class="sub">Estadísticas</h3>
+            <div id="heroe-stats" class="hr-stats-bloque"></div>
           </div>
-          <div class="panel heroe-vestuario">
-            <h3 class="sub">Vestuario</h3>
-            <section id="vestuario" class="vestuario" aria-label="Vestuario"></section>
-          </div>
+          <section class="panel hr-vestuario" aria-labelledby="t-vestuario">
+            <h3 class="sub" id="t-vestuario">Vestuario</h3>
+            <p class="hr-ayuda">Elige una pieza para cada ranura. Pasa el ratón por una pieza para probarla en tu héroe.</p>
+            <div id="heroe-vestuario" class="hr-vestuario-grid"></div>
+          </section>
         </div>
       </section>
 
@@ -148,26 +149,32 @@
           <h2 id="t-inv">Inventario</h2>
           <button id="btn-refrescar" class="btn btn-small btn-ghost" type="button" disabled title="Volver a leer de la cadena">↻ Refrescar</button>
         </div>
-        <div class="filtros" id="inv-filtros" role="group" aria-label="Filtrar y ordenar">
-          <label>Rareza
-            <select id="inv-filtro-rareza"><option value="">Todas</option><option value="0">Común</option><option value="1">Raro</option><option value="2">Legendario</option></select>
-          </label>
-          <label>Tipo
-            <select id="inv-filtro-tipo"><option value="">Todos</option><option>Espada</option><option>Escudo</option><option>Casco</option><option>Armadura</option><option>Botas</option></select>
-          </label>
-          <label>Orden
-            <select id="inv-orden"><option value="reciente">Más recientes</option><option value="poder">Más poder</option><option value="rareza">Rareza</option><option value="nombre">Nombre</option></select>
-          </label>
-          <span id="inv-cuenta" class="inv-cuenta" aria-live="polite"></span>
+        <p class="seccion-sub">Tus objetos NFT. Aquí los ves y te equipas; para vender o comprar, ve al Mercado.</p>
+        <p id="inv-estado" class="inv-estado" aria-live="polite"></p>
+        <div class="inv-layout">
+          <section class="panel inv-equipo" aria-labelledby="t-ranuras">
+            <h3 class="sub" id="t-ranuras">Equipado</h3>
+            <div id="inv-ranuras" class="inv-ranuras"></div>
+          </section>
+          <section class="panel inv-mochila" aria-labelledby="t-mochila">
+            <h3 class="sub" id="t-mochila">Mochila</h3>
+            <div id="inv-grid" class="inv-grid"></div>
+          </section>
         </div>
-        <p id="inv-estado" class="inv-estado"></p>
-        <div id="inventario" class="inventario"></div>
       </section>
 
       <!-- 🏪 Mercado -->
       <section id="seccion-mercado" class="seccion" data-seccion="mercado" aria-labelledby="t-mercado" tabindex="-1" hidden>
-        <div class="seccion-head"><h2 id="t-mercado">Mercado</h2></div>
-        <section id="tienda" class="tienda" aria-label="Tienda"></section>
+        <div class="seccion-head">
+          <h2 id="t-mercado">Mercado</h2>
+          <p class="seccion-sub">Vende tus objetos por ORO (y ETH) o compra cosméticos para tu héroe.</p>
+        </div>
+        <div class="merc-tabs" role="tablist" aria-label="Vender o comprar">
+          <button id="merc-tab-vender" class="merc-tab on" role="tab" type="button" aria-selected="true" aria-controls="merc-vender">💰 Vender</button>
+          <button id="merc-tab-comprar" class="merc-tab" role="tab" type="button" aria-selected="false" aria-controls="merc-comprar" tabindex="-1">🛍️ Comprar</button>
+        </div>
+        <div id="merc-vender" class="merc-panel" role="tabpanel" aria-labelledby="merc-tab-vender"></div>
+        <div id="merc-comprar" class="merc-panel" role="tabpanel" aria-labelledby="merc-tab-comprar" hidden></div>
       </section>
 
       <!-- 📜 Misiones -->

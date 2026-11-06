@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Loot Arena · Demo de Inventario, Mercado y Héroe</title>
+  <meta name="theme-color" content="#120e0b">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/secciones.css">
+  <style>
+    /* Solo para la demo: barra de navegación simulada y datos falsos. */
+    .demo-top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 12px clamp(12px, 3vw, 32px); border-bottom: 1px solid var(--borde-suave); }
+    .demo-top nav { display: flex; gap: 6px; flex-wrap: wrap; }
+    .demo-top nav a { text-decoration: none; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borde); color: var(--tenue); font-weight: 600; font-size: .9rem; }
+    .demo-top nav a.on { color: #2a1a06; background: linear-gradient(180deg, #f6d27c, var(--oro-2)); border-color: #f6d58b; }
+    .demo-aviso { margin: 0; padding: 8px 12px; color: var(--tenue); font-size: .85rem; }
+    .demo-log { margin: 12px clamp(12px, 3vw, 32px) 0; padding: 8px 12px; border-radius: 10px; border: 1px dashed var(--borde-suave); font: .8rem ui-monospace, Consolas, monospace; color: var(--tenue); min-height: 2.4em; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .demo-wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(10px, 2.2vw, 26px) 40px; }
+    .demo-wrap > section { padding: 18px 0; border-bottom: 1px solid var(--borde-suave); scroll-margin-top: 8px; }
+    .demo-wrap > section:last-child { border-bottom: 0; }
+    .seccion { height: auto; overflow: visible; padding: 0; }
+  </style>
+</head>
+<body>
+  <header class="demo-top">
+    <strong style="font-family: var(--titulo); color: var(--oro);">⚔️ Loot Arena · demo sin wallet</strong>
+    <nav aria-label="Secciones de la demo">
+      <a href="#inventario" data-ir="inventario">🎒 Inventario</a>
+      <a href="#mercado" data-ir="mercado">🏪 Mercado</a>
+      <a href="#heroe" data-ir="heroe">🧝 Héroe</a>
+      <a href="?vacio=1">Ver vacío</a>
+      <a href="inventario-demo.html">Con datos</a>
+    </nav>
+  </header>
+  <p class="demo-aviso">Datos simulados: nada se escribe en la cadena. Equipa, vende, compra o abre cofres para probar la interacción. <code>?vacio=1</code> muestra las secciones sin objetos.</p>
+  <div id="demo-log" class="demo-log" aria-live="polite">Listo.</div>
+
+  <main class="demo-wrap">
+    <section id="inventario" class="seccion" aria-labelledby="t-inv">
+      <div class="seccion-head">
+        <h2 id="t-inv">Inventario</h2>
+        <button id="btn-refrescar" class="btn btn-small btn-ghost" type="button" disabled title="Volver a leer de la cadena">↻ Refrescar</button>
+      </div>
+      <p class="seccion-sub">Tus objetos NFT. Aquí los ves y te equipas; para vender o comprar, ve al Mercado.</p>
+      <p id="inv-estado" class="inv-estado" aria-live="polite"></p>
+      <div class="inv-layout">
+        <section class="panel inv-equipo" aria-labelledby="t-ranuras">
+          <h3 class="sub" id="t-ranuras">Equipado</h3>
+          <div id="inv-ranuras" class="inv-ranuras"></div>
+        </section>
+        <section class="panel inv-mochila" aria-labelledby="t-mochila">
+          <h3 class="sub" id="t-mochila">Mochila</h3>
+          <div id="inv-grid" class="inv-grid"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="mercado" class="seccion" aria-labelledby="t-mercado">
+      <div class="seccion-head">
+        <h2 id="t-mercado">Mercado</h2>
+        <p class="seccion-sub">Vende tus objetos por ORO (y ETH) o compra cosméticos para tu héroe.</p>
+      </div>
+      <div class="merc-tabs" role="tablist" aria-label="Vender o comprar">
+        <button id="merc-tab-vender" class="merc-tab on" role="tab" type="button" aria-selected="true" aria-controls="merc-vender">💰 Vender</button>
+        <button id="merc-tab-comprar" class="merc-tab" role="tab" type="button" aria-selected="false" aria-controls="merc-comprar" tabindex="-1">🛍️ Comprar</button>
+      </div>
+      <div id="merc-vender" class="merc-panel" role="tabpanel" aria-labelledby="merc-tab-vender"></div>
+      <div id="merc-comprar" class="merc-panel" role="tabpanel" aria-labelledby="merc-tab-comprar" hidden></div>
+    </section>
+
+    <section id="heroe" class="seccion" aria-labelledby="t-heroe">
+      <div class="seccion-head">
+        <h2 id="t-heroe">Tu héroe <span id="heroe-titulo" class="heroe-titulo">Explorador</span></h2>
+        <div class="chips"><span id="victorias" class="chip">7 victorias</span></div>
+      </div>
+      <div class="hr-layout">
+        <div class="panel hr-retrato">
+          <div id="heroe-retrato" class="heroe-grande heroe-mini" role="img" aria-label="Retrato de tu héroe"></div>
+        </div>
+        <div class="panel hr-datos">
+          <h3 class="sub">Estadísticas</h3>
+          <div id="heroe-stats" class="hr-stats-bloque"></div>
+        </div>
+        <section class="panel hr-vestuario" aria-labelledby="t-vestuario">
+          <h3 class="sub" id="t-vestuario">Vestuario</h3>
+          <p class="hr-ayuda">Elige una pieza para cada ranura. Pasa el ratón por una pieza para probarla en tu héroe.</p>
+          <div id="heroe-vestuario" class="hr-vestuario-grid"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { renderInventario, renderRanuras } from "./js/inventario.js";
+    import { renderMercado } from "./js/mercado.js";
+    import { renderHeroe } from "./js/heroe.js";
+    import { CATALOGO, PRECIO_COFRE, cosmetico } from "./js/economy.js";
+    import { precioVentaLocal } from "./js/economy.js";
+
+    const vacio = new URLSearchParams(location.search).has("vacio");
+    const log = (t) => { document.getElementById("demo-log").textContent = t; };
+
+    // Datos falsos (no son tokens reales).
+    const nuevoInventario = () => vacio ? [] : [
+      { tokenId: "12", nombre: "Espada del alba", tipo: "Espada", rareza: 2, ataque: 18, defensa: 2 },
+      { tokenId: "7", nombre: "Escudo de roble", tipo: "Escudo", rareza: 0, ataque: 0, defensa: 9 },
+      { tokenId: "9", nombre: "Casco del centinela", tipo: "Casco", rareza: 1, ataque: 1, defensa: 6 },
+      { tokenId: "15", nombre: "Peto de hierro", tipo: "Armadura", rareza: 0, ataque: 0, defensa: 7 },
+      { tokenId: "18", nombre: "Botas de viento", tipo: "Botas", rareza: 1, ataque: 3, defensa: 3 },
+      { tokenId: "21", nombre: "Daga de la sombra", tipo: "Espada", rareza: 1, ataque: 9, defensa: 1 },
+      { tokenId: "24", nombre: "Espada oxidada", tipo: "Espada", rareza: 0, ataque: 4, defensa: 0 },
+      { tokenId: "27", nombre: "Escudo de Dracorex", tipo: "Escudo", rareza: 2, ataque: 1, defensa: 15 },
+    ];
+
+    const E = {
+      inventario: nuevoInventario(),
+      equipo: vacio ? {} : { Espada: "12", Escudo: "7", Casco: "9" },
+      apariencia: { color: vacio ? null : 1, sombrero: null, capa: null, aura: null, mascota: null },
+      posee: vacio ? [] : [1, 4, 12, 9],
+      oro: vacio ? 40 : 530,
+    };
+
+    function pintar() {
+      const eq = E.equipo;
+      const equipados = E.inventario.filter((it) => Object.values(eq).includes(String(it.tokenId)));
+      const ataque = 10 + equipados.reduce((s, it) => s + it.ataque, 0);
+      const defensa = 5 + equipados.reduce((s, it) => s + it.defensa, 0);
+
+      renderInventario(document.getElementById("inv-grid"), E.inventario, eq, {
+        onEquipar: (it, equipar) => {
+          if (equipar) {
+            E.equipo = { ...E.equipo, [it.tipo]: String(it.tokenId) };
+            log(`Equipado: ${it.nombre} (${it.tipo}).`);
+          } else {
+            const { [it.tipo]: _, ...resto } = E.equipo;
+            E.equipo = resto;
+            log(`Desequipado: ${it.nombre}.`);
+          }
+          pintar();
+        },
+        onTransferir: (it) => log(`[demo] Transferir "${it.nombre}" (#${it.tokenId}): aquí iría el diálogo de transferencia.`),
+      });
+      renderRanuras(document.getElementById("inv-ranuras"), eq, E.inventario, {
+        onDesequipar: (id, tipo) => {
+          const { [tipo]: _, ...resto } = E.equipo;
+          E.equipo = resto;
+          log(`Quitado de ${tipo} (#${id}).`);
+          pintar();
+        },
+      });
+
+      renderMercado(document.getElementById("mercado"), {
+        catalogo: CATALOGO,
+        inventario: E.inventario,
+        saldos: { oro: E.oro },
+        onVender: (items) => {
+          const oro = items.reduce((s, it) => s + precioVentaLocal(it), 0);
+          const ids = new Set(items.map((it) => String(it.tokenId)));
+          E.inventario = E.inventario.filter((it) => !ids.has(String(it.tokenId)));
+          E.equipo = Object.fromEntries(Object.entries(E.equipo).filter(([, id]) => !ids.has(String(id))));
+          E.oro += oro;
+          log(`[demo] Vendidos ${items.length} objeto(s) por ${oro} ORO (simulado).`);
+          pintar();
+        },
+        onComprar: (c) => {
+          if (E.oro < c.precio) return log("[demo] ORO insuficiente.");
+          E.oro -= c.precio;
+          if (!E.posee.includes(c.id)) E.posee = [...E.posee, c.id];
+          log(`[demo] Comprado "${c.nombre}" por ${c.precio} ORO (simulado).`);
+          pintar();
+        },
+        onAbrirCofre: () => {
+          if (E.oro < PRECIO_COFRE) return log("[demo] ORO insuficiente para el cofre.");
+          const pool = CATALOGO.filter((c) => c.ranura !== "consumible" && !E.posee.includes(c.id));
+          E.oro -= PRECIO_COFRE;
+          if (!pool.length) { log("[demo] Cofre vacío: ya tienes todo el catálogo."); return pintar(); }
+          const c = pool[Math.floor(Math.random() * pool.length)];
+          E.posee = [...E.posee, c.id];
+          log(`[demo] Cofre: ${c.nombre}.`);
+          pintar();
+        },
+      });
+
+      renderHeroe(document.getElementById("heroe"), {
+        stats: { vida: 100, ataque, defensa, critico: 0.1 + Math.floor(ataque / 3) * 0.01, esquiva: 0.02 + defensa * 0.01 },
+        nivel: vacio ? 1 : 4,
+        xp: vacio ? 0 : 65,
+        xpSiguiente: 150,
+        equipo: eq,
+        inventario: E.inventario,
+        apariencia: E.apariencia,
+        cosmeticosPosee: E.posee,
+        onVestir: (id, ranura) => {
+          E.apariencia = { ...E.apariencia, [ranura]: id };
+          log(id == null ? `Quitada la pieza de ${ranura}.` : `Puesto: ${cosmetico(id)?.nombre ?? id}.`);
+          pintar();
+        },
+      });
+    }
+
+    // Cambio de pestaña del Mercado con teclado/clic lo gestiona mercado.js; aquí solo marcamos el enlace activo.
+    const enlaces = [...document.querySelectorAll(".demo-top nav a[data-ir]")];
+    const marcar = () => {
+      const h = location.hash.replace("#", "");
+      enlaces.forEach((a) => a.classList.toggle("on", a.dataset.ir === h));
+    };
+    addEventListener("hashchange", marcar);
+    marcar();
+
+    pintar();
+  </script>
+</body>
+</html>

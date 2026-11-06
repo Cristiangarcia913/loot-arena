@@ -259,8 +259,47 @@ test("servidor: GET /ranking (+ /ranking/:address) y errores", async () => {
   assert.deepEqual(llamadas, ["http://srv/ranking", `http://srv/ranking/${cta}`]);
   assert.equal(r.ranking.categorias.objetos[0].address, cta);
   assert.equal(r.posicion.objetos.posicion, 42);
-  assert.match((await G.pedirRanking("http://srv", null, { fetch: async () => ({ ok: false, status: 503 }) })).error, /no está disponible/);
+  const sin503 = await G.pedirRanking("http://srv", null, { fetch: async () => ({ ok: false, status: 503 }), esperar: async () => {}, intentos: 1 });
+  assert.match(sin503.error, /no está disponible/);
+  assert.equal(sin503.sincronizando, true);
   assert.match((await G.pedirRanking("http://srv", null, { fetch: async () => { throw new Error("red"); } })).error, /No se pudo/);
+});
+
+test("pedirRanking: 503 con Retry-After reintenta, avisa de la espera y devuelve el ranking", async () => {
+  const esperas = [], avisos = [];
+  let n = 0;
+  const f = async (url) => {
+    if (!url.endsWith("/ranking")) throw new Error("ruta inesperada " + url);
+    n++;
+    if (n < 3) return { ok: false, status: 503, headers: { get: (k) => (k === "Retry-After" ? "2" : null) } };
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ actualizado: 1, categorias: { objetos: [{ address: "0x00000000000000000000000000000000000000bb", valor: 7 }] } }) };
+  };
+  const r = await G.pedirRanking("http://srv", null, { fetch: f, esperar: async (ms) => { esperas.push(ms); }, onEstado: (e) => avisos.push(e) });
+  assert.equal(n, 3, "tres peticiones en total");
+  assert.deepEqual(esperas, [2000, 2000], "espera según Retry-After");
+  assert.equal(avisos.length, 2);
+  assert.equal(avisos[0].estado, "sincronizando");
+  assert.equal(r.error, undefined);
+  assert.equal(r.ranking.categorias.objetos[0].valor, 7);
+});
+
+test("pedirRanking: tras 3 intentos con 503 devuelve error reintentable (no timeout)", async () => {
+  let n = 0;
+  const f = async () => { n++; return { ok: false, status: 503, headers: { get: () => null } }; };
+  const esperas = [];
+  const r = await G.pedirRanking("http://srv", null, { fetch: f, esperar: async (ms) => { esperas.push(ms); } });
+  assert.equal(n, 3, "máximo 3 intentos");
+  assert.equal(esperas.length, 2, "no espera tras el último intento");
+  assert.equal(r.sincronizando, true);
+  assert.match(r.error, /sincronizando/);
+  assert.equal(r.ranking, undefined);
+});
+
+test("esperaRetryAfter: segundos, fecha HTTP, ausente y acotado", () => {
+  assert.equal(G.esperaRetryAfter("3"), 3000);
+  assert.equal(G.esperaRetryAfter(null), 5000);
+  assert.equal(G.esperaRetryAfter("9999"), 30000);
+  assert.equal(G.esperaRetryAfter("Wed, 21 Oct 2015 07:28:00 GMT", Date.parse("Wed, 21 Oct 2015 07:27:58 GMT")), 2000);
 });
 
 test("servidor: POST /recompensa {address, motivo}", async () => {

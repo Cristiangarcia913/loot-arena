@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import express from 'express';
 import { Interface, parseUnits } from 'ethers';
-import { IndexadorRanking, CATEGORIAS, TOPICS } from '../src/ranking.js';
+import { IndexadorRanking, CATEGORIAS, TOPICS, guardaSincronizando } from '../src/ranking.js';
 import { ABI_GAMEITEM_EVENTOS, ABI_MERCADO_EVENTOS, ABI_RECOMPENSAS } from '../src/abis.js';
-import { loggerMudo } from './helpers.js';
+import { loggerMudo, levantar } from './helpers.js';
 
 const GAME = '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 const MERCADO = '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9';
@@ -54,8 +55,19 @@ class ProviderFalso {
 
 const crear = (provider, extra = {}) => new IndexadorRanking({
   provider, gameItem: GAME, mercado: MERCADO, recompensas: RECOMP, deployBlock: 100,
-  margen: 0, solape: 10, logger: loggerMudo, now: () => Date.UTC(2026, 10, 5, 12), ...extra,
+  margen: 0, solape: 10, pausaMs: 0, logger: loggerMudo, now: () => Date.UTC(2026, 10, 5, 12), ...extra,
 });
+
+/** Mini app con el mismo guard y las mismas rutas que index.js + app.js. */
+async function levantarRanking(r) {
+  const app = express();
+  app.use(guardaSincronizando(() => r));
+  app.get('/health', (q, s) => s.json({ ok: true }));
+  app.get('/ranking', (q, s) => s.json(r.ranking()));
+  app.get('/ranking/:address', (q, s) => s.json(r.posicion(q.params.address)));
+  return levantar(app);
+}
+const pedir = (url) => fetch(url, { signal: AbortSignal.timeout(2000) });
 
 describe('ABIs mínimos', () => {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -143,7 +155,29 @@ describe('IndexadorRanking', () => {
     assert.ok(ok.every(([a, b], i) => i === 0 || a === ok[i - 1][1] + 1), 'tramos contiguos');
     assert.equal(ok[0][0], 100);
     assert.equal(ok.at(-1)[1], 2000);
-    assert.ok(r.tramo <= 300);
+    assert.ok(r.tramo <= 1000);
+  });
+
+  test('tramo por defecto: 50 000 bloques (máximo que admite el RPC público de Sepolia)', () => {
+    const r = new IndexadorRanking({ provider: new ProviderFalso(), gameItem: GAME, mercado: MERCADO, recompensas: RECOMP, deployBlock: 1, logger: loggerMudo });
+    assert.equal(r.tramo, 50_000);
+    assert.equal(r.tramoMax, 50_000);
+  });
+
+  test('tras un fallo el tramo vuelve a crecer hasta el tope', async () => {
+    const p = new ProviderFalso();
+    p.maxRango = 1000;              // el RPC rechaza tramos de más de 1000 bloques al principio
+    p.cabeza = 20_000;
+    const r = crear(p, { tramo: 4000, tramoMin: 10 });
+    await r.refrescar();
+    assert.equal(r.siguiente, 20_001);
+    p.maxRango = Infinity;          // el RPC se recupera
+    p.cabeza = 60_000;
+    p.llamadas = [];
+    await r.refrescar();
+    const spans = p.llamadas.map(([a, b]) => b - a + 1);
+    assert.equal(Math.max(...spans), 4000);
+    assert.equal(r.siguiente, 60_001);
   });
 
   test('límite de tramos por refresco: continúa en el siguiente', async () => {
@@ -243,6 +277,55 @@ describe('IndexadorRanking', () => {
     const r = crear(p);
     await Promise.all([r.refrescar(), r.refrescar(), r.refrescar()]);
     assert.equal(p.llamadas.length, 1);
+  });
+
+  test('GET /ranking sin índice: 503 {estado:"sincronizando"} con Retry-After 5 (y /ranking/:address igual)', async () => {
+    const p = new ProviderFalso();
+    p.cabeza = 200;
+    const r = crear(p);                 // todavía no se ha refrescado: no hay índice
+    const { url, cerrar } = await levantarRanking(r);
+    try {
+      for (const ruta of ['/ranking', `/ranking/${A}`]) {
+        const res = await pedir(url + ruta);
+        assert.equal(res.status, 503, ruta);
+        assert.equal(res.headers.get('retry-after'), '5', ruta);
+        assert.deepEqual(await res.json(), { estado: 'sincronizando', bloqueActual: 99 }, ruta);
+      }
+      const salud = await pedir(url + '/health');
+      assert.equal(salud.status, 200);      // /health nunca espera al indexado
+    } finally { await cerrar(); }
+  });
+
+  test('con índice responde al instante aunque haya un refresco en marcha (no bloquea)', async () => {
+    const p = new ProviderFalso();
+    p.mint(A, 0, 150);
+    p.cabeza = 200;
+    const r = crear(p);
+    await r.refrescar();
+    p.getLogs = () => new Promise(() => {}); // el siguiente refresco nunca termina
+    r.refrescar();
+    const { url, cerrar } = await levantarRanking(r);
+    try {
+      const res = await pedir(url + '/ranking');
+      assert.equal(res.status, 200);
+      assert.equal(res.headers.get('retry-after'), null);
+      assert.equal((await res.json()).categorias.objetos[0].address, A);
+      const pos = await pedir(url + `/ranking/${A}`);
+      assert.equal(pos.status, 200);
+      assert.equal((await pos.json()).posiciones.objetos.posicion, 1);
+    } finally { await cerrar(); }
+  });
+
+  test('tras el primer refresco correcto deja de devolver 503', async () => {
+    const p = new ProviderFalso();
+    p.cabeza = 200;
+    const r = crear(p);
+    const { url, cerrar } = await levantarRanking(r);
+    try {
+      assert.equal((await pedir(url + '/ranking')).status, 503);
+      await r.refrescar();
+      assert.equal((await pedir(url + '/ranking')).status, 200);
+    } finally { await cerrar(); }
   });
 
   test('yaRecompensado lee los eventos Recompensado', async () => {

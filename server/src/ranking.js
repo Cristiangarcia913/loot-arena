@@ -37,14 +37,14 @@ export class IndexadorRanking {
    *   provider: { getBlockNumber(): Promise<number>, getLogs(filtro: object): Promise<any[]> },
    *   gameItem: string, mercado: string, recompensas: string, deployBlock: number,
    *   tramo?: number, tramoMin?: number, margen?: number, solape?: number,
-   *   maxTramosPorRefresco?: number, maxFallos?: number,
+   *   maxTramosPorRefresco?: number, maxFallos?: number, pausaMs?: number,
    *   now?: () => number, logger?: Pick<Console, 'log' | 'error' | 'warn'>
    * }} opts
    */
   constructor({
     provider, gameItem, mercado, recompensas, deployBlock,
-    tramo = 10_000, tramoMin = 50, margen = 3, solape = 50,
-    maxTramosPorRefresco = 100, maxFallos = 8,
+    tramo = 50_000, tramoMin = 50, margen = 3, solape = 50,
+    maxTramosPorRefresco = 100, maxFallos = 8, pausaMs = 1_000,
     now = Date.now, logger = console,
   }) {
     this.provider = provider;
@@ -54,12 +54,14 @@ export class IndexadorRanking {
       recompensas: getAddress(recompensas),
     };
     this.deployBlock = deployBlock;
-    this.tramo = tramo;
+    this.tramo = tramo;               // tamaño actual del tramo (baja tras un fallo, vuelve a subir)
+    this.tramoMax = tramo;            // tope: 50 000 bloques es el máximo que admite el RPC público de Sepolia
     this.tramoMin = tramoMin;
     this.margen = margen;
     this.solape = solape;
     this.maxTramosPorRefresco = maxTramosPorRefresco;
     this.maxFallos = maxFallos;
+    this.pausaMs = pausaMs;           // espera antes de reintentar un getLogs fallido (×nº de fallos)
     this.now = now;
     this.logger = logger;
 
@@ -132,6 +134,7 @@ export class IndexadorRanking {
           throw new Error(`getLogs falló ${fallos} veces (bloques ${desde}-${fin}): ${msg}`);
         }
         this.tramo = Math.max(this.tramoMin, Math.floor((fin - desde + 1) / 2));
+        if (this.pausaMs > 0) await new Promise((ok) => setTimeout(ok, this.pausaMs * fallos));
         continue;
       }
       if (!Array.isArray(logs)) logs = [];
@@ -140,6 +143,7 @@ export class IndexadorRanking {
       desde = fin + 1;
       tramos++;
       fallos = 0;
+      this.tramo = Math.min(this.tramoMax, this.tramo * 2); // tras un fallo, vuelve a crecer hacia el tope
     }
 
     this.sincronizado = this.siguiente > hasta;
@@ -228,6 +232,16 @@ export class IndexadorRanking {
     return this.recompensados.get(getAddress(address))?.has(motivoOnchain) ?? false;
   }
 
+  /** ¿Hay índice servible? (false mientras no ha terminado ningún refresco correcto). */
+  listo() {
+    return this.actualizado !== null;
+  }
+
+  /** Cuerpo de la respuesta 503 mientras se genera el primer índice. */
+  estadoSincronizando() {
+    return { estado: 'sincronizando', bloqueActual: this.siguiente - 1 };
+  }
+
   /** Top `TOP` por categoría. */
   ranking(top = TOP) {
     return {
@@ -255,4 +269,20 @@ export class IndexadorRanking {
       })),
     };
   }
+}
+
+/**
+ * Middleware que responde 503 `{"estado":"sincronizando","bloqueActual":N}` con `Retry-After: 5`
+ * a GET /ranking y GET /ranking/:address mientras el indexador no tiene ningún índice todavía.
+ * Con índice (aunque esté desactualizado) deja pasar la petición. `obtener()` devuelve el
+ * indexador actual o null si el ranking no está configurado (entonces también pasa).
+ */
+export function guardaSincronizando(obtener) {
+  return (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path !== '/ranking' && !req.path.startsWith('/ranking/')) return next();
+    const ranking = obtener();
+    if (!ranking || ranking.listo()) return next();
+    res.set('Retry-After', '5').status(503).json(ranking.estadoSincronizando());
+  };
 }
