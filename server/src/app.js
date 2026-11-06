@@ -2,14 +2,21 @@
 // así los tests pueden usar un minter falso y un RNG/reloj controlados.
 import express from 'express';
 import cors from 'cors';
-import { isAddress, getAddress, ZeroAddress } from 'ethers';
+import { isAddress, getAddress, ZeroAddress, formatEther, parseEther } from 'ethers';
 import { tirarLoot, EstadoBotin } from './loot.js';
 import { RateLimiter } from './rateLimit.js';
 import { mensajeError } from './chain.js';
 import { origenCors } from './config.js';
 import {
   RegistroRecompensas, validarMotivo, cantidadWei, MOTIVOS, LISTA_MOTIVOS, INICIO_TEMPORADAS,
+  RegistroDiario, MOTIVO_DIARIA, MOTIVO_BONUS_DIA7, TABLA_DIARIA, DIA_BONUS, BONUS_DIA7,
+  diaCiclo, oroWei, diaUtc, segundosHastaManana,
 } from './recompensa.js';
+
+/** Por debajo de este saldo (ETH) del operador, /health marca alertaSaldoBajo. */
+export const UMBRAL_SALDO_OPERADOR = parseEther('0.002');
+/** Cada cuánto se consulta el saldo del operador para /health (ms). */
+export const CACHE_SALDO_MS = 60_000;
 
 export const LIMITE_DIRECCION = { windowMs: 10_000, max: 1 };       // 1 cada 10 s por dirección
 export const LIMITE_IP = { windowMs: 60 * 60 * 1000, max: 30 };      // 30 por hora por IP
@@ -48,6 +55,8 @@ export function validarJefe(valor) {
  *   pagarRecompensa?: ((to: string, cantidad: bigint, motivo: string) => Promise<{ txHash: string }>) | null,
  *   recompensaNoDisponible?: string,
  *   registroRecompensas?: RegistroRecompensas,
+ *   registroDiario?: RegistroDiario,
+ *   obtenerSaldo?: (() => Promise<bigint>) | null,
  *   inicioTemporadas?: number
  * }} deps
  */
@@ -60,6 +69,8 @@ export function crearApp({
   pagarRecompensa = null, recompensaNoDisponible = 'Recompensas no disponibles en este servidor',
   inicioTemporadas = INICIO_TEMPORADAS,
   registroRecompensas = new RegistroRecompensas({ inicio: inicioTemporadas }),
+  registroDiario = new RegistroDiario(),
+  obtenerSaldo = null,
 }) {
   const app = express();
   app.set('trust proxy', trustProxy);
@@ -76,8 +87,25 @@ export function crearApp({
   const demasiadas = (res, s) =>
     res.set('Retry-After', String(s)).status(429).json({ error: `Demasiadas peticiones, espera ${s} s` });
 
-  app.get('/health', (_req, res) => {
-    res.json({ ok: true, contract: contractAddress, chainId: Number(chainId) });
+  // Saldo del operador (ETH) con caché de 60 s para no llamar al RPC en cada health check.
+  let saldoCache = { t: 0, wei: null };
+  const saldoOperador = async () => {
+    if (Date.now() - saldoCache.t < CACHE_SALDO_MS && saldoCache.wei !== null) return saldoCache.wei;
+    const wei = await obtenerSaldo();
+    saldoCache = { t: Date.now(), wei };
+    return wei;
+  };
+
+  app.get('/health', async (_req, res) => {
+    const base = { ok: true, contract: contractAddress, chainId: Number(chainId) };
+    if (!obtenerSaldo) return res.json(base);
+    try {
+      const wei = await saldoOperador();
+      return res.json({ ...base, saldoOperador: formatEther(wei), alertaSaldoBajo: wei < UMBRAL_SALDO_OPERADOR });
+    } catch (err) {
+      logger.error('[health] no se pudo leer el saldo del operador:', err?.shortMessage ?? err?.message ?? err);
+      return res.json({ ...base, saldoOperador: null, alertaSaldoBajo: null });
+    }
   });
 
   app.post('/ganar', async (req, res) => {
@@ -138,7 +166,77 @@ export function crearApp({
     res.json(ranking.posicion(address));
   });
 
-  // ── Recompensas de ORO (pase y misiones) ──────────────────────────────────
+  // ── Recompensas de ORO (pase, misiones y racha diaria) ────────────────────
+  /** Traduce un error de `pagarRecompensa` (revert del contrato o de red) a respuesta HTTP. */
+  const responderErrorPago = (err, res) => {
+    if (err?.code === 'CALL_EXCEPTION') {
+      const motivoRevert = err?.revert?.name;
+      if (motivoRevert === 'TopeJugadorSuperado') {
+        return res.status(409).json({ error: 'Has alcanzado el tope diario de ORO de recompensas; vuelve mañana' });
+      }
+      if (motivoRevert === 'TopeGlobalSuperado') {
+        return res.status(409).json({ error: 'Se ha agotado el ORO de recompensas de hoy para todos; vuelve mañana' });
+      }
+      if (motivoRevert === 'SoloOperador') {
+        return res.status(500).json({ error: 'El servidor no está autorizado como operador de Recompensas' });
+      }
+      return res.status(409).json({ error: 'El contrato rechazó la recompensa (tope diario alcanzado)' });
+    }
+    return res.status(500).json({ error: mensajeError(err, { accion: 'pagar la recompensa' }) });
+  };
+
+  // Racha diaria (motivo "diaria"): un reclamo por dirección y día UTC.
+  // Direcciones con un reclamo diario en vuelo (evita pagar dos veces si llegan a la vez).
+  const diariasEnCurso = new Set();
+
+  const reclamarDiaria = async (res, address) => {
+    const ahora = now();
+    const hoy = diaUtc(ahora);
+    const est = registroDiario.estado(address, ahora);
+    if (!est.puedeReclamar || diariasEnCurso.has(address)) {
+      return res.status(409).json({ error: 'Ya has reclamado hoy', proximoEn: segundosHastaManana(ahora) });
+    }
+
+    const racha = est.racha + 1;
+    const dia = diaCiclo(racha);
+    const oro = TABLA_DIARIA[dia - 1];
+    const bonus = dia === DIA_BONUS ? BONUS_DIA7 : 0;
+
+    diariasEnCurso.add(address);
+    try {
+      const { txHash } = await pagarRecompensa(address, oroWei(oro), MOTIVO_DIARIA);
+      // Se marca como reclamado en cuanto el ORO principal está pagado: nunca se cobra dos veces el día.
+      registroDiario.registrar(address, racha, hoy);
+      logger.log(`[recompensa] diaria día ${dia} (racha ${racha}) ${oro} ORO → ${address} tx ${txHash}`);
+      const respuesta = { ok: true, motivo: MOTIVO_DIARIA, dia, racha, oro, bonusDia7: bonus, txHash };
+      if (bonus > 0) {
+        try {
+          const { txHash: txHashBonus } = await pagarRecompensa(address, oroWei(bonus), MOTIVO_BONUS_DIA7);
+          respuesta.txHashBonus = txHashBonus;
+          logger.log(`[recompensa] bonus día 7: ${bonus} ORO → ${address} tx ${txHashBonus}`);
+        } catch (err) {
+          // El ORO principal ya está pagado; el bonus no se reintenta solo (ver README).
+          respuesta.bonusPendiente = true;
+          logger.error('[recompensa] bonus día 7 no pagado:', err?.shortMessage ?? err?.message ?? err);
+        }
+      }
+      return res.json(respuesta);
+    } catch (err) {
+      logger.error('[recompensa] error (diaria):', err?.shortMessage ?? err?.message ?? err);
+      return responderErrorPago(err, res);
+    } finally {
+      diariasEnCurso.delete(address);
+    }
+  };
+
+  // Estado de la racha sin escribir nada: para que la web muestre el botón y el contador.
+  app.get('/recompensa/diaria/:address', (req, res) => {
+    const address = validarDireccion(req.params.address);
+    if (!address) return res.status(400).json({ error: 'Dirección inválida' });
+    if (!pagarRecompensa) return res.status(503).json({ error: recompensaNoDisponible });
+    res.json(registroDiario.estado(address, now()));
+  });
+
   app.post('/recompensa', async (req, res) => {
     const porIp = limRecIp.hit(req.ip ?? 'desconocida');
     if (!porIp.ok) return demasiadas(res, porIp.retryAfterS);
@@ -147,11 +245,14 @@ export function crearApp({
     const body = req.body ?? {};
     const address = validarDireccion(body.address);
     if (!address) return res.status(400).json({ error: 'Dirección inválida' });
-    const motivo = validarMotivo(body.motivo);
+    const esDiaria = body.motivo === MOTIVO_DIARIA;
+    const motivo = esDiaria ? MOTIVO_DIARIA : validarMotivo(body.motivo);
     if (!motivo) return res.status(400).json({ error: `motivo debe ser uno de: ${LISTA_MOTIVOS.join(', ')}` });
 
     const porDir = limRecDir.hit(address);
     if (!porDir.ok) return demasiadas(res, porDir.retryAfterS);
+
+    if (esDiaria) return reclamarDiaria(res, address);
 
     const ahora = now();
     const { periodo, motivoOnchain } = registroRecompensas.datos(address, motivo, ahora);
@@ -174,20 +275,7 @@ export function crearApp({
     } catch (err) {
       registroRecompensas.liberar(reserva);
       logger.error('[recompensa] error:', err?.shortMessage ?? err?.message ?? err);
-      if (err?.code === 'CALL_EXCEPTION') {
-        const motivoRevert = err?.revert?.name;
-        if (motivoRevert === 'TopeJugadorSuperado') {
-          return res.status(409).json({ error: 'Has alcanzado el tope diario de ORO de recompensas; vuelve mañana' });
-        }
-        if (motivoRevert === 'TopeGlobalSuperado') {
-          return res.status(409).json({ error: 'Se ha agotado el ORO de recompensas de hoy para todos; vuelve mañana' });
-        }
-        if (motivoRevert === 'SoloOperador') {
-          return res.status(500).json({ error: 'El servidor no está autorizado como operador de Recompensas' });
-        }
-        return res.status(409).json({ error: 'El contrato rechazó la recompensa (tope diario alcanzado)' });
-      }
-      return res.status(500).json({ error: mensajeError(err, { accion: 'pagar la recompensa' }) });
+      return responderErrorPago(err, res);
     }
   });
 

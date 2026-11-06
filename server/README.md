@@ -66,8 +66,10 @@ curl -X POST localhost:3000/ganar -H "content-type: application/json" \
 
 ### `GET /health`
 ```json
-{ "ok": true, "contract": "0x...", "chainId": 11155111 }
+{ "ok": true, "contract": "0x...", "chainId": 11155111, "saldoOperador": "0.0215", "alertaSaldoBajo": false }
 ```
+`saldoOperador` es el ETH de la wallet del servidor (caché de 60 s). `alertaSaldoBajo` es `true` si baja de 0,002 ETH.
+Si el RPC falla al leerlo, ambos campos van a `null` y `/health` sigue dando 200.
 
 ### `POST /ganar`
 Body: `{ "address": "0x...", "enemyLevel": 1, "jefe": false }`
@@ -164,6 +166,55 @@ Body: `{ "address": "0x...", "motivo": "pase10" }`.
   por dirección, 20 por hora por IP. Si la tx falla, la reserva se libera y se puede reintentar.
 - Topes on-chain (`Recompensas`): 500 ORO por jugador y día y 5000 en total por día (por defecto). Ojo: `pase30` + `pase20`
   el mismo día (600) supera el tope por jugador: el segundo da 409 y se puede reclamar al día siguiente.
+
+### Recompensa diaria con racha: `POST /recompensa` con `motivo: "diaria"` y `GET /recompensa/diaria/:address`
+
+Sustituye al reclamo con MetaMask: la web pide `POST` y **el servidor paga el gas** de `Recompensas.recompensar`.
+La cantidad la calcula el servidor (no se envía).
+
+Body: `{ "address": "0x...", "motivo": "diaria" }`
+
+Tabla (la misma que `Recompensas.tablaDiaria` del contrato), por día del ciclo:
+
+| Día | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|
+| ORO | 10 | 15 | 20 | 25 | 30 | 35 | 40 |
+
+- Día 7 del ciclo: además del ORO del día, **bonus de 25 ORO** (`bonusDia7`) en una segunda llamada a
+  `recompensar` con motivo `"diaria-bonus"`. Tras el día 7 la racha sigue y el ciclo vuelve al día 1 (día 8 = día 1).
+- Si pasa más de un día UTC sin reclamar, la racha vuelve al día 1.
+- Un reclamo por dirección y día UTC. Llamadas on-chain: motivo `"diaria"` (principal) y `"diaria-bonus"`.
+
+| Código | Cuerpo |
+|---|---|
+| 200 | `{ "ok": true, "motivo": "diaria", "dia": 7, "racha": 7, "oro": 40, "bonusDia7": 25, "txHash": "0x...", "txHashBonus": "0x..." }` |
+| 200 (bonus fallido) | igual, sin `txHashBonus` y con `"bonusPendiente": true`: el ORO principal sí está pagado |
+| 200 (días 1–6 y 8+) | `{ "ok": true, "motivo": "diaria", "dia": 3, "racha": 3, "oro": 20, "bonusDia7": 0, "txHash": "0x..." }` |
+| 400 | `{ "error": "Dirección inválida" }` |
+| 409 | `{ "error": "Ya has reclamado hoy", "proximoEn": 43189 }` (`proximoEn` = segundos hasta las 00:00 UTC) · topes on-chain (como arriba) |
+| 429 | `{ "error": "Demasiadas peticiones, espera N s" }` (1 cada 10 s por dirección) |
+| 500 | `{ "error": "..." }` (el pago principal falla: no se registra el reclamo y se puede reintentar) |
+| 503 | `{ "error": "Recompensas no disponibles: ..." }` |
+
+`GET /recompensa/diaria/:address` no escribe nada; sirve para pintar la web:
+
+```json
+{ "racha": 2, "dia": 3, "puedeReclamar": true, "proximoEn": 0, "proximaOro": 20 }
+```
+
+- `racha`: racha vigente (0 si nunca reclamó o se rompió).
+- `dia`: día del ciclo (1–7) que toca en el **próximo** reclamo; `proximaOro` es su ORO (sin contar el bonus del día 7).
+- `puedeReclamar`: `false` si ya reclamó en el día UTC actual.
+- `proximoEn`: segundos hasta las 00:00 UTC si `puedeReclamar` es `false`; `0` si no.
+- 400 con dirección inválida, 503 si no hay `RECOMPENSAS_ADDRESS`.
+
+> **Límite: la racha vive en memoria.** `{racha, ultimoDia}` por dirección se guarda en el servidor. En el plan gratis de
+> Render el servicio se reinicia (y se duerme), así que **tras un reinicio el servidor olvida la racha y los reclamos
+> de hoy**: el siguiente reclamo cuenta como día 1 y, si el jugador ya había reclamado ese día, vuelve a cobrarlo
+> (hasta el tope on-chain de 500 ORO por jugador y día, que no cubre dos días seguidos a la vez).
+> No se puede reconstruir desde la cadena: `Recompensas.estadoDiario` solo registra los reclamos hechos por el propio
+> jugador con `reclamarDiario`, no los pagados por el servidor, así que no es fuente de verdad y no se usa.
+> Los topes on-chain (500 ORO por jugador y día, 5000 globales) siguen protegiendo el gasto.
 
 > **Confianza en el cliente (testnet).** El servidor no puede comprobar que el jugador haya llegado al nivel 10 del pase
 > o completado sus misiones (eso vive en el `localStorage` de la web): solo limita cuánto y cuántas veces paga.

@@ -61,6 +61,85 @@ export function validarMotivo(valor) {
   return typeof valor === 'string' && Object.hasOwn(MOTIVOS, valor) ? valor : null;
 }
 
+// ── Recompensa diaria con racha (motivo "diaria") ─────────────────────────────
+// Misma tabla que `Recompensas.tablaDiaria` del contrato: día 1 = 10 ORO … día 7 = 40 ORO.
+// La racha sigue creciendo (día 8 = día 1 del ciclo, como en el contrato). El día 7 del
+// ciclo además da un bonus de 25 ORO en una segunda llamada a `recompensar` ("diaria-bonus").
+export const MOTIVO_DIARIA = 'diaria';
+export const MOTIVO_BONUS_DIA7 = 'diaria-bonus';
+export const TABLA_DIARIA = Object.freeze([10, 15, 20, 25, 30, 35, 40]);
+export const DIA_BONUS = 7;
+export const BONUS_DIA7 = 25;
+
+const DIA_MS = 24 * 60 * 60 * 1000;
+
+/** Día del ciclo (1..7) para una racha (1-based). */
+export function diaCiclo(racha) {
+  return ((racha - 1) % TABLA_DIARIA.length) + 1;
+}
+
+/** Días UTC entre dos "YYYY-MM-DD" (hasta − desde). */
+function diferenciaDias(desde, hasta) {
+  return Math.round((Date.parse(hasta) - Date.parse(desde)) / DIA_MS);
+}
+
+/** Racha vigente hoy: 0 si nunca reclamó o si pasó más de un día sin reclamar. */
+export function rachaVigente(reg, hoy) {
+  if (!reg) return 0;
+  if (reg.ultimoDia === hoy) return reg.racha;
+  return diferenciaDias(reg.ultimoDia, hoy) === 1 ? reg.racha : 0;
+}
+
+/** Segundos desde `ahora` hasta las 00:00 UTC del día siguiente (entero, redondeado hacia arriba). */
+export function segundosHastaManana(ahora) {
+  const d = new Date(ahora);
+  const manana = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+  return Math.ceil((manana - ahora) / 1000);
+}
+
+/** ORO entero → unidades mínimas (18 decimales). */
+export function oroWei(oro) {
+  return parseUnits(String(oro), DECIMALES_ORO);
+}
+
+/**
+ * Racha diaria en memoria: `address → { racha, ultimoDia }`.
+ * AVISO: se pierde al reiniciar el servidor (plan gratis de Render). Ver README.
+ */
+export class RegistroDiario {
+  constructor({ maxEntradas = 100_000 } = {}) {
+    this.maxEntradas = maxEntradas;
+    this.reg = new Map();
+  }
+
+  /**
+   * Estado para `ahora`. `racha` es la vigente (0 si se rompió), `dia` el día del ciclo
+   * (1..7) que toca en el próximo reclamo y `proximaOro` su ORO.
+   */
+  estado(address, ahora) {
+    const hoy = diaUtc(ahora);
+    const reg = this.reg.get(address);
+    const racha = rachaVigente(reg, hoy);
+    const dia = diaCiclo(racha + 1);
+    const puedeReclamar = reg?.ultimoDia !== hoy;
+    return {
+      racha,
+      dia,
+      puedeReclamar,
+      proximoEn: puedeReclamar ? 0 : segundosHastaManana(ahora),
+      proximaOro: TABLA_DIARIA[dia - 1],
+    };
+  }
+
+  /** Guarda el reclamo de hoy. */
+  registrar(address, racha, hoy) {
+    if (!this.reg.has(address) && this.reg.size >= this.maxEntradas) {
+      this.reg.delete(this.reg.keys().next().value); // la más antigua
+    }
+    this.reg.set(address, { racha, ultimoDia: hoy });
+  }
+}
+
 /**
  * Registro en memoria de reclamos: reserva → (pago) → confirmar | liberar.
  * La reserva evita que dos peticiones simultáneas cobren lo mismo.

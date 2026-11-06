@@ -121,6 +121,8 @@ async function main() {
     dropChance: config.dropChance,
     allowedOrigin: config.allowedOrigin,
     trustProxy: config.trustProxy,
+    // /health informa del saldo de la wallet del servidor (alerta si baja de 0,002 ETH).
+    obtenerSaldo: () => provider.getBalance(wallet.address),
   });
 
   // El guard va delante de la app: mientras no hay índice, GET /ranking responde 503 + Retry-After

@@ -49,6 +49,12 @@
 @keyframes eg-brilla { 50% { box-shadow: 0 0 0 2px rgba(232, 183, 90, .6), 0 0 26px rgba(232, 183, 90, .5); } }
 .eg-diario-racha { font-weight: 700; }
 .eg-btn-diario { align-self: flex-start; }
+.eg-btn-diario .eg-spinner { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; }
+.eg-dia-bonus { font-size: .62rem; font-weight: 700; color: #ffe7a8; }
+.eg-diario-hecho { margin: 0; padding: 8px 10px; border-radius: 10px; background: rgba(34, 197, 94, .12); border: 1px solid rgba(34, 197, 94, .35); font-weight: 600; overflow-wrap: anywhere; }
+.eg-diario-hecho a { color: var(--eg-oro); }
+.eg-diario-error { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border-radius: 10px; background: rgba(239, 68, 68, .12); border: 1px solid rgba(239, 68, 68, .35); }
+.eg-diario-error p { margin: 0; flex: 1 1 200px; }
 .eg-cuenta strong { font-variant-numeric: tabular-nums; color: var(--eg-oro); }
 
 /* ── Misiones ── */

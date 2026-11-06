@@ -1,17 +1,17 @@
-// UI de enganche de Loot Arena 1.2 (MEJORAS-1.2.md §7): recompensa diaria on-chain, misiones,
+// UI de enganche de Loot Arena 1.2 (MEJORAS-1.2.md §7): recompensa diaria (vía servidor), misiones,
 // pase de temporada, desafío diario, logros, colección y ranking.
 //
 // Partes:
 //   1. Utilidades puras (fechas UTC, tabla diaria, normalización de respuestas, avisos) → tests.
 //   2. Adaptadores de misiones.js / pase.js / logros.js / coleccion.js / desafio.js (§5): la lógica
 //      es suya; aquí solo se unifica la interfaz y se reparte cada evento a todos los sistemas.
-//   3. Recompensas on-chain (ethers v6) y servidor (GET /ranking, POST /recompensa).
+//   3. Recompensa diaria y ranking vía servidor (POST /recompensa, GET /recompensa/diaria/:address, GET /ranking).
 //   4. UI: montarEnganche / registrarEvento / registrarCombate / refrescarEnganche / desmontarEnganche,
 //      iniciarDesafio / terminarDesafio, tituloActivo.
 //
 // No toca el DOM al importarse (se puede probar con node --test).
 import {
-  CATALOGO, RAREZAS_COSMETICO, direccionValida, abiDe, unirAbi, aBigInt, normalizarPrecio, aUnidades, mensajeErrorEconomia,
+  CATALOGO, RAREZAS_COSMETICO, direccionValida, aBigInt, normalizarPrecio,
 } from "./economy.js";
 
 // ───────────────────────── 1. Utilidades puras ─────────────────────────
@@ -48,26 +48,6 @@ export const RACHA_CICLO = 7;
 export function recompensaDiaria(n) {
   const dia = ((Math.max(1, Math.floor(n)) - 1) % RACHA_CICLO) + 1;
   return { dia, oro: 10 + 5 * (dia - 1), cofre: dia === RACHA_CICLO };
-}
-
-/**
- * Normaliza `Recompensas.estadoDiario(jugador)` → (racha, ultimoDia, puedeReclamar, segundosHastaSiguiente, proximaRecompensa).
- * Acepta el Result de ethers (array con nombres), un array o un objeto.
- * @returns {{racha:number, ultimoDia:number, puedeReclamar:boolean, segundos:number, proxima:{dia:number, oro:number, cofre:boolean}, rachaSiguiente:number}}
- */
-export function normalizarEstadoDiario(raw, ahora = Date.now()) {
-  const v = (i, k) => raw?.[k] ?? raw?.[i];
-  const racha = Number(aBigInt(v(0, "racha") ?? 0));
-  const ultimoDia = Number(aBigInt(v(1, "ultimoDia") ?? 0));
-  const puedeReclamar = !!v(2, "puedeReclamar");
-  const segundos = Number(aBigInt(v(3, "segundosHastaSiguiente") ?? 0));
-  const hoy = diaUTC(ahora);
-  // Si reclamó ayer, la racha sigue; si no, vuelve al día 1.
-  const rachaSiguiente = puedeReclamar ? (ultimoDia === hoy - 1 && racha > 0 ? racha + 1 : 1) : racha + 1;
-  const tabla = recompensaDiaria(rachaSiguiente);
-  const crudo = v(4, "proximaRecompensa");
-  const oro = crudo != null ? normalizarPrecio(crudo) : tabla.oro;
-  return { racha, ultimoDia, puedeReclamar, segundos, rachaSiguiente, proxima: { ...tabla, oro: oro || tabla.oro } };
 }
 
 /** Categorías del ranking (GET /ranking). */
@@ -344,95 +324,86 @@ export function guardarPropio(cuenta, propio, storage = storagePorDefecto()) {
   try { storage?.setItem(claveEnganche(cuenta), JSON.stringify({ vistos: propio.vistos ?? [] })); } catch { /* sin almacenamiento */ }
 }
 
-// ───────────────────────── 3. Recompensas on-chain y servidor ─────────────────────────
+// ───────────────────────── 3. Recompensa diaria y servidor ─────────────────────────
 
-/** ABI mínimo de Recompensas.sol (MEJORAS-1.2 §3). */
-export const ABI_RECOMPENSAS = Object.freeze([
-  "function reclamarDiario()",
-  "function estadoDiario(address jugador) view returns (uint256 racha, uint256 ultimoDia, bool puedeReclamar, uint256 segundosHastaSiguiente, uint256 proximaRecompensa)",
-  "event DiarioReclamado(address indexed jugador, uint256 indexed dia, uint256 racha, uint256 oro, uint256 cosmeticoId)",
-  "event Recompensado(address indexed jugador, uint256 cantidad, string motivo)",
-  "error YaReclamadoHoy(uint256 segundosHastaSiguiente)",
-  "error TopeJugadorSuperado(uint256 restante, uint256 pedido)",
-]);
+/** Bonus extra del día 7 de racha (además de los 40 ORO del día). */
+export const BONUS_DIA_7 = 25;
+/** Mensaje cuando el servidor no contesta o responde 503 (puede estar arrancando). */
+export const MSG_DESPIERTANDO = "El servidor está despertando, reintenta en unos segundos.";
+const MSG_ERROR_DIARIA = "No se pudo completar la recompensa. Inténtalo de nuevo.";
 
-/** Dirección de Recompensas de la red activa (`cfg.recompensas` o `config/deployments.json` → `<red>.recompensas`). */
-export async function resolverRecompensas(cfg, { fetch: f = globalThis.fetch, base = import.meta.url } = {}) {
-  if (direccionValida(cfg?.recompensas)) return cfg.recompensas;
-  if (direccionValida(cfg?.economia?.recompensas)) return cfg.economia.recompensas;
-  if (!f) return null;
+const baseServidor = (u) => String(u ?? "").replace(/\/+$/, "");
+const numero = (v) => { const n = Number(v); return v == null || v === "" || !Number.isFinite(n) ? null : n; };
+
+/** Instante → ms epoch. Acepta ms, segundos epoch, texto ISO o numérico. null si no es válido. */
+export function aInstanteMs(v) {
+  if (v == null || v === "") return null;
+  if (typeof v === "number") return !Number.isFinite(v) ? null : v < 1e11 ? v * 1000 : v;
+  if (typeof v === "string" && /^\d+$/.test(v.trim())) return aInstanteMs(Number(v));
+  const f = Date.parse(v);
+  return Number.isFinite(f) ? f : null;
+}
+
+/** fetch JSON con timeout (AbortController). Lanza si no hay red o si vence el tiempo. */
+async function peticionJson(f, url, init, timeoutMs) {
+  const ctl = typeof AbortController === "function" ? new AbortController() : null;
+  const t = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
   try {
-    const res = await f(new URL("../config/deployments.json", base), { cache: "no-cache" });
-    const d = res.ok ? await res.json() : null;
-    const dir = d?.[cfg?.red ?? "sepolia"]?.recompensas;
-    return direccionValida(dir) ? dir : null;
-  } catch { return null; }
-}
-
-async function cargarAbiRecompensas({ fetch: f = globalThis.fetch, base = import.meta.url } = {}) {
-  for (const ruta of ["../config/Recompensas.abi.json", "../../shared/Recompensas.abi.json"]) {
-    try {
-      const res = await f(new URL(ruta, base), { cache: "no-cache" });
-      if (res.ok) { const abi = abiDe(await res.json()); if (abi) return unirAbi(abi, ABI_RECOMPENSAS); }
-    } catch { /* siguiente */ }
-  }
-  return [...ABI_RECOMPENSAS];
-}
-
-/** Interpreta el recibo de reclamarDiario. */
-function leerDiarioReclamado(iface, direccion, rec) {
-  for (const log of rec?.logs ?? []) {
-    if (log.address?.toLowerCase() !== direccion.toLowerCase()) continue;
-    try {
-      const p = iface.parseLog(log);
-      if (p?.name === "DiarioReclamado") return { racha: Number(p.args[2]), oro: normalizarPrecio(p.args[3]), cosmeticoId: Number(p.args[4]) || null };
-    } catch { /* otro evento */ }
-  }
-  return null;
+    const res = await f(url, { ...init, cache: "no-store", signal: ctl?.signal });
+    let body = null;
+    try { body = await res.json(); } catch { /* sin cuerpo */ }
+    return { res, body };
+  } finally { if (t) clearTimeout(t); }
 }
 
 /**
- * Recompensas en cadena. @returns {{estado:() => Promise<ReturnType<typeof normalizarEstadoDiario>>, reclamar:() => Promise<{hash:string, esperar:() => Promise<any>}>}}
+ * POST {serverUrl}/recompensa {address, motivo:"diaria"}: reclama la recompensa diaria. El servidor paga el gas;
+ * el jugador no firma nada. Un 503 se reintenta esperando Retry-After (`intentos` peticiones en total).
+ * @returns {Promise<
+ *   {ok:true, dia:number|null, racha:number|null, oro:number|null, bonusDia7:number, txHash:string|null} |
+ *   {ok:false, status:409, yaReclamado:true, mensaje:string, proximoEn:number|null} |
+ *   {ok:false, status:503|undefined, despertando:true, mensaje:string} |
+ *   {ok:false, status:number, mensaje:string}
+ * >}
+ *   Un 503 tras agotar los intentos, un timeout (60 s) o un fallo de red dan `despertando:true`.
  */
-export function crearRecompensasChain({ ethers, provider, signer, cuenta, direccion, abi }) {
-  const c = new ethers.Contract(direccion, abi, provider);
-  return {
-    modo: "chain",
-    estado: async () => normalizarEstadoDiario(await c.estadoDiario(cuenta)),
-    reclamar: async () => {
-      const tx = await c.connect(signer).reclamarDiario();
-      return { hash: tx.hash, esperar: async () => leerDiarioReclamado(c.interface, direccion, await tx.wait()) };
-    },
-  };
+export async function pedirRecompensaDiaria(serverUrl, address, { fetch: f = globalThis.fetch, timeoutMs = 60_000, intentos = 2, esperar = dormir } = {}) {
+  const url = `${baseServidor(serverUrl)}/recompensa`;
+  const init = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address, motivo: "diaria" }) };
+  for (let intento = 1; ; intento++) {
+    let r;
+    try { r = await peticionJson(f, url, init, timeoutMs); }
+    catch { return { ok: false, despertando: true, mensaje: MSG_DESPIERTANDO }; }
+    const { res, body } = r;
+    if (res.status === 503) {
+      if (intento < intentos) { await esperar(esperaRetryAfter(res.headers?.get?.("Retry-After") ?? null)); continue; }
+      return { ok: false, status: 503, despertando: true, mensaje: MSG_DESPIERTANDO };
+    }
+    if (res.ok) {
+      return { ok: true, dia: numero(body?.dia), racha: numero(body?.racha), oro: numero(body?.oro), bonusDia7: numero(body?.bonusDia7) ?? 0, txHash: body?.txHash ?? body?.hash ?? null };
+    }
+    if (res.status === 409) return { ok: false, status: 409, yaReclamado: true, mensaje: "Ya reclamaste la recompensa de hoy.", proximoEn: aInstanteMs(body?.proximoEn) };
+    return { ok: false, status: res.status, mensaje: body?.error ?? MSG_ERROR_DIARIA };
+  }
 }
 
-/** Recompensas simuladas en memoria (demo). */
-export function crearRecompensasSimulada({ racha = 0, ultimoDia = null, latencia = 600, ahora = () => Date.now() } = {}) {
-  const e = { racha, ultimoDia: ultimoDia ?? diaUTC(ahora()) - 1 };
-  const crudo = () => {
-    const hoy = diaUTC(ahora());
-    const puede = e.ultimoDia < hoy;
-    const sig = puede ? (e.ultimoDia === hoy - 1 ? e.racha + 1 : 1) : e.racha + 1;
-    return { racha: e.racha, ultimoDia: e.ultimoDia, puedeReclamar: puede, segundosHastaSiguiente: puede ? 0 : Math.ceil((finDiaUTC(ahora()) - ahora()) / 1000), proximaRecompensa: aUnidades(recompensaDiaria(sig).oro) };
-  };
+/**
+ * GET {serverUrl}/recompensa/diaria/:address → estado de la racha.
+ * @returns {Promise<
+ *   {ok:true, racha:number, dia:number, puedeReclamar:boolean, proximoEn:number|null, proximaOro:number|null} |
+ *   {ok:false, despertando?:true, mensaje:string}
+ * >}
+ */
+export async function estadoRecompensaDiaria(serverUrl, address, { fetch: f = globalThis.fetch, timeoutMs = 60_000 } = {}) {
+  let r;
+  try { r = await peticionJson(f, `${baseServidor(serverUrl)}/recompensa/diaria/${encodeURIComponent(address ?? "")}`, { method: "GET" }, timeoutMs); }
+  catch { return { ok: false, despertando: true, mensaje: MSG_DESPIERTANDO }; }
+  const { res, body } = r;
+  if (res.status === 503) return { ok: false, despertando: true, mensaje: MSG_DESPIERTANDO };
+  if (!res.ok) return { ok: false, mensaje: body?.error ?? "No se pudo leer tu racha." };
   return {
-    modo: "simulada",
-    _estado: e,
-    estado: async () => normalizarEstadoDiario(crudo(), ahora()),
-    reclamar: async () => {
-      const est = normalizarEstadoDiario(crudo(), ahora());
-      if (!est.puedeReclamar) throw Object.assign(new Error("YaReclamadoHoy"), { code: "CALL_EXCEPTION", revert: { name: "YaReclamadoHoy" } });
-      await new Promise((r) => setTimeout(r, latencia / 3));
-      return {
-        hash: `0x${"d".repeat(64)}`,
-        esperar: async () => {
-          await new Promise((r) => setTimeout(r, latencia));
-          e.racha = est.rachaSiguiente; e.ultimoDia = diaUTC(ahora());
-          const p = recompensaDiaria(e.racha);
-          return { racha: e.racha, oro: p.oro, cosmeticoId: p.cofre ? 1 + Math.floor(Math.random() * 13) : null };
-        },
-      };
-    },
+    ok: true, racha: numero(body?.racha) ?? 0, dia: numero(body?.dia) ?? 1, puedeReclamar: !!body?.puedeReclamar,
+    proximoEn: aInstanteMs(body?.proximoEn), proximaOro: numero(body?.proximaOro),
   };
 }
 
@@ -535,10 +506,11 @@ const cola = [];
  * #pase, #desafio, #logros, #coleccion, #ranking). Los que no existan se omiten. Idempotente.
  *
  * @param {object} o
- * @param {any} [o.provider]  ethers.BrowserProvider (sin él no se puede reclamar la recompensa diaria)
- * @param {any} [o.signer]
- * @param {string|null} [o.cuenta]  dirección conectada (null → progreso de "invitado")
- * @param {object} o.cfg            cargarConfig(): {red, net, serverUrl, …}; puede traer `recompensas`
+ * @param {string|null} [o.cuenta]  dirección del jugador (null → progreso de "invitado" y botón «Conectar wallet»
+ *        en la recompensa diaria). Solo se usa como destino del premio: no se firma nada.
+ * @param {() => Promise<string|null>} [o.onConectarWallet]  pulsado «Conectar wallet» en la recompensa diaria.
+ *        main conecta la wallet y devuelve su dirección (o null). Con dirección, enganche se remonta con ella.
+ * @param {object} o.cfg            cargarConfig(): {red, net, serverUrl, …}
  * @param {object} [o.fx]           fx.js: celebrarLogro, celebrarRecompensa, subirNivelPase, sonar (todos opcionales)
  * @param {string} [o.serverUrl]    por defecto cfg.serverUrl
  * @param {(seccion:"misiones"|"logros", hay:boolean, cuenta?:number) => void} [o.onAviso]  router.marcarAviso
@@ -548,13 +520,11 @@ const cola = [];
  *        main lanza el combate y al acabar llama terminarDesafio(combate)
  * @param {(titulo:{id:string, texto:string}|null) => void} [o.onCambioTitulo]
  * @param {object} [o.modulos]      {misiones, pase, logros, coleccion, desafio} ya importados (si no, import ./misiones.js…)
- * @param {object} [o.recompensas]  implementación inyectada (crearRecompensasSimulada) en lugar del contrato
  * @param {typeof fetch} [o.fetch]  fetch para el servidor (demo/tests)
- * @param {any} [o.ethers]          módulo ethers (si no, wallet.cargarEthers)
  * @param {Storage} [o.storage]     por defecto localStorage
  * @param {() => number} [o.ahora]  reloj (por defecto Date.now)
  * @param {Record<string, HTMLElement>} [o.raiz]  contenedores alternativos (claves de IDS)
- * @returns {Promise<{origen:Record<string,"ok"|"falta">, recompensas:"chain"|"simulada"|"no-desplegada"|"sin-wallet"|"error"}|null>}
+ * @returns {Promise<{origen:Record<string,"ok"|"falta">, recompensas:"servidor"|"sin-wallet"|"sin-servidor"}|null>}
  */
 export async function montarEnganche(o = {}) {
   desmontarEnganche();
@@ -569,7 +539,8 @@ export async function montarEnganche(o = {}) {
     serverUrl: o.serverUrl ?? o.cfg?.serverUrl ?? "",
     els: Object.fromEntries(Object.entries(IDS).map(([k, id]) => [k, o.raiz?.[k] ?? document.getElementById(id)])),
     E: {}, propio: cargarPropio(o.cuenta ?? null, o.storage),
-    diario: null, modoDiario: "sin-wallet", rec: null,
+    diario: null, diarioError: null, diarioHecho: null,
+    modoDiario: !o.cuenta ? "sin-wallet" : o.serverUrl || o.cfg?.serverUrl ? "servidor" : "sin-servidor",
     ranking: null, posicion: null, errorRanking: null, catRanking: "objetos", cargandoRanking: false, sincronizando: false,
     ocupado: new Set(), timer: null, avisos: {},
   };
@@ -579,22 +550,6 @@ export async function montarEnganche(o = {}) {
   }
   for (const el of Object.values(S.els)) el?.classList.add("eg-montado");
 
-  try {
-    if (o.recompensas) { S.rec = o.recompensas; S.modoDiario = o.recompensas.modo ?? "simulada"; }
-    else {
-      const dir = await resolverRecompensas(o.cfg, { fetch: globalThis.fetch });
-      if (!dir) S.modoDiario = "no-desplegada";
-      else if (o.provider && o.cuenta) {
-        const [eth, abi] = await Promise.all([o.ethers ?? import("./wallet.js").then((w) => w.cargarEthers()), cargarAbiRecompensas()]);
-        const code = await o.provider.getCode(dir).catch(() => "0x");
-        if (!code || code === "0x") S.modoDiario = "no-desplegada";
-        else { S.rec = crearRecompensasChain({ ethers: eth, provider: o.provider, signer: o.signer ?? await o.provider.getSigner(), cuenta: o.cuenta, direccion: dir, abi }); S.modoDiario = "chain"; }
-      }
-    }
-  } catch (e) {
-    console.warn("[enganche] Recompensas no disponible:", e);
-    if (S) S.modoDiario = "error";
-  }
   if (!S || gen !== S.gen) return null;
 
   for (const ev of cola.splice(0)) procesar(ev, { silencioso: true });
@@ -712,17 +667,18 @@ function celebrar({ logrosNuevos = [], nivelesPase = [], misionesCompletadas = [
 }
 
 async function refrescarDiario() {
-  if (!S?.rec) { renderDiario(); return; }
+  if (!S) return;
+  if (S.modoDiario !== "servidor") { renderDiario(); actualizarAvisos(); return; }
   const gen = S.gen;
-  try {
-    const d = await S.rec.estado();
-    if (!S || gen !== S.gen) return;
-    S.diario = { ...d, leido: S.ahora() };
-  } catch (e) {
-    console.warn("[enganche] estadoDiario:", e);
-    if (S && gen === S.gen) S.diario = null;
-  }
+  const r = await estadoRecompensaDiaria(S.serverUrl, S.cuenta, { fetch: S.o.fetch ?? globalThis.fetch });
   if (!S || gen !== S.gen) return;
+  if (r.ok) {
+    S.diario = { racha: r.racha, dia: r.dia, puedeReclamar: r.puedeReclamar, proximoEn: r.proximoEn, proximaOro: r.proximaOro, leido: S.ahora() };
+    if (r.puedeReclamar) S.diarioHecho = null;
+    S.diarioError = null;
+  } else {
+    S.diarioError = { mensaje: r.mensaje, despertando: !!r.despertando, accion: "leer" };
+  }
   renderDiario(); actualizarAvisos();
 }
 
@@ -773,7 +729,7 @@ function vistas() {
 
 function actualizarAvisos(v = vistas()) {
   const nuevos = (v.logros ?? []).filter((l) => l.conseguido && !S.propio.vistos.includes(l.id)).length;
-  const diario = S.modoDiario === "chain" || S.modoDiario === "simulada" ? S.diario : null;
+  const diario = S.modoDiario === "servidor" ? S.diario : null;
   const a = calcularAvisos({ diario, misiones: v.misiones, pase: v.pase, desafio: v.desafio, logrosNuevos: nuevos });
   for (const k of ["misiones", "logros"]) {
     const clave = `${a[k]}:${a.cuentas[k]}`;
@@ -791,74 +747,117 @@ function renderTodo() {
   actualizarAvisos(v);
 }
 
-// ── Recompensa diaria ──
+// ── Recompensa diaria: la pide el servidor (paga el gas); el jugador solo aporta su dirección ──
 function renderDiario() {
   const el = S?.els.diario;
   if (!el) return;
   const cab = h("div", { class: "eg-cabeza" }, h("h3", {}, "📅 Recompensa diaria"));
-  if (S.modoDiario === "no-desplegada" || S.modoDiario === "error") {
-    poner(el, cab, h("p", { class: "eg-tenue" }, S.modoDiario === "error" ? "La recompensa diaria no está disponible ahora mismo." : "La recompensa diaria on-chain llegará pronto a esta red."), filaRacha(0, 1));
+  if (S.modoDiario === "sin-servidor") {
+    poner(el, cab, h("p", { class: "eg-tenue" }, "La recompensa diaria no está disponible ahora mismo."), filaRacha(0, null));
     return;
   }
   if (S.modoDiario === "sin-wallet") {
-    poner(el, cab, h("p", { class: "eg-tenue" }, "🦊 Conecta tu wallet para reclamar ORO cada día. ¡El día 7 regala un cofre!"), filaRacha(0, 1));
+    const conectando = S.ocupado.has("conectar");
+    poner(el, cab,
+      h("p", { class: "eg-tenue" }, "🦊 Conecta tu wallet para reclamar ORO cada día. Solo usamos tu dirección para enviarlo: no hay que firmar nada ni tener ETH."),
+      filaRacha(0, null),
+      h("button", { type: "button", class: "btn btn-gold eg-btn-diario", disabled: conectando, onclick: conectarParaDiaria }, conectando ? "Conectando…" : "Conectar wallet"));
     return;
   }
-  const d = S.diario;
-  if (!d) { poner(el, cab, h("p", { class: "eg-tenue" }, "Leyendo tu racha…"), filaRacha(0, 1)); return; }
-  const rachaVisible = d.puedeReclamar ? d.rachaSiguiente - 1 : d.racha;
-  const hechos = rachaVisible <= 0 ? 0 : ((rachaVisible - 1) % RACHA_CICLO) + 1;
-  const hoyCiclo = d.puedeReclamar ? recompensaDiaria(d.rachaSiguiente).dia : null;
+  const d = S.diario, err = S.diarioError, hecho = S.diarioHecho;
+  if (!d) {
+    poner(el, cab, err ? errorDiario(err) : h("p", { class: "eg-tenue" }, "Leyendo tu racha…"), filaRacha(0, null));
+    return;
+  }
   const ocupado = S.ocupado.has("diario");
-  const hasta = d.puedeReclamar ? null : (d.segundos ? d.leido + d.segundos * 1000 : finDiaUTC(S.ahora()));
-  if (d.puedeReclamar && d.rachaSiguiente === 1 && d.racha > 0) cab.append(h("span", { class: "eg-chip eg-chip-rota" }, "Racha rota: vuelves al día 1"));
-  poner(el, cab,
+  const hechos = d.puedeReclamar ? Math.max(0, d.dia - 1) : d.dia;
+  const hoy = d.puedeReclamar ? d.dia : null;
+  const oro = d.proximaOro ?? recompensaDiaria(d.dia).oro;
+  const dia7 = d.puedeReclamar && recompensaDiaria(d.dia).cofre;
+  const hasta = d.proximoEn ?? finDiaUTC(S.ahora());
+  const hijos = [
+    cab,
     h("p", { class: "eg-diario-racha" }, d.racha > 0 ? `🔥 Racha: ${d.racha} día${d.racha === 1 ? "" : "s"}` : "Empieza tu racha hoy"),
-    filaRacha(hechos, hoyCiclo),
-    d.puedeReclamar
-      ? h("button", { type: "button", class: "btn btn-gold eg-btn-diario", disabled: ocupado, onclick: reclamarDiario },
-        ocupado ? "Reclamando…" : `Reclamar ${d.proxima.oro} ORO${d.proxima.cofre ? " + cofre 🎁" : ""}`)
-      : h("p", { class: "eg-cuenta" }, "Siguiente recompensa en ", h("strong", {}, cuentaAtras(hasta, S.ahora()))),
-    h("p", { class: "eg-tenue eg-mini" }, "Es una transacción tuya en Sepolia (paga un poco de gas). Si un día no reclamas, la racha vuelve al día 1."));
+    filaRacha(hechos, hoy),
+  ];
+  if (err) hijos.push(errorDiario(err));
+  if (hecho) {
+    hijos.push(h("p", { class: "eg-diario-hecho" }, `¡Hecho! +${hecho.oro} ORO · racha ${hecho.racha}`,
+      hecho.txHash ? [" · ", h("a", { href: `https://sepolia.etherscan.io/tx/${hecho.txHash}`, target: "_blank", rel: "noopener" }, "Ver transacción")] : null));
+  }
+  if (d.puedeReclamar) {
+    hijos.push(ocupado
+      ? h("button", { type: "button", class: "btn btn-gold eg-btn-diario", disabled: true }, h("span", { class: "eg-spinner", "aria-hidden": "true" }), "Reclamando…")
+      : h("button", { type: "button", class: "btn btn-gold eg-btn-diario", onclick: reclamarDiario },
+        dia7 ? `Reclamar +${oro} ORO y +${BONUS_DIA_7} ORO de bonus` : `Reclamar ${oro} ORO`));
+  } else {
+    hijos.push(h("p", { class: "eg-cuenta" }, "Vuelve mañana · siguiente en ", h("strong", {}, cuentaAtras(hasta, S.ahora()))));
+  }
+  hijos.push(h("p", { class: "eg-tenue eg-mini" }, "El servidor paga el gas: no hace falta firmar ni tener ETH. Si un día no reclamas, la racha vuelve al día 1."));
+  poner(el, ...hijos);
+}
+
+/** Aviso de error con «Reintentar» si el servidor está arrancando o si era una lectura. */
+function errorDiario(err) {
+  return h("div", { class: "eg-diario-error", role: "alert" },
+    h("p", {}, err.mensaje),
+    err.despertando || err.accion === "leer"
+      ? h("button", { type: "button", class: "btn btn-small", onclick: () => (err.accion === "reclamar" ? reclamarDiario() : refrescarDiario()) }, "Reintentar")
+      : null);
 }
 
 function filaRacha(hechos, hoy) {
   return h("ol", { class: "eg-racha", "aria-label": "Racha de 7 días" }, Array.from({ length: RACHA_CICLO }, (_, i) => {
     const n = i + 1, r = recompensaDiaria(n);
     const estado = n <= hechos ? "hecho" : n === hoy ? "hoy" : "";
-    return h("li", { class: `eg-dia ${estado}${r.cofre ? " cofre" : ""}`, title: `Día ${n}: ${r.oro} ORO${r.cofre ? " + cofre cosmético" : ""}` },
+    return h("li", { class: `eg-dia ${estado}${r.cofre ? " cofre" : ""}`, title: `Día ${n}: ${r.oro} ORO${r.cofre ? ` y +${BONUS_DIA_7} ORO de bonus` : ""}` },
       h("span", { class: "eg-dia-n" }, `Día ${n}`),
       h("span", { class: "eg-dia-ico", "aria-hidden": "true" }, n <= hechos ? "🔥" : r.cofre ? "🎁" : "🪙"),
-      h("span", { class: "eg-dia-oro" }, `${r.oro}`));
+      h("span", { class: "eg-dia-oro" }, `${r.oro}`),
+      r.cofre ? h("span", { class: "eg-dia-bonus" }, `+${BONUS_DIA_7} bonus`) : null);
   }));
 }
 
+/** Pide la wallet solo para tener la dirección (no hay firma). main.js decide cómo conectar. */
+async function conectarParaDiaria() {
+  if (!S || S.ocupado.has("conectar")) return;
+  const conectar = S.o.onConectarWallet;
+  if (typeof conectar !== "function") { aviso("Conecta tu wallet para ver tu recompensa diaria.", "info"); return; }
+  const gen = S.gen, o = S.o;
+  S.ocupado.add("conectar"); renderDiario();
+  let dir = null;
+  try { dir = await conectar(); } catch (e) { console.warn("[enganche] conectar wallet:", e); }
+  if (!S || gen !== S.gen) return;
+  S.ocupado.delete("conectar");
+  if (direccionValida(dir)) { await montarEnganche({ ...o, cuenta: dir }); return; }
+  renderDiario();
+}
+
+/** Reclama con un clic: POST al servidor, sin firma ni MetaMask. */
 async function reclamarDiario() {
-  if (!S?.rec || S.ocupado.has("diario")) return;
+  if (!S || S.modoDiario !== "servidor" || !S.diario?.puedeReclamar || S.ocupado.has("diario")) return;
   const gen = S.gen;
-  S.ocupado.add("diario"); renderDiario();
-  try {
-    if (S.modoDiario === "chain") aviso("🦊 Confirma la recompensa diaria en MetaMask…", "info", 4000);
-    const op = await S.rec.reclamar();
-    aviso("⏳ Recompensa diaria enviada…", "info", 4000);
-    const r = await op.esperar();
-    if (!S || gen !== S.gen) return;
-    const racha = r?.racha ?? (S.diario?.rachaSiguiente ?? 1);
-    const oro = r?.oro ?? S.diario?.proxima?.oro ?? 0;
-    const cos = r?.cosmeticoId ? CATALOGO.find((x) => x.id === r.cosmeticoId) ?? null : null;
+  S.ocupado.add("diario"); S.diarioError = null; renderDiario();
+  const r = await pedirRecompensaDiaria(S.serverUrl, S.cuenta, { fetch: S.o.fetch ?? globalThis.fetch });
+  if (!S || gen !== S.gen) return;
+  S.ocupado.delete("diario");
+  if (r.ok) {
+    const racha = r.racha ?? (S.diario.racha + 1);
+    const oro = (r.oro ?? S.diario.proximaOro ?? recompensaDiaria(S.diario.dia).oro) + (r.bonusDia7 ?? 0);
+    S.diarioHecho = { oro, racha, txHash: r.txHash };
+    S.diario = { ...S.diario, puedeReclamar: false, racha, dia: r.dia ?? S.diario.dia, proximoEn: null, leido: S.ahora() };
     const fx = S.o.fx;
-    if (typeof fx?.celebrarRecompensa === "function") { try { fx.celebrarRecompensa({ oro, cosmetico: cos, texto: `Racha de ${racha} día${racha === 1 ? "" : "s"}` }); } catch (e) { console.warn(e); } }
-    aviso(`🎉 +${oro} ORO${cos ? ` y ${cos.nombre}` : ""} · racha de ${racha} día${racha === 1 ? "" : "s"}`, "ok", 6000);
+    if (typeof fx?.celebrarRecompensa === "function") { try { fx.celebrarRecompensa({ oro, texto: `Racha de ${racha} día${racha === 1 ? "" : "s"}` }); } catch (e) { console.warn(e); } }
+    aviso(`🎉 +${oro} ORO · racha de ${racha} día${racha === 1 ? "" : "s"}`, "ok", 6000);
     procesar({ tipo: "diario", racha });
-    if (cos) procesar({ tipo: "cosmeticos", ids: [cos.id] });
-    try { S.o.onRecompensa?.({ tipo: "diario", oro, racha, cosmetico: cos }); } catch (e) { console.warn(e); }
-  } catch (e) {
-    if (!S || gen !== S.gen) return;
-    const m = mensajeErrorEconomia(e);
-    aviso(/YaReclamado/i.test(String(e?.revert?.name ?? e?.message)) ? "Ya reclamaste la recompensa de hoy." : m.texto, m.rechazado ? "info" : "error", 6000);
-  } finally {
-    if (S && gen === S.gen) { S.ocupado.delete("diario"); await refrescarDiario(); renderTodo(); }
+    try { S.o.onRecompensa?.({ tipo: "diario", oro, racha, cosmetico: null }); } catch (e) { console.warn(e); }
+  } else if (r.yaReclamado) {
+    S.diario = { ...S.diario, puedeReclamar: false, proximoEn: r.proximoEn ?? null, leido: S.ahora() };
+    aviso(r.mensaje, "info");
+  } else {
+    S.diarioError = { mensaje: r.mensaje, despertando: !!r.despertando, accion: "reclamar" };
   }
+  renderTodo();
 }
 
 // ── Misiones ──

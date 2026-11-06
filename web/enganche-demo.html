@@ -86,14 +86,35 @@
       },
     };
     const reclamados = new Set();
+    // Recompensa diaria simulada (el servidor real: POST /recompensa motivo "diaria" y GET /recompensa/diaria/:address).
+    // Con ?servidor=dormido responde 503 a las rutas diarias, para probar el aviso de "despertando".
+    const SERVIDOR_DORMIDO = new URLSearchParams(location.search).get("servidor") === "dormido";
+    const DIA_HOY = G.diaUTC();
+    const diario = { racha: 6, ultimoDia: DIA_HOY - 1 };
+    const estadoDiario = () => {
+      const puede = diario.ultimoDia < DIA_HOY;
+      const dia = puede ? (diario.ultimoDia === DIA_HOY - 1 ? (diario.racha % 7) + 1 : 1) : ((diario.racha - 1) % 7) + 1;
+      return { racha: diario.racha, dia, puedeReclamar: puede, proximoEn: puede ? null : G.finDiaUTC(), proximaOro: 10 + 5 * (dia - 1) };
+    };
     const fetchSim = async (url, init = {}) => {
       await new Promise((r) => setTimeout(r, 350));
       const u = new URL(url, location.href);
       const json = (status, body) => ({ ok: status < 300, status, json: async () => body });
       if (u.pathname.endsWith(`/ranking/${CUENTA}`)) return json(200, { categorias: { objetos: { posicion: 7, valor: 174 }, legendarios: { posicion: 31, valor: 2 }, oroVentas: { posicion: 0 }, rachaDiaria: { posicion: 12, valor: 4 } } });
       if (u.pathname.endsWith("/ranking")) return json(200, ranking);
+      if (u.pathname.includes("/recompensa/diaria/")) {
+        if (SERVIDOR_DORMIDO) return json(503, { error: "arrancando" });
+        return json(200, estadoDiario());
+      }
       if (u.pathname.endsWith("/recompensa") && init.method === "POST") {
         const { motivo } = JSON.parse(init.body);
+        if (motivo === "diaria") {
+          if (SERVIDOR_DORMIDO) return json(503, { error: "arrancando" });
+          const e = estadoDiario();
+          if (!e.puedeReclamar) return json(409, { error: "Ya reclamaste hoy.", proximoEn: Math.floor(G.finDiaUTC() / 1000) });
+          diario.racha = e.racha + 1; diario.ultimoDia = DIA_HOY;
+          return json(200, { ok: true, dia: e.dia, racha: diario.racha, oro: e.proximaOro, bonusDia7: e.dia === 7 ? 25 : 0, txHash: `0x${"e".repeat(64)}` });
+        }
         if (reclamados.has(motivo)) return json(409, { error: "Ya reclamaste esta recompensa." });
         reclamados.add(motivo);
         const cantidad = { pase10: 100, pase20: 200, pase30: 400, misiones_diarias: 25 }[motivo];
@@ -102,11 +123,10 @@
       return json(404, { error: "No encontrado" });
     };
 
-    const recompensas = G.crearRecompensasSimulada({ racha: 6, ultimoDia: G.diaUTC() - 1 });
     let desafioEnCurso = null;
 
     const r = await G.montarEnganche({
-      cuenta: CUENTA, cfg: { red: "sepolia", serverUrl: "https://servidor.simulado" }, fx, recompensas, fetch: fetchSim,
+      cuenta: CUENTA, cfg: { red: "sepolia", serverUrl: "https://servidor.simulado" }, fx, fetch: fetchSim,
       onAviso: (seccion, hay, cuenta) => {
         const b = document.querySelector(`[data-aviso="${seccion}"]`);
         if (b) { b.hidden = !hay; b.textContent = cuenta ? String(cuenta) : "•"; }

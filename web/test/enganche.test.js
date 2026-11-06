@@ -34,26 +34,6 @@ test("tabla de recompensa diaria: 10 ORO +5/día hasta 40 y cofre el día 7, en 
   assert.equal(G.recompensaDiaria(0).dia, 1);
 });
 
-test("normalizarEstadoDiario: Result de ethers, objeto, racha que sigue y racha rota", () => {
-  const hoy = G.diaUTC(T);
-  // Reclamó ayer con racha 3 → hoy toca el día 4 (25 ORO); proximaRecompensa en unidades base.
-  const sigue = G.normalizarEstadoDiario([3n, BigInt(hoy - 1), true, 0n, 25n * UNO], T);
-  assert.equal(sigue.racha, 3);
-  assert.equal(sigue.puedeReclamar, true);
-  assert.equal(sigue.rachaSiguiente, 4);
-  assert.deepEqual(sigue.proxima, { dia: 4, oro: 25, cofre: false });
-  // Último reclamo hace 3 días → la racha se rompe: día 1.
-  const rota = G.normalizarEstadoDiario({ racha: 5, ultimoDia: hoy - 3, puedeReclamar: true, segundosHastaSiguiente: 0 }, T);
-  assert.equal(rota.rachaSiguiente, 1);
-  assert.equal(rota.proxima.oro, 10);
-  // Ya reclamado hoy, día 6 → mañana día 7 con cofre.
-  const hecho = G.normalizarEstadoDiario({ racha: 6, ultimoDia: hoy, puedeReclamar: false, segundosHastaSiguiente: 43200, proximaRecompensa: 40 }, T);
-  assert.equal(hecho.segundos, 43200);
-  assert.equal(hecho.rachaSiguiente, 7);
-  assert.equal(hecho.proxima.cofre, true);
-  assert.equal(hecho.proxima.oro, 40);
-});
-
 test("normalizarRanking: top 20 ordenado, ORO en unidades base, categorías ausentes", () => {
   const dir = (n) => `0x${n.toString(16).padStart(40, "0")}`;
   const objetos = Array.from({ length: 25 }, (_, i) => ({ address: dir(i + 1), valor: String(i) }));
@@ -317,29 +297,85 @@ test("servidor: POST /recompensa {address, motivo}", async () => {
   assert.match(caido.mensaje, /no están disponibles/);
 });
 
-test("Recompensas simulada: un reclamo al día, racha y cofre el día 7", async () => {
-  let ahora = T;
-  const rec = G.crearRecompensasSimulada({ racha: 6, ultimoDia: G.diaUTC(T) - 1, latencia: 0, ahora: () => ahora });
-  const e0 = await rec.estado();
-  assert.equal(e0.puedeReclamar, true);
-  assert.equal(e0.proxima.cofre, true);
-  const r = await (await rec.reclamar()).esperar();
-  assert.equal(r.racha, 7);
-  assert.equal(r.oro, 40);
-  assert.ok(r.cosmeticoId >= 1 && r.cosmeticoId <= 13);
-  assert.equal((await rec.estado()).puedeReclamar, false);
-  await assert.rejects(rec.reclamar(), /YaReclamado/);
-  ahora += 3 * 86_400_000; // se salta dos días → racha rota
-  assert.equal((await rec.estado()).rachaSiguiente, 1);
+const respuesta = (status, body, headers = {}) => ({ ok: status >= 200 && status < 300, status, headers: { get: (k) => headers[k] ?? null }, json: async () => body });
+
+test("pedirRecompensaDiaria: POST {address, motivo:'diaria'} y 200 con el premio", async () => {
+  let llamada = null;
+  const r = await G.pedirRecompensaDiaria("http://srv/", "0xabc", {
+    fetch: async (url, init) => { llamada = { url, metodo: init.method, body: JSON.parse(init.body) }; return respuesta(200, { ok: true, dia: 7, racha: 7, oro: 40, bonusDia7: 25, txHash: "0x1" }); },
+  });
+  assert.deepEqual(llamada, { url: "http://srv/recompensa", metodo: "POST", body: { address: "0xabc", motivo: "diaria" } });
+  assert.deepEqual(r, { ok: true, dia: 7, racha: 7, oro: 40, bonusDia7: 25, txHash: "0x1" });
+  const sinBonus = await G.pedirRecompensaDiaria("http://srv", "0xabc", { fetch: async () => respuesta(200, { dia: 2, racha: 2, oro: 15, txHash: "0x2" }) });
+  assert.equal(sinBonus.bonusDia7, 0);
 });
 
-test("ABI mínimo de Recompensas según §3 y dirección desde deployments", async () => {
-  for (const f of ["function reclamarDiario()", "function estadoDiario(address jugador)", "event DiarioReclamado(", "event Recompensado("]) {
-    assert.ok(G.ABI_RECOMPENSAS.some((x) => x.startsWith(f)), f);
-  }
-  const dir = `0x${"7".repeat(40)}`;
-  assert.equal(await G.resolverRecompensas({ recompensas: dir }), dir);
-  const f = async () => ({ ok: true, json: async () => ({ sepolia: { recompensas: dir } }) });
-  assert.equal(await G.resolverRecompensas({ red: "sepolia" }, { fetch: f, base: "http://x/js/enganche.js" }), dir);
-  assert.equal(await G.resolverRecompensas({ red: "localhost" }, { fetch: f, base: "http://x/js/enganche.js" }), null);
+test("pedirRecompensaDiaria: 409 → ya reclamado con proximoEn (segundos epoch o ISO)", async () => {
+  const manana = Date.UTC(2026, 10, 6);
+  const r = await G.pedirRecompensaDiaria("http://srv", "0xabc", { fetch: async () => respuesta(409, { error: "Ya", proximoEn: manana / 1000 }) });
+  assert.deepEqual(r, { ok: false, status: 409, yaReclamado: true, mensaje: "Ya reclamaste la recompensa de hoy.", proximoEn: manana });
+  const iso = await G.pedirRecompensaDiaria("http://srv", "0xabc", { fetch: async () => respuesta(409, { proximoEn: "2026-11-06T00:00:00Z" }) });
+  assert.equal(iso.proximoEn, manana);
+});
+
+test("pedirRecompensaDiaria: 503 reintenta una vez respetando Retry-After; 503 persistente → despertando", async () => {
+  const esperas = [];
+  let n = 0;
+  const f = async () => { n++; return n === 1 ? respuesta(503, null, { "Retry-After": "3" }) : respuesta(200, { dia: 1, racha: 1, oro: 10, bonusDia7: 0, txHash: "0x2" }); };
+  const r = await G.pedirRecompensaDiaria("http://srv", "0xabc", { fetch: f, esperar: async (ms) => esperas.push(ms) });
+  assert.equal(n, 2);
+  assert.deepEqual(esperas, [3000]);
+  assert.equal(r.ok, true);
+  assert.equal(r.oro, 10);
+
+  let m = 0;
+  const siempre = await G.pedirRecompensaDiaria("http://srv", "0xabc", { fetch: async () => { m++; return respuesta(503, null); }, esperar: async () => {} });
+  assert.equal(m, 2);
+  assert.equal(siempre.ok, false);
+  assert.equal(siempre.despertando, true);
+  assert.equal(siempre.mensaje, "El servidor está despertando, reintenta en unos segundos.");
+  assert.doesNotMatch(siempre.mensaje, /dormid|MetaMask/i);
+});
+
+test("pedirRecompensaDiaria: fallo de red o timeout → despertando, sin reintentar", async () => {
+  let n = 0;
+  const red = await G.pedirRecompensaDiaria("http://srv", "0xabc", { fetch: async () => { n++; throw new TypeError("Failed to fetch"); } });
+  assert.equal(n, 1);
+  assert.equal(red.despertando, true);
+  assert.equal(red.mensaje, G.MSG_DESPIERTANDO);
+  const tarda = await G.pedirRecompensaDiaria("http://srv", "0xabc", {
+    timeoutMs: 20,
+    fetch: (url, init) => new Promise((_, rej) => init.signal.addEventListener("abort", () => rej(Object.assign(new Error("aborted"), { name: "AbortError" })))),
+  });
+  assert.equal(tarda.despertando, true);
+});
+
+test("pedirRecompensaDiaria: otros errores del servidor se muestran legibles", async () => {
+  const r = await G.pedirRecompensaDiaria("http://srv", "0xabc", { fetch: async () => respuesta(500, { error: "Sin saldo para gas" }) });
+  assert.deepEqual(r, { ok: false, status: 500, mensaje: "Sin saldo para gas" });
+  const vacio = await G.pedirRecompensaDiaria("http://srv", "0xabc", { fetch: async () => respuesta(500, null) });
+  assert.equal(vacio.ok, false);
+  assert.equal(vacio.status, 500);
+  assert.match(vacio.mensaje, /Inténtalo de nuevo/);
+});
+
+test("estadoRecompensaDiaria: GET /recompensa/diaria/:address, 503 y red", async () => {
+  let llamada = null;
+  const r = await G.estadoRecompensaDiaria("http://srv/", "0xabc", {
+    fetch: async (u, init) => { llamada = [u, init.method]; return respuesta(200, { racha: 6, dia: 7, puedeReclamar: true, proximoEn: null, proximaOro: 40 }); },
+  });
+  assert.deepEqual(llamada, ["http://srv/recompensa/diaria/0xabc", "GET"]);
+  assert.deepEqual(r, { ok: true, racha: 6, dia: 7, puedeReclamar: true, proximoEn: null, proximaOro: 40 });
+  const hecho = await G.estadoRecompensaDiaria("http://srv", "0xabc", { fetch: async () => respuesta(200, { racha: 7, dia: 7, puedeReclamar: false, proximoEn: "2026-11-06T00:00:00Z" }) });
+  assert.equal(hecho.puedeReclamar, false);
+  assert.equal(hecho.proximoEn, Date.UTC(2026, 10, 6));
+  const caido = await G.estadoRecompensaDiaria("http://srv", "0xabc", { fetch: async () => respuesta(503, null) });
+  assert.equal(caido.despertando, true);
+  const red = await G.estadoRecompensaDiaria("http://srv", "0xabc", { fetch: async () => { throw new TypeError("x"); } });
+  assert.equal(red.despertando, true);
+});
+
+test("recompensa diaria: día 7 = 40 ORO + 25 de bonus", () => {
+  assert.equal(G.BONUS_DIA_7, 25);
+  assert.equal(G.recompensaDiaria(7).oro, 40);
 });
