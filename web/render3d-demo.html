@@ -152,6 +152,8 @@
         <button class="btn btn-ghost" id="b-remontar" type="button">Volver a montar</button>
         <button class="btn btn-ghost" id="b-desmontar" type="button">Desmontar (liberar GPU)</button>
         <button class="btn btn-gold" id="b-estres" type="button">Prueba de esfuerzo (10 s)</button>
+        <button class="btn btn-gold" id="b-aparicion" type="button">Medir coste de aparición</button>
+        <span class="fps" id="memoria"></span>
       </div>
 
       <div class="grupo">
@@ -221,7 +223,15 @@
 
     function montar() {
       const cal = $("#sel-calidad").value || undefined;
-      R3D.montarEscena(escena, { auto: false, calidad: cal, alAviso: (m) => apunte(`⚠ ${m}`) });
+      const o = { auto: false, calidad: cal, alAviso: (m) => apunte(`⚠ ${m}`) };
+      // Con ?fx2d=1 se usa el camino de integración completo (`iniciarInterfaz`), que es el que
+      // monta portada, sonido y cartas y además deja UN SOLO lienzo aunque fx.js ya estuviera.
+      if (new URLSearchParams(location.search).get("fx2d") === "1") {
+        R3D.iniciarInterfaz(o);
+        apunte(`iniciarInterfaz: lienzos en la arena = ${escena.querySelectorAll("canvas").length}`);
+      } else {
+        R3D.montarEscena(escena, o);
+      }
       $("#chip-ver").textContent = `three.js ${R3D.TRES_REVISION}`;
       R3D.listo().then(() => {
         $("#chip-cal").textContent = `calidad ${R3D.calidad()}`;
@@ -243,6 +253,7 @@
       $("#m-tiron").textContent = r.peorFotogramaMs || "—";
       $("#m-fot").textContent = r.fotogramas;
       $("#chip-cal").textContent = `calidad ${r.calidad}`;
+      $("#memoria").textContent = `${R3D.modelosEnMemoria()} modelos en memoria · ${R3D.pendientesDePrecalentar()} por precalentar`;
     }, 400);
 
     // ── Enemigo ──
@@ -350,6 +361,26 @@
     $("#sel-calidad").onchange = () => { R3D.desmontar(); montar(); };
     $("#b-remontar").onclick = () => { R3D.desmontar(); montar(); };
     $("#b-desmontar").onclick = () => { R3D.desmontar(); apunte("Escena desmontada: contexto WebGL y memoria de GPU liberados"); };
+
+    // Coste de APARICIÓN: lo que se bloquea el hilo al sacar un enemigo nuevo (construir el
+    // modelo + compilar sus sombreadores + dibujarlo la primera vez). Es el número que importa
+    // para los tirones, y se mide sin depender de requestAnimationFrame (que el navegador
+    // estrangula cuando la pestaña o el panel no están a la vista).
+    $("#b-aparicion").onclick = async () => {
+      const claves = [...BESTIARIO.map((b) => b.clave), "jefe"];
+      const costes = [];
+      for (const clave of claves) {
+        const base = NOMBRES[clave];
+        const t0 = performance.now();
+        R3D.mostrarEnemigo({ clave, nombre: base?.nombre ?? "Caudillo", jefe: clave === "jefe" });
+        R3D.medirCoste(1);                       // fuerza el primer dibujo de ese modelo
+        costes.push([clave, performance.now() - t0]);
+        await esperar(90);
+      }
+      costes.sort((a, b) => b[1] - a[1]);
+      const peor = costes[0], media = costes.reduce((a, c) => a + c[1], 0) / costes.length;
+      apunte(`Aparición · peor ${peor[1].toFixed(1)} ms (${peor[0]}) · media ${media.toFixed(1)} ms · ${costes.filter((c) => c[1] > 100).length} por encima de 100 ms`);
+    };
     $("#b-estres").onclick = async () => {
       cancelar = false;
       apunte("Prueba de esfuerzo: 10 s de golpes seguidos");

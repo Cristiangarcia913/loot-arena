@@ -384,6 +384,43 @@ test("el muro queda fuera del radio de la arena", () => {
   assert.ok(RADIO_ARENA > 5, "la arena tiene que dar sitio para que la cámara quepa dentro");
 });
 
+// ───────────────────────── Reutilización de modelos ─────────────────────────
+
+test("cada material guarda su emisión de partida", () => {
+  // De esto depende poder REUTILIZAR un modelo guardado: al volver a sacarlo hay que devolverle
+  // el brillo original, porque el último destello o la última muerte se lo dejaron cambiado.
+  const t = new Taller(T, OPC);
+  const apagado = t.mat(0x884400);
+  const brillante = t.mat(0x884400, { emision: 0xff0000, fuerza: 0.7 });
+  assert.equal(apagado.userData.emisionBase, 0x000000);
+  assert.equal(apagado.userData.fuerzaBase, 0);
+  assert.equal(brillante.userData.emisionBase, 0xff0000);
+  assert.equal(brillante.userData.fuerzaBase, 0.7);
+  t.liberar();
+});
+
+test("toda criatura expone sus materiales para poder restaurarla", () => {
+  for (const b of BESTIARIO) {
+    const c = construirEnemigo(T, b.clave, OPC);
+    assert.ok(c.materiales.length > 0, `${b.clave} no expone materiales`);
+    for (const m of c.materiales) {
+      assert.ok("emisionBase" in m.userData, `${b.clave} tiene un material sin emisión de partida`);
+    }
+    c.taller.liberar();
+  }
+});
+
+test("construir dos veces la misma criatura da modelos independientes", () => {
+  // La caché guarda uno por llave; si compartieran materiales, un destello en uno se vería en el
+  // otro. Esta prueba fija que cada construcción es suya.
+  const a = construirEnemigo(T, "orco", OPC);
+  const b = construirEnemigo(T, "orco", OPC);
+  assert.notEqual(a.raiz, b.raiz);
+  assert.equal(a.materiales.some((m) => b.materiales.includes(m)), false, "comparten materiales");
+  a.taller.liberar();
+  b.taller.liberar();
+});
+
 // ───────────────────────── Memoria de la GPU ─────────────────────────
 
 test("liberar() devuelve TODO lo que creó el taller", () => {

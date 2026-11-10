@@ -24,8 +24,10 @@ import {
   CALIDADES, Medidor, Vigilante, bajarCalidad, consultaReducido, detectarEquipo, duracion, nivelEquipo,
 } from "./rendimiento.js";
 import { claveDeNombre } from "./paleta.js";
+import { BESTIARIO } from "../combat.js";
 import { iconoEstado, iconoIntencion } from "../sprites.js";
 import { sonar } from "../audio.js";
+import { iniciarInterfaz as fxIniciarInterfaz, montarEscena as fxMontarEscena } from "../fx.js";
 
 export { TRES_VERSION, TRES_REVISION, MSG_3D, soporta3d };
 
@@ -47,6 +49,7 @@ const E = {
   t0: 0, tiempo: 0, ultimo: 0, congelado: 0,
   sacudida: { amp: 0, hasta: 0, dur: 1 },
   auto: true, alAviso: null, aviso: "",
+  precalentar: true, colaPrecalentado: [], idle: 0,
   observadores: [],
   promesaListo: null,
 };
@@ -110,8 +113,10 @@ export function montarEscena(raizEl, opciones = {}) {
   E.alAviso = typeof opciones.alAviso === "function" ? opciones.alAviso : null;
   E.maxDpr = Number(opciones.maxDpr) || 0;
   E.calidadPedida = opciones.calidad ?? null;
+  E.precalentar = opciones.precalentar ?? true;
 
   raizEl.classList.add("escena", "escena-montada", "escena-3d");
+  limpiar2D(raizEl);                 // un solo lienzo en la arena: el nuestro
   asegurarLuchador(raizEl, "heroe");
   asegurarLuchador(raizEl, "enemigo");
 
@@ -133,6 +138,52 @@ export function montarEscena(raizEl, opciones = {}) {
     throw e;
   });
   return raizEl;
+}
+
+/**
+ * Arranca TODA la capa visual de `index.html` con la arena en 3D: lo mismo que
+ * `fx.iniciarInterfaz` (portada, botón de sonido, cartas del inventario, pestañas, crónica) pero
+ * montando esta escena en vez de la 2D. Es la función que debe llamar `main.js` cuando el jugador
+ * elige 3D, en lugar de llamar a la de `fx.js`.
+ *
+ * El detalle que importa: `fx.iniciarInterfaz` monta su escena 2D sobre `#escena` y no hay forma
+ * de pedirle que se salte esa parte. Si se llama a las dos, `#escena` acaba con TRES lienzos (los
+ * dos de fx y el nuestro) y dos bucles de dibujo a la vez: el doble de CPU y de batería para nada.
+ * Como `fx` busca la arena con `getElementById("escena")`, aquí se le esconde el id un instante:
+ * entonces hace todo su montaje menos la escena, que es justo lo que queremos. No se toca `fx.js`.
+ *
+ * @param {{auto?:boolean, calidad?:"alto"|"medio"|"bajo", maxDpr?:number, precalentar?:boolean,
+ *          alAviso?:(msg:string, clave:string)=>void}} [opciones] se pasan a `montarEscena`
+ * @returns {HTMLElement|null} la arena, o null si esta página no tiene `#escena`
+ */
+export function iniciarInterfaz(opciones = {}) {
+  const arena = document.getElementById("escena");
+  const idOriginal = arena?.id;
+  if (arena) arena.id = "";
+  try {
+    fxIniciarInterfaz({ ...opciones, auto: false });
+  } finally {
+    if (arena && idOriginal != null) arena.id = idOriginal;
+  }
+  limpiar2D(arena);
+  return arena ? montarEscena(arena, opciones) : null;
+}
+
+/**
+ * Quita de la arena lo que haya dejado la escena 2D, por si `fx.iniciarInterfaz` ya se llamó antes
+ * (por ejemplo desde el propio `index.html` al cargar la página). Deja un solo lienzo: el nuestro.
+ */
+function limpiar2D(arena) {
+  if (!arena) return;
+  // Esto no crea nada: `fx.montarEscena` sale enseguida si ya estaba montado sobre este elemento,
+  // pero sí apaga su modo automático, que espía el DOM para adivinar qué enemigo pintar.
+  try { fxMontarEscena(arena, { auto: false }); } catch { /* fx no montado: mejor todavía */ }
+  for (const c of arena.querySelectorAll("canvas.escena-fondo, canvas.escena-fx")) {
+    // Encogerlo antes de sacarlo: si el bucle de fx sigue vivo, pintará sobre 1×1 píxel.
+    c.width = 1;
+    c.height = 1;
+    c.remove();
+  }
 }
 
 /** Promesa que se cumple cuando la escena 3D ya está dibujando (o falla si no se pudo). */
@@ -252,6 +303,13 @@ async function arrancar() {
     E.lados[q] = { ancla, mov, criatura: null, vivo: true, aura: null, baseX: signo * PUESTO_X };
   }
 
+  // Sitio donde se dibujan los modelos al precalentarlos: dentro del plano de la cámara (si
+  // estuviera fuera, three.js lo descartaría y no subiría nada a la GPU).
+  E.horno = new T.Group();
+  E.horno.name = "horno";
+  E.horno.position.set(0, 0, 0);
+  escena.add(E.horno);
+
   colocarCamara(0);
   ajustarTamano();
   reconstruirHeroe();
@@ -275,10 +333,12 @@ async function arrancar() {
   E.listo = true;
   E.t0 = performance.now();
   E.ultimo = E.t0;
-  // Compila los shaders antes del primer combate: si no, el primer golpe da un tirón de 100 ms.
-  try { render.compile(escena, camara); } catch { /* no en todas las versiones */ }
+  // Compila los sombreadores del decorado antes del primer combate.
+  precompilar();
   bucleArranca();
   aplicarEstadosPendientes();
+  prepararCola();
+  precalentar();
   return true;
 }
 
@@ -378,6 +438,10 @@ function bajarUnEscalon() {
   for (const a of E.esc?.antorchas ?? []) if (a.luz) a.luz.visible = cal.luzPorAntorcha;
   ajustarTamano();
   E.medidor.reiniciar();
+  // Los modelos guardados se hicieron con el detalle de antes: ya no sirven.
+  pararPrecalentado();
+  vaciarAlmacen();
+  if (E.calidad !== "bajo") { prepararCola(); precalentar(); }
   avisar(MSG_3D.equipoFlojo, "calidad-" + E.calidad);
 }
 
@@ -524,12 +588,93 @@ function opcionesTaller() {
   return { segmentos: cal.segmentos, sombras: cal.sombras };
 }
 
-function quitarCriatura(q) {
+// ───────────────────────── Almacén de modelos ─────────────────────────
+//
+// Construir una criatura cuesta decenas de geometrías y materiales, y la PRIMERA vez que se
+// dibuja hay que compilar sus sombreadores. Hacerlo en caliente, justo cuando el enemigo entra en
+// la arena, daba tirones de medio segundo (medido en Chrome: peor fotograma 629 ms en combate y
+// 1029 ms durante el desfile del bestiario).
+//
+// La solución es no construir dos veces lo mismo: cada modelo se guarda por su llave y, cuando esa
+// criatura vuelve a salir, se engancha tal cual. Y para que ni la primera vez se note, los modelos
+// se construyen por adelantado en los huecos libres del navegador (ver `precalentar`).
+
+/** Modelos ya construidos, por llave. Se vacía en `desmontar()`. */
+const almacen = new Map();
+
+/** Cuántos modelos de héroe se guardan: el jugador cambia de equipo a menudo, pero no tanto. */
+const MAX_HEROES = 4;
+
+const llaveEnemigo = (clave, jefe) => `e|${E.calidad}|${String(clave ?? "").toLowerCase()}|${jefe ? 1 : 0}`;
+const llaveHeroe = (equipados, apariencia) =>
+  `h|${E.calidad}|${(equipados ?? []).map((x) => `${x.tipo}:${x.rareza}`).sort().join(",")}|${JSON.stringify(apariencia ?? {})}`;
+
+/** Saca del almacén (o construye y guarda) el modelo de una llave. */
+function delAlmacen(llave, construir) {
+  const guardado = almacen.get(llave);
+  if (guardado) {
+    almacen.delete(llave);          // reinsertar = marcarlo como el más reciente
+    almacen.set(llave, guardado);
+    restaurar(guardado);
+    return guardado;
+  }
+  const cr = construir();
+  cr.llave = llave;
+  almacen.set(llave, cr);
+  podarHeroes();
+  return cr;
+}
+
+/** Los modelos de héroe sí se tiran: las combinaciones de equipo y cosméticos son demasiadas. */
+function podarHeroes() {
+  const heroes = [...almacen.keys()].filter((k) => k.startsWith("h|"));
+  while (heroes.length > MAX_HEROES) {
+    const vieja = heroes.shift();
+    const cr = almacen.get(vieja);
+    almacen.delete(vieja);
+    if (cr && cr !== E.lados.heroe?.criatura) tirar(cr);
+  }
+}
+
+/** Devuelve a la GPU todo lo de un modelo. */
+function tirar(cr) {
+  if (!cr) return;
+  liberarRama(cr.raiz);
+  cr.taller.liberar();
+}
+
+/**
+ * Deja un modelo reutilizado como recién hecho: visible, opaco y sin el brillo que le dejó el
+ * último destello o la última muerte. Sin esto, un enemigo que murió volvería invisible.
+ */
+function restaurar(cr) {
+  cr.raiz.visible = true;
+  cr.raiz.position.set(0, 0, 0);
+  cr.raiz.rotation.set(0, 0, 0);
+  for (const m of cr.materiales) {
+    if (m.userData.opBase != null) m.opacity = m.userData.opBase;
+    if (m.emissive && m.userData.emisionBase != null) {
+      m.emissive.set(m.userData.emisionBase);
+      m.emissiveIntensity = m.userData.fuerzaBase ?? 0;
+    }
+  }
+}
+
+/** Vacía el almacén (al bajar la calidad los modelos ya no sirven: cambia el detalle). */
+function vaciarAlmacen() {
+  const enUso = new Set([E.lados.heroe?.criatura, E.lados.enemigo?.criatura]);
+  for (const cr of almacen.values()) if (!enUso.has(cr)) tirar(cr);
+  almacen.clear();
+}
+
+/** Quita de la arena la criatura de un lado. NO la destruye: queda en el almacén para la próxima. */
+function soltarCriatura(q) {
   const L = E.lados[q];
   if (!L?.criatura) return;
   cortarTweens(q);
-  liberarRama(L.criatura.raiz);
-  L.criatura.taller.liberar();
+  L.mov.remove(L.criatura.raiz);
+  // Si no está en el almacén (quedó suelta al vaciarlo), esa sí se tira.
+  if (!L.criatura.llave || almacen.get(L.criatura.llave) !== L.criatura) tirar(L.criatura);
   L.criatura = null;
   if (L.aura) { liberarRama(L.aura); L.aura = null; }
   L.mov.position.set(0, 0, 0);
@@ -541,29 +686,31 @@ function reconstruirHeroe() {
   if (!E.listo && !E.T) return;
   const L = E.lados.heroe;
   if (!L) return;
-  quitarCriatura("heroe");
-  const cr = construirHeroe(E.T, E.equipados, E.apariencia, opcionesTaller());
+  soltarCriatura("heroe");
+  const cr = delAlmacen(llaveHeroe(E.equipados, E.apariencia),
+    () => construirHeroe(E.T, E.equipados, E.apariencia, opcionesTaller()));
   L.mov.add(cr.raiz);
   L.criatura = cr;
   L.vivo = true;
   pintarAuraEstados("heroe");
   aplicarEncuadre();
-  precompilar();
+  precompilar(cr.raiz);
 }
 
 function aplicarEnemigo() {
   const L = E.lados.enemigo;
   if (!L || !E.T) return;
-  quitarCriatura("enemigo");
+  soltarCriatura("enemigo");
   const e = E.enemigo;
   const f = luchadorEl("enemigo");
   if (!e) { f?.classList.remove("jefe"); return; }
-  const cr = construirEnemigo(E.T, e.clave, { ...opcionesTaller(), jefe: !!e.jefe });
+  const cr = delAlmacen(llaveEnemigo(e.clave, e.jefe),
+    () => construirEnemigo(E.T, e.clave, { ...opcionesTaller(), jefe: !!e.jefe }));
   L.mov.add(cr.raiz);
   L.criatura = cr;
   L.vivo = true;
   if (f) { f.classList.toggle("jefe", !!e.jefe); f.dataset.clave = e.clave; }
-  precompilar();
+  precompilar(cr.raiz);
 
   // Entrada: llega desde el fondo, se planta y levanta polvo.
   if (!reducido()) {
@@ -587,14 +734,111 @@ function aplicarEnemigo() {
 }
 
 /**
- * Compila los sombreadores de lo que se acaba de añadir, ANTES de que se vea.
- * Medido: el primer fotograma de una criatura recién construida costaba ~32 ms (un tirón bien
- * visible) y los siguientes 1,4 ms. Ese coste es compilar sus materiales, y pagarlo aquí lo saca
- * del momento en que el enemigo entra en la arena.
+ * Compila los sombreadores de UNA rama, no de la escena entera.
+ *
+ * `compile(escena, camara)` prepara TODOS los materiales que hay puestos y además es síncrono:
+ * llamarlo en cada aparición de enemigo era, él solo, buena parte de los tirones.
+ * `compileAsync(rama, camara, escena)` hace solo esa rama y aprovecha
+ * `KHR_parallel_shader_compile` para no bloquear el hilo.
+ * @param {object} [rama] nodo de three.js; sin él, la escena entera (solo al arrancar)
  */
-function precompilar() {
-  try { E.render?.compile(E.escena, E.camara); } catch { /* no en todas las versiones */ }
+function precompilar(rama) {
+  const r = E.render;
+  if (!r || !E.escena || !E.camara) return;
+  const objetivo = rama ?? E.escena;
+  try { objetivo.updateMatrixWorld?.(true); } catch { /* da igual */ }
+  try {
+    if (typeof r.compileAsync === "function") {
+      r.compileAsync(objetivo, E.camara, rama ? E.escena : undefined)?.catch?.(() => {});
+    } else {
+      r.compile(objetivo, E.camara, rama ? E.escena : undefined);
+    }
+  } catch { /* no en todas las versiones */ }
 }
+
+/**
+ * Dibuja un modelo UNA vez en un recorte de 1×1 píxel.
+ *
+ * Compilar los sombreadores (`precompilar`) no basta: la primera vez que un modelo se dibuja de
+ * verdad hay que subir sus geometrías a la GPU y terminar de enlazar el programa, y ese coste
+ * caía entero en el fotograma en que aparecía el enemigo. Dibujándolo aquí, con el recorte
+ * reducido a un píxel, se paga lo mismo sin pintar nada ni costar relleno.
+ */
+function calentarEnGpu(cr) {
+  const r = E.render;
+  if (!r || !cr?.raiz) return;
+  const horno = E.horno;
+  if (!horno) return;
+  const tam = new E.T.Vector2();
+  r.getSize(tam);
+  horno.add(cr.raiz);
+  try {
+    r.setScissorTest(true);
+    r.setScissor(0, 0, 1, 1);
+    r.setViewport(0, 0, 1, 1);
+    r.render(E.escena, E.camara);
+  } catch { /* si falla, se pagará al aparecer: no es grave */ } finally {
+    try {
+      r.setScissorTest(false);
+      r.setViewport(0, 0, tam.x, tam.y);
+      r.setScissor(0, 0, tam.x, tam.y);
+    } catch { /* nada */ }
+    horno.remove(cr.raiz);
+  }
+}
+
+// ───────────────────────── Precalentado ─────────────────────────
+
+/**
+ * Construye modelos por adelantado en los huecos libres del navegador, uno por hueco, para que
+ * cuando el enemigo salga ya esté hecho y compilado. Solo se trabaja mientras el navegador dice
+ * que queda tiempo, así que esto no le roba fotogramas al combate.
+ *
+ * En el perfil «bajo» no se hace: en un equipo justo no compensa gastar memoria y batería
+ * adelantando trabajo que quizá no haga falta.
+ */
+function precalentar() {
+  if (!E.listo || !E.precalentar || E.calidad === "bajo") return;
+  if (typeof requestIdleCallback !== "function") return;   // sin huecos: se construye al vuelo
+  if (E.idle || !E.colaPrecalentado.length) return;
+  E.idle = requestIdleCallback((plazo) => {
+    E.idle = 0;
+    if (!E.listo) return;
+    // Una criatura por hueco: así nunca se come un fotograma entero.
+    while (E.colaPrecalentado.length && (plazo.timeRemaining() > 8 || plazo.didTimeout)) {
+      const { clave, jefe } = E.colaPrecalentado.shift();
+      const llave = llaveEnemigo(clave, jefe);
+      if (almacen.has(llave)) continue;
+      try {
+        const cr = construirEnemigo(E.T, clave, { ...opcionesTaller(), jefe });
+        cr.llave = llave;
+        almacen.set(llave, cr);
+        precompilar(cr.raiz);
+        calentarEnGpu(cr);
+      } catch { /* una criatura rara no puede tumbar el precalentado */ }
+      break;
+    }
+    if (E.colaPrecalentado.length) precalentar();
+  }, { timeout: 2000 });
+}
+
+/** Prepara la lista de lo que se va a precalentar: todo el bestiario y el jefe propio. */
+function prepararCola() {
+  E.colaPrecalentado = [...BESTIARIO.map((b) => ({ clave: b.clave, jefe: false })), { clave: "jefe", jefe: true }];
+}
+
+/** Detiene el precalentado (al desmontar o al bajar la calidad). */
+function pararPrecalentado() {
+  if (E.idle && typeof cancelIdleCallback === "function") cancelIdleCallback(E.idle);
+  E.idle = 0;
+  E.colaPrecalentado = [];
+}
+
+/** Cuántos modelos hay guardados en memoria (para la demo y las pruebas). */
+export const modelosEnMemoria = () => almacen.size;
+
+/** Cuántas criaturas quedan por precalentar. */
+export const pendientesDePrecalentar = () => E.colaPrecalentado.length;
 
 /** Anillo de luz a los pies con el color del estado más llamativo. */
 function pintarAuraEstados(q) {
@@ -1121,8 +1365,13 @@ export function desmontar() {
   E.tweens = [];
   for (const s of E.efimeros) s.userData?.liberar?.();
   E.efimeros = [];
-  quitarCriatura("heroe");
-  quitarCriatura("enemigo");
+  pararPrecalentado();
+  for (const q of ["heroe", "enemigo"]) {
+    const cr = E.lados[q]?.criatura;
+    if (cr) { E.lados[q].mov.remove(cr.raiz); E.lados[q].criatura = null; }
+  }
+  for (const cr of almacen.values()) tirar(cr);
+  almacen.clear();
   if (E.esc) { liberarRama(E.esc.raiz); E.esc.taller.liberar(); E.esc = null; }
   E.rotulos?.liberar();
   E.rotulos = null;
@@ -1134,6 +1383,7 @@ export function desmontar() {
     E.render = null;
   }
   E.camara = null;
+  E.horno = null;
   E.lados = { heroe: null, enemigo: null };
   E.lienzo?.remove();
   E.lienzo = null;

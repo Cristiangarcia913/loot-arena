@@ -972,10 +972,10 @@ async function mostrarBotin(r, eleccionPrevia) {
 
 async function iniciar() {
   conectarBoton3D();
-  const en3D = await elegirMotor();
-  // iniciarInterfaz es la capa 2D (portada, botón de sonido, cartas): siempre la del módulo 2D.
-  FX2D.iniciarInterfaz({ auto: false, sin3D: en3D });
-  if (en3D) FX.montarEscena($("#escena"), { auto: false });
+  await elegirMotor();
+  // Los dos motores exportan `iniciarInterfaz`: el 3D monta su escena y limpia la 2D,
+  // así que queda un solo lienzo con cualquiera de los dos.
+  FX.iniciarInterfaz({ auto: false });
   cargarProgreso();
   const empezarGuia = () => { if (TUT.iniciarTutorial({ fx: FX })) R.irA("arena"); };
   if ($("#pantalla-portada")?.hidden) empezarGuia();
