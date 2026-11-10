@@ -10,8 +10,12 @@ import { cargarAbi, crearMinter, crearEmisor, nonceDeFirmante, RUTA_ABI } from '
 import { crearApp } from './app.js';
 import { ABI_RECOMPENSAS } from './abis.js';
 import { IndexadorRanking, guardaSincronizando } from './ranking.js';
-import { INICIO_TEMPORADAS } from './recompensa.js';
+import { INICIO_TEMPORADAS, RegistroDiario } from './recompensa.js';
 import { RegistroGas, TOPE_DIARIO_POR_DEFECTO } from './gas.js';
+import { RegistroTorre } from './torre.js';
+import { EstadoBotin, RegistroPrimerBotin } from './loot.js';
+import { crearAlmacen } from './almacen.js';
+import { conectarRegistros } from './persistencia.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(here, '../.env') }); // las variables del entorno real tienen prioridad
@@ -117,6 +121,33 @@ async function main() {
     return { txHash: tx.hash };
   };
 
+  // ── 1.4: persistencia. Todo lo que debe sobrevivir a un reinicio de Render se
+  // guarda en la capa `almacen.js`. Si el almacén externo no responde, se sigue con
+  // memoria (el servidor NO se cae) y `/health` lo publica. ──
+  const { almacen, estado: estadoAlmacen } = await crearAlmacen(process.env);
+  if (estadoAlmacen.aviso) console.warn(`⚠ [almacen] ${estadoAlmacen.aviso}`);
+
+  const registroDiario = new RegistroDiario();
+  const registroPrimerBotin = new RegistroPrimerBotin();
+  const registroGas = new RegistroGas({ topeDiario: gasTopeDiario });
+  const registroTorre = new RegistroTorre();
+  const estadoBotin = new EstadoBotin();
+
+  const { restaurados, vaciarTodo } = await conectarRegistros({
+    almacen,
+    estado: estadoAlmacen,
+    registros: {
+      diario: registroDiario,
+      primerBotin: registroPrimerBotin,
+      gas: registroGas,
+      torre: registroTorre,
+      botin: estadoBotin,
+      // El índice del ranking solo existe si están sus variables. Al restaurarlo,
+      // GET /ranking sirve desde el primer segundo en vez de dar 503 ~25 s.
+      ranking,
+    },
+  });
+
   const app = crearApp({
     mint: crearMinter(contract, { emisor }),
     ranking,
@@ -133,7 +164,12 @@ async function main() {
     obtenerSaldo: () => provider.getBalance(wallet.address),
     saldoDe: (address) => provider.getBalance(address),
     enviarGas,
-    registroGas: new RegistroGas({ topeDiario: gasTopeDiario }),
+    registroGas,
+    registroDiario,
+    registroPrimerBotin,
+    registroTorre,
+    estadoBotin,
+    estadoAlmacen,
   });
 
   // El guard va delante de la app: mientras no hay índice, GET /ranking responde 503 + Retry-After
@@ -146,12 +182,25 @@ async function main() {
     console.log(`✓ Loot Arena server en http://localhost:${server.address().port}`);
     console.log(`  chainId ${chainId} · contrato ${config.contractAddress}`);
     console.log(`  minter ${wallet.address} (${formatEther(saldo)} ETH) · DROP_CHANCE ${config.dropChance} · CORS ${config.allowedOrigin}`);
-    console.log(`  ranking ${ranking ? `activo desde el bloque ${config.deployBlock}` : 'desactivado'} · recompensas ${pagarRecompensa ? 'activas' : 'desactivadas'}`);
+    const desdeRanking = ranking?.restaurado
+      ? `restaurado en el bloque ${ranking.siguiente - 1}`
+      : `activo desde el bloque ${config.deployBlock}`;
+    console.log(`  ranking ${ranking ? desdeRanking : 'desactivado'} · recompensas ${pagarRecompensa ? 'activas' : 'desactivadas'}`);
     console.log(`  grifo de gas activo (tope diario ${formatEther(gasTopeDiario)} ETH)`);
+    console.log(`  almacén ${estadoAlmacen.tipo}${estadoAlmacen.degradado ? ' (DEGRADADO: se pierde al reiniciar)' : ''}`
+      + ` · restaurado: ${restaurados.length ? restaurados.join(', ') : 'nada (primer arranque)'}`);
     ranking?.iniciar(60_000);
   });
 
-  const cerrar = () => { console.log('Cerrando servidor…'); ranking?.detener(); server.close(() => process.exit(0)); };
+  // Al cerrar se vuelca lo que quede pendiente de guardar antes de salir.
+  const cerrar = () => {
+    console.log('Cerrando servidor…');
+    ranking?.detener();
+    server.close(async () => {
+      try { await vaciarTodo(); } catch { /* ya se ha registrado en el log */ }
+      process.exit(0);
+    });
+  };
   process.on('SIGTERM', cerrar);
   process.on('SIGINT', cerrar);
 }

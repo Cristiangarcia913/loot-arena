@@ -37,9 +37,16 @@ npm start
 | `DEPLOY_BLOCK` | no¹ | Bloque desde el que se indexa el ranking: el del **despliegue de GameItem** (el más antiguo de los tres). |
 | `GAS_TOPE_DIARIO` | no (0.01) | ETH máximo que el grifo de gas (`POST /gas`) reparte al día entre todos los jugadores. |
 | `TEMPORADA_INICIO` | no | Inicio de la temporada 1 del pase (ISO UTC). Por defecto `2026-11-02T00:00:00Z`. Debe coincidir con `web/js/pase.js`. |
+| `ALMACEN` | no² | `memoria` o `upstash`. Dónde se guarda el estado del juego. Ver [Persistencia](#persistencia). |
+| `UPSTASH_REDIS_REST_URL` | no² | URL REST de la base de Upstash (`https://….upstash.io`). |
+| `UPSTASH_REDIS_REST_TOKEN` | no² | Token REST **Standard** de Upstash. **Es un secreto: nunca a git.** |
+| `ALMACEN_PREFIJO` | no (`loot-arena:`) | Prefijo de las claves. Cámbialo para que dos entornos compartan una base gratuita. |
 
 ¹ Sin `MERCADO_ADDRESS` + `RECOMPENSAS_ADDRESS` + `DEPLOY_BLOCK`, `GET /ranking*` responde 503; sin `RECOMPENSAS_ADDRESS`,
 `POST /recompensa` responde 503. En ambos casos el servidor arranca (solo avisa con `⚠`) y `/ganar` funciona igual.
+
+² Si faltan, el servidor **arranca igual** pero guarda el estado solo en memoria y lo pierde al reiniciar.
+No hay ningún caso en el que el almacén impida arrancar. Ver [Persistencia](#persistencia).
 
 Al arrancar, el servidor comprueba, en este orden, y **sale con código 1 y un mensaje claro** si algo falla:
 1. variables presentes y con formato válido;
@@ -63,14 +70,150 @@ curl -X POST localhost:3000/ganar -H "content-type: application/json" \
      -d '{"address":"0x70997970C51812dc3A010C7d01b50e0d17dc79C8","enemyLevel":2,"jefe":true}'
 ```
 
+## Persistencia
+
+### El problema
+
+El plan gratuito de Render **no permite discos persistentes** y **duerme el servicio** tras ~15 min sin tráfico.
+Hasta la 1.3, todo el estado del juego vivía en `Map`/`Set` dentro del proceso, así que cada reinicio (varios al día)
+borraba:
+
+| Qué se perdía | Consecuencia |
+|---|---|
+| Racha y reclamo diario | La racha volvía a día 1 y se podía cobrar la diaria **dos veces** el mismo día |
+| Primer botín por dirección | Cada jugador recibía otro objeto Raro de regalo tras cada reinicio |
+| Tope diario del grifo de gas | `GAS_TOPE_DIARIO` se reiniciaba: el grifo podía repartir mucho más de lo previsto en un día |
+| Récords de la torre | `GET /torre/ranking` se quedaba vacío |
+| Pity del botín | El contador de "drops sin Legendario" volvía a cero |
+| Índice del ranking on-chain | Había que reindexar desde `DEPLOY_BLOCK`: `GET /ranking` daba 503 unos 25 s en cada arranque |
+
+### La solución (1.4)
+
+Una **capa de almacenamiento intercambiable** (`src/almacen.js`) con tres operaciones (`leer`, `escribir`, `borrar`
+por clave) y dos implementaciones: `memoria` (la de siempre) y `upstash`.
+
+Se eligió **Upstash Redis por su API REST**. Comparación de las opciones gratuitas y sin tarjeta (noviembre de 2026):
+
+| Opción | ¿Gratis sin tarjeta? | Límites del plan gratuito | Por qué sí / no |
+|---|---|---|---|
+| **Disco persistente de Render** | ❌ | Solo en planes de pago (desde $7/mes + $0,25/GB) | **Descartado:** la documentación de Render dice que los servicios *free* no pueden tener disco |
+| **Upstash Redis (REST)** | ✅ sin tarjeta | 250 MB, 500 000 comandos/mes, 10 GB de tráfico, 1 base | **Elegido:** se habla por HTTPS con `fetch`, así que **no añade ninguna dependencia** al `package.json` |
+| Neon (Postgres) | ✅ sin tarjeta | 100 CU-hora/mes, ~0,5 GB por proyecto | Habría que añadir el driver `pg` y escribir SQL para guardar cinco claves |
+| Turso / libSQL | ✅ | ~5 GB, 500 M lecturas/mes | Límites generosos, pero archiva bases inactivas a los 10 días y requiere `@libsql/client` |
+| Supabase | ⚠️ no confirmado | 500 MB, 2 proyectos | **Descartado:** pausa los proyectos gratuitos a la semana de inactividad, justo nuestro caso |
+| Un fichero en el propio servicio | ✅ | — | **Inútil:** el disco de un servicio *free* se borra en cada redespliegue o reinicio |
+
+Enlaces: [planes gratuitos de Render](https://render.com/docs/free) ·
+[precios de Upstash](https://upstash.com/docs/redis/overall/pricing) ·
+[API REST de Upstash](https://upstash.com/docs/redis/features/restapi) ·
+[FAQ de Upstash](https://upstash.com/docs/redis/help/faq)
+
+> Upstash **archiva** una base gratuita tras un mínimo de 30 días sin usarse, avisando por correo antes, y guarda una
+> copia para poder restaurarla. Con el monitor de UptimeRobot visitando el servidor cada 5 minutos esto no debería pasar.
+
+### Cómo se guarda (y por qué no ralentiza el juego)
+
+**Caché con escritura retrasada** (`src/persistencia.js`):
+
+1. Al arrancar se lee **una vez** cada clave y se vuelca en el registro correspondiente.
+2. Durante la partida, leer y escribir sigue siendo **síncrono y en memoria**: ninguna ruta (`/ganar`, `/gas`,
+   `/torre`, `/recompensa`) espera al almacén, así que una caída de Upstash **no añade latencia ni devuelve errores**.
+3. Cada cambio programa un guardado a los 1,5 s. Muchos cambios seguidos = **una sola escritura**.
+
+Por eso el consumo cabe de sobra en los 500 000 comandos al mes: cinco lecturas al arrancar y unos pocos cientos
+de escrituras al día. Lo único que se puede perder son los cambios de los últimos ~1,5 s antes de un corte brusco
+(al cerrar ordenadamente, `SIGTERM`/`SIGINT`, se vuelca lo pendiente antes de salir).
+
+Claves que se guardan: `diario`, `primer-botin`, `gas`, `torre`, `botin` y `ranking`
+(con el prefijo `ALMACEN_PREFIJO`).
+
+### El caso especial del ranking
+
+El índice de `GET /ranking` se guarda con los mismos mecanismos, pero tiene tres particularidades:
+
+- **Se guardan también los ids de los logs ya contados** (`vistos`). Cada refresco vuelve a leer los últimos
+  50 bloques por si el nodo iba desfasado; sin esos ids, el primer refresco tras un reinicio **contaría dos veces**
+  los eventos de esa ventana. Hay un test que lo demuestra.
+- **Se guarda el despliegue al que pertenece** (`DEPLOY_BLOCK` y las tres direcciones). Si cambias cualquiera de
+  ellos, la instantánea se descarta con un aviso y el servidor reindexa desde `DEPLOY_BLOCK`, como antes de la 1.4.
+  Lo mismo si subes la versión del formato.
+- **No se guarda en cada refresco.** Solo cuando hay eventos nuevos o cuando han pasado 500 bloques (~100 min en
+  Sepolia). Guardar cada minuto gastaría ~45 000 comandos al mes para nada; así un reinicio solo tiene que releer
+  un tramo, que es **una sola llamada a `getLogs`**.
+
+Al restaurar, `actualizado` conserva la fecha real del último refresco (la web ya enseña lo vieja que es) y
+`sincronizado` se pone a `false` hasta que el primer refresco comprueba la cabeza de la cadena.
+
+> **Lo que sigue sin cubrir:** una reorganización de la cadena más profunda que la ventana de 50 bloques dejaría
+> contadores mal, igual que ya pasaba con el índice en memoria. En Sepolia y con el margen de 3 bloques no es
+> un riesgo práctico. Si alguna vez hiciera falta, basta con borrar la clave `ranking` del almacén para forzar
+> una reindexación completa.
+
+### Qué tiene que hacer el usuario en Render
+
+**1) Crear la base en Upstash** (gratis, sin tarjeta):
+1. Entra en <https://console.upstash.com> y regístrate (sirve la cuenta de GitHub o Google).
+2. **Create Database**. Nombre: `loot-arena`. Región: la más cercana a Render (el servicio está en `frankfurt`,
+   así que vale `eu-west-1`). Tipo: **Free**.
+3. En la base creada, pestaña **REST** del apartado *Connect*. Copia los dos valores:
+   `UPSTASH_REDIS_REST_URL` y `UPSTASH_REDIS_REST_TOKEN` (el **Standard**, no el *Read Only*).
+
+> **No pongas tarjeta.** Según la documentación de Upstash, añadir una tarjeta convierte la base al plan
+> *pay-as-you-go* y pierde la cuota gratuita.
+
+**2) Añadir las variables en Render:**
+1. Panel de Render → el servicio `loot-arena-cg913` → **Environment**.
+2. **Add Environment Variable**, tres veces:
+   - `ALMACEN` = `upstash`
+   - `UPSTASH_REDIS_REST_URL` = la URL copiada
+   - `UPSTASH_REDIS_REST_TOKEN` = el token copiado
+3. **Save Changes**. Render redespliega solo.
+
+**3) Comprobar que ha funcionado:**
+```bash
+curl https://<tu-servidor>/health
+```
+Debe aparecer `"almacen": { "tipo": "upstash", "persistente": true, "degradado": false }`.
+Si sale `"degradado": true`, el campo `aviso` dice exactamente qué falta.
+
+### Qué pasa si faltan las variables
+
+**El servidor arranca igual, siempre.** El almacén nunca es motivo de error de arranque:
+
+| Situación | Qué hace el servidor | Qué dice `/health` |
+|---|---|---|
+| Sin ninguna de las variables | Usa memoria, como hasta la 1.3 | `{ "tipo": "memoria", "persistente": false, "degradado": false }` |
+| `ALMACEN=upstash` sin URL o sin token | Usa memoria y avisa con `⚠` en los logs | `degradado: true` y `aviso` nombrando la variable que falta |
+| Token mal copiado | Usa memoria | `degradado: true`, `aviso: "Upstash rechazó el token…"` |
+| Upstash no responde al arrancar | Usa memoria | `degradado: true`, `aviso: "Upstash no está accesible…"` |
+| `ALMACEN` con un valor inventado | Usa memoria | `degradado: true` y la lista de tipos válidos |
+| Upstash se cae con el servidor en marcha | Las rutas siguen dando 200; el cambio queda pendiente y se reintenta | `escriturasFallidas` y `ultimoError` (se limpian al primer éxito) |
+| Datos corruptos en una clave | Ignora esa clave y arranca con el registro vacío | `⚠` en los logs |
+
+En desarrollo local no hace falta tocar nada: sin variables se usa memoria.
+Para probar contra Upstash de verdad, rellena `.env` como indica `.env.example`.
+
 ## API
 
 ### `GET /health`
 ```json
-{ "ok": true, "contract": "0x...", "chainId": 11155111, "saldoOperador": "0.0215", "alertaSaldoBajo": false }
+{ "ok": true, "contract": "0x...", "chainId": 11155111, "saldoOperador": "0.0215", "alertaSaldoBajo": false,
+  "almacen": { "tipo": "upstash", "persistente": true, "degradado": false } }
 ```
 `saldoOperador` es el ETH de la wallet del servidor (caché de 60 s). `alertaSaldoBajo` es `true` si baja de 0,002 ETH.
 Si el RPC falla al leerlo, ambos campos van a `null` y `/health` sigue dando 200.
+
+`almacen` (1.4) dice dónde se guarda el estado del juego, sin tener que mirar los logs de Render:
+
+| Campo | Significado |
+|---|---|
+| `tipo` | `upstash` o `memoria`: el almacén que se está usando **de verdad**. |
+| `persistente` | `false` cuando es `memoria`: el estado se perderá al reiniciar. |
+| `degradado` | `true` si se pidió un almacén externo y hubo que caer a memoria. **Es la señal de alarma.** |
+| `aviso` | Solo si `degradado`: por qué (falta una variable, token rechazado, no responde…). |
+| `escriturasFallidas`, `ultimoError` | Solo si alguna escritura ha fallado. `ultimoError` se borra en cuanto una va bien. |
+
+El token nunca aparece en la respuesta.
 
 ### `POST /ganar`
 Body: `{ "address": "0x...", "enemyLevel": 1, "jefe": false }`
@@ -103,8 +246,9 @@ La respuesta añade `"primerBotin": true`:
   "item": { "nombre": "Calzas Ancestrales de los Ecos", "tipo": "Botas", "rareza": 1, "ataque": 4, "defensa": 11 } }
 ```
 Si el mint falla, no cuenta: la siguiente victoria vuelve a ser el primer botín.
-> **Límite: en memoria.** El servidor no sabe si una dirección ganó antes de arrancar: tras cada reinicio (Render se duerme
-> en el plan gratis) la siguiente victoria de **cada** dirección vuelve a dar un Raro. Es asumible en red de pruebas.
+> **Persistente desde la 1.4.** Con `ALMACEN=upstash` el servidor recuerda quién ya cobró su primer botín, así que
+> deja de regalar un Raro a todo el mundo tras cada reinicio. Sin almacén externo sigue pasando lo de antes
+> (asumible en red de pruebas). Ver [Persistencia](#persistencia).
 
 ### `GET /ranking` (1.2)
 Salón de la fama on-chain: top 20 por categoría, leído de los eventos de los contratos (no se puede falsear).
@@ -134,6 +278,9 @@ Salón de la fama on-chain: top 20 por categoría, leído de los eventos de los 
 - `Cache-Control: public, max-age=30`. Límite: 60 peticiones/min por IP.
 - 503 `{ "error": "Ranking no disponible: el servidor no tiene configurado DEPLOY_BLOCK" }` si faltan variables;
   503 `{ "error": "El ranking se está generando, vuelve en unos segundos" }` + `Retry-After: 30` hasta el primer refresco.
+- **Desde la 1.4**, con `ALMACEN=upstash` ese 503 de arranque casi desaparece: el índice guardado se restaura y
+  `GET /ranking` responde 200 desde el primer segundo (con `sincronizado: false` y el `actualizado` de antes del
+  reinicio, hasta que el primer refresco pone al día). La web no necesita cambiar nada: ya trata los dos casos.
 
 ### `GET /ranking/:address` (1.2)
 ```json
@@ -220,13 +367,14 @@ Tabla (la misma que `Recompensas.tablaDiaria` del contrato), por día del ciclo:
 - `proximoEn`: segundos hasta las 00:00 UTC si `puedeReclamar` es `false`; `0` si no.
 - 400 con dirección inválida, 503 si no hay `RECOMPENSAS_ADDRESS`.
 
-> **Límite: la racha vive en memoria.** `{racha, ultimoDia}` por dirección se guarda en el servidor. En el plan gratis de
-> Render el servicio se reinicia (y se duerme), así que **tras un reinicio el servidor olvida la racha y los reclamos
-> de hoy**: el siguiente reclamo cuenta como día 1 y, si el jugador ya había reclamado ese día, vuelve a cobrarlo
-> (hasta el tope on-chain de 500 ORO por jugador y día, que no cubre dos días seguidos a la vez).
+> **Persistente desde la 1.4.** `{racha, ultimoDia}` por dirección se guarda en la capa `almacen.js`: con
+> `ALMACEN=upstash` la racha y el "ya has reclamado hoy" **sobreviven** a los reinicios y a que Render duerma el
+> servicio. **Sin almacén externo** vuelve el comportamiento de la 1.3: tras un reinicio la racha cuenta como día 1 y
+> un jugador que ya había reclamado puede cobrarlo otra vez (hasta el tope on-chain de 500 ORO por jugador y día).
 > No se puede reconstruir desde la cadena: `Recompensas.estadoDiario` solo registra los reclamos hechos por el propio
 > jugador con `reclamarDiario`, no los pagados por el servidor, así que no es fuente de verdad y no se usa.
-> Los topes on-chain (500 ORO por jugador y día, 5000 globales) siguen protegiendo el gasto.
+> Los topes on-chain (500 ORO por jugador y día, 5000 globales) siguen protegiendo el gasto en los dos casos.
+> Ver [Persistencia](#persistencia).
 
 > **Confianza en el cliente (testnet).** El servidor no puede comprobar que el jugador haya llegado al nivel 10 del pase
 > o completado sus misiones (eso vive en el `localStorage` de la web): solo limita cuánto y cuántas veces paga.
@@ -268,10 +416,11 @@ Reglas:
 
 **Límites:** `POST /gas` 10/hora por IP y 1 cada 10 s por dirección; `GET /gas/:address` 60/minuto por IP.
 
-> **Limitaciones.** El registro (quién pidió hoy, total repartido) vive **en memoria**: tras un reinicio se olvida y
-> una dirección podría pedir dos veces el mismo día (como mucho, otra vez el tope diario). Una persona con muchas
-> direcciones puede pedir para cada una: lo acotan el tope global y la reserva de 0,002 ETH. Vigila `/health`
-> (`alertaSaldoBajo`) y recarga la wallet del servidor con un faucet.
+> **Limitaciones.** El registro (quién pidió hoy, total repartido) **se persiste desde la 1.4**: con `ALMACEN=upstash`
+> un reinicio ya no vacía el tope diario ni deja pedir dos veces el mismo día. Sin almacén externo sí pasa, y el grifo
+> puede repartir varias veces `GAS_TOPE_DIARIO` en un mismo día. Una persona con muchas direcciones puede pedir para
+> cada una: lo acotan el tope global y la reserva de 0,002 ETH. Vigila `/health` (`alertaSaldoBajo`) y recarga la wallet
+> del servidor con un faucet. Ver [Persistencia](#persistencia).
 
 ### Torre infinita: `POST /torre` y `GET /torre/ranking` (1.3)
 
@@ -294,9 +443,11 @@ Reglas:
 
 **Límites:** `POST /torre` 300/hora por IP y 1 cada 2 s por dirección; `GET /torre/ranking` 60/minuto por IP.
 
-> **Confianza en el cliente y memoria.** El servidor no rejuega los combates: solo exige subir de piso en piso.
-> Es red de pruebas, así que basta. Los récords viven en memoria (hasta 50 000 direcciones) y **se pierden al
-> reiniciar** el servidor.
+> **Confianza en el cliente.** El servidor no rejuega los combates: solo exige subir de piso en piso.
+> Es red de pruebas, así que basta. Los récords (hasta 50 000 direcciones) **se persisten desde la 1.4**: con
+> `ALMACEN=upstash` el ranking de la torre sobrevive a los reinicios, y la defensa de "piso ≤ récord + 1" sigue
+> contando desde el récord recuperado. Sin almacén externo se pierden al reiniciar.
+> Ver [Persistencia](#persistencia).
 
 ## Cómo funciona
 
@@ -307,6 +458,10 @@ src/
   loot.js       lógica PURA de drops (RNG inyectable)
   ranking.js    indexador de eventos on-chain para GET /ranking (1.2)
   recompensa.js motivos, cantidades, periodos y registro de reclamos de POST /recompensa (1.2)
+  gas.js        grifo de ETH de prueba: reglas del tope diario y rutas /gas (1.3)
+  torre.js      torre infinita: récords, ranking y rutas /torre (1.3)
+  almacen.js    capa de almacenamiento intercambiable: memoria y Upstash Redis (1.4)
+  persistencia.js  carga al arrancar y guardado agrupado de los registros (1.4)
   abis.js       ABIs mínimos human-readable de GameItem, Mercado y Recompensas (1.2)
   chain.js      ABI, extracción del tokenId del evento ItemMinted, emisor de tx con cola y nonce, minter
   queue.js      cola en serie
@@ -343,8 +498,8 @@ Los tests comprueban estas tablas con 100 000 tiradas (±1 pp).
 **Pity** (protección contra la mala suerte, por dirección): tras **15 drops seguidos sin Legendario**, el
 siguiente tiene al menos un 50 % de Legendario, y sube 10 puntos por cada drop más (al 21.º es seguro).
 Se reinicia al recibir un Legendario. Solo cuentan los drops **acuñados** (si el mint falla, no cuenta).
-Con pity, la tasa efectiva de Legendario en nivel 1 pasa del 5 % a ≈ 8,7 %. Vive en memoria (máx. 10 000
-direcciones): un reinicio de Render lo pone a cero.
+Con pity, la tasa efectiva de Legendario en nivel 1 pasa del 5 % a ≈ 8,7 %. Acotado a 10 000 direcciones y
+**persistido desde la 1.4**: con `ALMACEN=upstash` un reinicio de Render ya no pone el contador a cero.
 
 **Stats.** Tipo uniforme entre Espada, Escudo, Casco, Armadura y Botas. Stat principal (Espada → ataque;
 resto → defensa) dentro de un rango absoluto por rareza, desplazado según el nivel (un jefe cuenta como +2 niveles):
@@ -371,7 +526,8 @@ La base pertenece siempre al tipo del NFT (una *Cimitarra* es `tipo: "Espada"`),
 `IndexadorRanking` lee con `getLogs` los eventos `ItemMinted` (GameItem), `ItemVendido` (Mercado),
 `DiarioReclamado` y `Recompensado` (Recompensas) desde `DEPLOY_BLOCK`, en una sola consulta por tramo
 (las tres direcciones y los cuatro topics juntos). Arranca con el servidor y se refresca cada 60 s de forma
-incremental; todo vive en memoria y tras un reinicio se reconstruye desde `DEPLOY_BLOCK`.
+incremental. **Desde la 1.4 el índice se persiste**: tras un reinicio se restaura y solo se leen los bloques
+nuevos, en vez de reindexar desde `DEPLOY_BLOCK`. Ver [Persistencia](#el-caso-especial-del-ranking).
 
 Tolerancia a RPC públicos (publicnode a veces va desfasado o limita rangos):
 - Tramos de 10 000 bloques; si `getLogs` falla, el tramo se parte por la mitad (mín. 50) y se reintenta.
@@ -413,11 +569,21 @@ extracción del `tokenId` de un log `ItemMinted` codificado de verdad, serializa
 1.3: grifo de gas con provider simulado (umbral, 1 por día UTC, tope global, reserva de 0,002 ETH, fallo y reintento,
 peticiones simultáneas, `GET /gas/:address`, `GAS_TOPE_DIARIO`), nonces en serie entre gas y mints con el mismo emisor,
 primer botín Raro (también tras un mint fallido) y torre (subida de piso en piso, ranking, límites, validación).
+1.4: capa de almacenamiento (misma interfaz en memoria y en Upstash contra un `fetch` falso que imita el API REST:
+prefijos, Bearer, timeout, token rechazado, error en el cuerpo con HTTP 200, valor no-JSON), elección según el entorno,
+**arranque degradado** (sin variables, token mal copiado, Upstash caído → memoria y `/health` lo publica),
+ida y vuelta de los cinco registros, `restaurar()` frente a datos corruptos, guardado agrupado (50 cambios = 1 escritura),
+reintento tras un fallo de escritura, caída del almacén en caliente sin afectar a las rutas, y un reinicio completo
+comprobado a través de las rutas HTTP. Persistencia del ranking: ida y vuelta del índice, **el solape no duplica
+eventos** (con el contraejemplo de qué pasaría sin guardar los ids de log), solo se releen los bloques nuevos,
+rechazo de instantáneas de otro `DEPLOY_BLOCK`/contrato/versión, cuándo se marca para guardar, tope de tamaño,
+y `GET /ranking` respondiendo 200 nada más reiniciar en vez del 503 de "sincronizando".
 
 ## Despliegue
 
 > El servidor guarda la clave del owner: **despliégalo tú desde tu cuenta** y define los secretos solo en el panel del proveedor.
-> Los límites viven en memoria: usa **una sola instancia**.
+> Los límites de peticiones viven en memoria: usa **una sola instancia**. El estado del juego sí se persiste
+> (ver [Persistencia](#persistencia)).
 
 ### Render (recomendado)
 
@@ -434,7 +600,9 @@ Pasos:
    `git add -n server` solo debe mostrar `.env.example`.
 2. En Render: **New → Blueprint**, elige el repo y en *Blueprint Path* escribe `server/render.yaml`.
 3. Render pide los valores marcados `sync: false`: `RPC_URL`, `PRIVATE_KEY`, `CONTRACT_ADDRESS`, `ALLOWED_ORIGIN`
-   (la URL de la web, p. ej. `https://usuario.github.io`). Se guardan cifrados en Render, nunca en el repo.
+   (la URL de la web, p. ej. `https://usuario.github.io`) y, desde la 1.4, `UPSTASH_REDIS_REST_URL` y
+   `UPSTASH_REDIS_REST_TOKEN` (ver [Persistencia](#persistencia); si se dejan en blanco el servicio arranca
+   igual, en modo memoria). Se guardan cifrados en Render, nunca en el repo.
 4. **Apply**. Cuando termine, abre `https://<servicio>.onrender.com/health`.
 
 Con `rootDir: server`, Render solo redepliega cuando cambian archivos de `server/`. Build: `npm ci --omit=dev`

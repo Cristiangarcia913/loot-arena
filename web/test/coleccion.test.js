@@ -2,13 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as K from "../js/coleccion.js";
 import { CATALOGO } from "../js/economy.js";
+import { BESTIARIO } from "../js/combat.js";
 
 const memoria = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)) }; };
 
 test("colección vacía: 0 %", () => {
   const r = K.resumenColeccion(null, CATALOGO);
-  assert.equal(r.bestiario.entradas.length, 10);
-  assert.equal(r.bestiario.total, 20);
+  assert.equal(r.bestiario.entradas.length, BESTIARIO.length);
+  assert.equal(r.bestiario.total, BESTIARIO.length * 2);
   assert.equal(r.objetos.total, 15);
   assert.equal(r.cosmeticos.total, 13);
   assert.equal(r.total.pct, 0);
@@ -42,7 +43,7 @@ test("álbum de objetos (tipo × rareza) y cosméticos (sin el consumible)", () 
   assert.equal(res.objetos.hechas, 2);
   assert.equal(res.cosmeticos.hechas, 3);
   assert.equal(res.total.hechas, 5);
-  assert.ok(Math.abs(res.total.pct - 5 / 48) < 1e-9);
+  assert.ok(Math.abs(res.total.pct - 5 / (BESTIARIO.length * 2 + 15 + 13)) < 1e-9);
 });
 
 test("persistencia y saneo", () => {

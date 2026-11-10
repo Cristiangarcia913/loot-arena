@@ -158,7 +158,7 @@ export function statsHeroe(p, equipados = []) {
   return {
     vidaMax, vida: vidaMax, ataque, defensa, nivel,
     critico: probCritico(bonusAtaque), esquiva: probEsquiva(defensa),
-    bonusAtaque, bonusDefensa, habilidades: idsHabilidades(equipados),
+    bonusAtaque, bonusDefensa, habilidades: idsHabilidades(equipados, nivel),
   };
 }
 

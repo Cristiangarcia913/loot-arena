@@ -6,7 +6,10 @@ import * as E from "./equipment.js";
 import * as P from "./progression.js";
 import * as Sk from "./skills.js";
 import * as W from "./wallet.js";
-import * as FX from "./fx.js";
+import * as FX2D from "./fx.js";
+// El motor de dibujo se elige al arrancar: 2D siempre disponible, 3D si el equipo lo soporta
+// y el jugador lo prefiere. `escena3d.js` reexporta todo lo de fx.js, así que es intercambiable.
+let FX = FX2D;
 import * as T from "./tienda.js";
 import * as R from "./router.js";
 import * as ENG from "./enganche.js";
@@ -47,6 +50,42 @@ const S = {
   transfiriendo: new Set(),
   links: { tx: () => null, token: () => null },
 };
+
+const CLAVE_3D = "lootarena:3d";
+const prefiere3D = () => { try { return localStorage.getItem(CLAVE_3D) === "1"; } catch { return false; } };
+
+/** Carga el motor 3D si el jugador lo pide y el equipo puede con él. Devuelve true si quedó activo. */
+async function elegirMotor() {
+  if (!prefiere3D()) return false;
+  try {
+    const R3D = await import("./render3d/escena3d.js");
+    if (!R3D.soporta3d?.()) { toast("Tu navegador no puede con el 3D: sigues en 2D.", "info", 6000); return false; }
+    FX = R3D;
+    return true;
+  } catch (e) {
+    console.warn("[3d] no se pudo cargar:", e);
+    toast("No se pudo cargar la arena en 3D: sigues en 2D.", "info", 6000);
+    return false;
+  }
+}
+
+/** Botón de la cabecera: alterna 2D/3D y recarga, porque el motor se elige al arrancar. */
+function conectarBoton3D() {
+  const b = $("#btn-3d");
+  if (!b) return;
+  const pintar = () => {
+    const on = prefiere3D();
+    b.setAttribute("aria-pressed", String(on));
+    b.textContent = on ? "🧊" : "🖼️";
+    b.title = on ? "Arena en 3D (pulsa para volver al 2D)" : "Arena en 2D (pulsa para probar el 3D)";
+  };
+  pintar();
+  b.addEventListener("click", () => {
+    try { localStorage.setItem(CLAVE_3D, prefiere3D() ? "0" : "1"); } catch { /* sin storage */ }
+    pintar();
+    location.reload();
+  });
+}
 
 const redCorrecta = () => S.chainId != null && S.chainId === S.cfg?.chainId;
 const contratoDesplegado = () => S.cfg && S.cfg.address.toLowerCase() !== ZERO_ADDRESS;
@@ -932,7 +971,11 @@ async function mostrarBotin(r, eleccionPrevia) {
 // ───────────────────────── Arranque ─────────────────────────
 
 async function iniciar() {
-  FX.iniciarInterfaz({ auto: false });
+  conectarBoton3D();
+  const en3D = await elegirMotor();
+  // iniciarInterfaz es la capa 2D (portada, botón de sonido, cartas): siempre la del módulo 2D.
+  FX2D.iniciarInterfaz({ auto: false, sin3D: en3D });
+  if (en3D) FX.montarEscena($("#escena"), { auto: false });
   cargarProgreso();
   const empezarGuia = () => { if (TUT.iniciarTutorial({ fx: FX })) R.irA("arena"); };
   if ($("#pantalla-portada")?.hidden) empezarGuia();

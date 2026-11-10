@@ -68,7 +68,8 @@ test("generarEnemigo escala con el nivel, trae clave y elige criatura del bestia
 });
 
 test("todas las criaturas tienen patrón, rasgo y definitiva; sus movimientos existen", () => {
-  assert.equal(C.BESTIARIO.length, 10);
+  // Sin número fijo: el bestiario crece con el contenido nuevo.
+  assert.ok(C.BESTIARIO.length >= 20, `criaturas: ${C.BESTIARIO.length}`);
   for (const b of C.BESTIARIO) {
     assert.ok(b.clave && b.rasgo && b.definitiva && b.titulo && b.patron.length);
     for (const p of b.patron) assert.ok(C.MOVIMIENTOS[p.mov], p.mov);

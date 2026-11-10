@@ -1,9 +1,12 @@
-// Torre infinita (1.3): mejor piso por dirección y ranking top 20, en memoria.
+// Torre infinita (1.3): mejor piso por dirección y ranking top 20.
 //
 // Confianza en el cliente (red de pruebas): el servidor no rejuega los combates.
 // La única defensa es que el récord sube como mucho de uno en uno: se acepta
 // `piso <= récord + 1`. Por eso la web debe enviar POST /torre al superar CADA
-// piso (no solo al caer). Se pierde al reiniciar el servidor.
+// piso (no solo al caer).
+//
+// 1.4: los récords se persisten con la capa `almacen.js`, así que el ranking de la
+// torre ya no se vacía cada vez que Render reinicia o duerme el servicio.
 import express from 'express';
 import { RateLimiter } from './rateLimit.js';
 
@@ -18,10 +21,32 @@ export const LIMITE_TORRE_RANKING_IP = { windowMs: 60_000, max: 60 };   // GET /
 const enteroEntre = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
 
 export class RegistroTorre {
-  constructor({ maxDirecciones = 50_000, now = Date.now } = {}) {
+  constructor({ maxDirecciones = 50_000, now = Date.now, alCambiar = null } = {}) {
     this.maxDirecciones = maxDirecciones;
     this.now = now;
     this.records = new Map(); // address -> { piso, turnos, t }
+    /** Lo pone `persistencia.conectar`; se llama tras cada cambio. */
+    this.alCambiar = alCambiar;
+  }
+
+  /** Estado completo, serializable a JSON (para el almacén). */
+  instantanea() {
+    return { v: 1, records: [...this.records].map(([address, { piso, turnos, t }]) => [address, piso, turnos, t]) };
+  }
+
+  /** Vuelca una instantánea. Ignora entradas con forma rara en vez de fallar. */
+  restaurar(datos) {
+    if (!datos || !Array.isArray(datos.records)) return;
+    this.records.clear();
+    for (const fila of datos.records) {
+      if (!Array.isArray(fila) || fila.length < 4) continue;
+      const [address, piso, turnos, t] = fila;
+      if (typeof address !== 'string') continue;
+      if (!enteroEntre(piso, 0, PISO_MAX) || !enteroEntre(turnos, 0, TURNOS_MAX)) continue;
+      if (!Number.isFinite(t)) continue;
+      if (this.records.size >= this.maxDirecciones) break;
+      this.records.set(address, { piso, turnos, t });
+    }
   }
 
   record(address) { return this.records.get(address)?.piso ?? 0; }
@@ -43,6 +68,7 @@ export class RegistroTorre {
       this.records.delete(peor[0]);
     }
     this.records.set(address, { piso, turnos, t: this.now() });
+    this.alCambiar?.();
     return { ok: true, record: piso, nuevoRecord: piso > actual };
   }
 

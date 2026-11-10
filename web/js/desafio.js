@@ -6,7 +6,7 @@ import { BESTIARIO, crearCombate, generarEnemigoDe, mulberry32 } from "./combat.
 import { diaUTC, msHastaManana, rngSembrado, hash32, leerJSON, escribirJSON, claveJugador } from "./misiones.js";
 
 const M = (id, icono, nombre, descripcion, efecto, extra = {}) => Object.freeze({ id, icono, nombre, descripcion, ...efecto, ...extra });
-const CON_ESTADOS = ["rata", "esqueleto", "arana", "hechicero", "dragon"];
+const CON_ESTADOS = ["rata", "limo", "esqueleto", "arana", "arpia", "basilisco", "hechicero", "dragon"];
 
 /**
  * Modificadores posibles. `heroe(h)`/`enemigo(e)` devuelven copias modificadas.

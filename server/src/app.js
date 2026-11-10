@@ -64,7 +64,8 @@ export function validarJefe(valor) {
  *   saldoDe?: ((address: string) => Promise<bigint>) | null,
  *   enviarGas?: ((to: string, wei: bigint) => Promise<{ txHash: string }>) | null,
  *   registroGas?: RegistroGas, gasNoDisponible?: string,
- *   registroTorre?: RegistroTorre
+ *   registroTorre?: RegistroTorre,
+ *   estadoAlmacen?: import('./almacen.js').EstadoAlmacen | null
  * }} deps
  */
 export function crearApp({
@@ -82,6 +83,7 @@ export function crearApp({
   saldoDe = null, enviarGas = null, registroGas = new RegistroGas(),
   gasNoDisponible = 'El grifo de gas no está disponible en este servidor',
   registroTorre = new RegistroTorre({ now }),
+  estadoAlmacen = null,
 }) {
   const app = express();
   app.set('trust proxy', trustProxy);
@@ -109,6 +111,8 @@ export function crearApp({
 
   app.get('/health', async (_req, res) => {
     const base = { ok: true, contract: contractAddress, chainId: Number(chainId) };
+    // Qué almacén se está usando y si hubo que degradar a memoria (1.4).
+    if (estadoAlmacen) base.almacen = estadoAlmacen.resumen();
     if (!obtenerSaldo) return res.json(base);
     try {
       const wei = await saldoOperador();

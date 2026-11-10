@@ -1,0 +1,126 @@
+/* Arena en 3D. Solo entra en juego cuando `escena3d.js` pone la clase `escena-3d` en `#escena`:
+   sin esa clase este archivo no cambia absolutamente nada, así que se puede cargar siempre y
+   dejar que el jugador elija 2D o 3D sin recargar la página.
+
+   La idea: el lienzo 3D ocupa toda la arena por detrás, y el HUD en HTML que ya existe (nombre,
+   barra de vida, estados, intención) se queda flotando encima. Así el 3D no pierde ni la
+   accesibilidad ni los lectores de pantalla del 2D. */
+
+.escena-3d {
+  position: relative;
+  isolation: isolate;
+}
+
+/* El lienzo: detrás de todo, sin capturar clics (los botones de la interfaz siguen mandando). */
+.escena-3d .r3d-lienzo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  /* Mientras three.js se descarga, el hueco no se ve negro de golpe. */
+  background: radial-gradient(ellipse at 50% 85%, #2a1e15 0%, #0c0806 70%);
+}
+
+/* Capas del 2D que el 3D sustituye. Se ocultan, no se borran: volver al 2D es quitar la clase. */
+.escena-3d > canvas.escena-fondo,
+.escena-3d > canvas.escena-fx,
+.escena-3d .sprite,
+.escena-3d .avatar {
+  display: none !important;
+}
+
+/* El aura de jefe del 2D es un `::before` del retrato; en 3D el aura ya está en la escena. */
+.escena-3d .fighter.jefe .retrato::before { display: none; }
+
+/* El retrato ya no dibuja nada: solo sostiene la burbuja de intención sobre la criatura. */
+.escena-3d .retrato {
+  min-height: clamp(120px, 22vh, 230px);
+  pointer-events: none;
+}
+.escena-3d .intencion { pointer-events: auto; }
+
+/* El HUD necesita fondo propio: debajo ya no hay un fondo plano, hay una arena con antorchas. */
+.escena-3d .f-hud {
+  background: color-mix(in srgb, #0c0806 72%, transparent);
+  backdrop-filter: blur(3px);
+  border-radius: 10px;
+  padding: 6px 8px;
+}
+@supports not (backdrop-filter: blur(3px)) {
+  .escena-3d .f-hud { background: rgba(12, 8, 6, .86); }
+}
+
+/* El «VS» del centro estorba menos arriba. */
+.escena-3d .vs {
+  align-self: flex-start;
+  margin-top: 4px;
+  opacity: .55;
+}
+
+/* Aviso de rendimiento o de 3D no disponible: una cinta discreta abajo de la arena.
+   El texto lo pone `escena3d.js` en `data-r3d-aviso`, así que no hay que tocar el HTML. */
+.escena-3d.r3d-con-aviso::after {
+  content: attr(data-r3d-aviso);
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  z-index: 6;
+  max-width: min(92%, 460px);
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: .78rem;
+  line-height: 1.3;
+  text-align: center;
+  color: #fde68a;
+  background: rgba(12, 8, 6, .88);
+  border: 1px solid rgba(253, 230, 138, .35);
+  pointer-events: none;
+}
+
+/* ───── Barra de la demo (`render3d-demo.html`). No se usa en el juego. ───── */
+
+.r3d-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 10px 0;
+}
+.r3d-panel h3 {
+  width: 100%;
+  margin: 8px 0 2px;
+  font-size: .82rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  opacity: .65;
+}
+.r3d-medidor {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(12, 8, 6, .6);
+  border: 1px solid rgba(232, 183, 90, .25);
+}
+.r3d-medidor b { font-size: 1.5rem; color: #e8b75a; }
+.r3d-medidor .mal { color: #f87171; }
+.r3d-medidor .regular { color: #fbbf24; }
+.r3d-medidor .bien { color: #4ade80; }
+.r3d-medidor span { font-size: .8rem; opacity: .8; }
+
+/* ───── Movimiento reducido ─────
+   `escena3d.js` ya recorta las animaciones por su cuenta (lee la misma consulta que fx.js);
+   aquí solo se quitan las transiciones del HUD para que no quede nada moviéndose. */
+@media (prefers-reduced-motion: reduce) {
+  .escena-3d .f-hud,
+  .escena-3d .intencion,
+  .escena-3d .estado { transition: none !important; animation: none !important; }
+}

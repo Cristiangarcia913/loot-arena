@@ -1,7 +1,10 @@
-// Ranking on-chain ("salón de la fama"): indexa en memoria los eventos de
-// GameItem, Mercado y Recompensas desde el bloque de despliegue, con refresco
-// incremental y `getLogs` por tramos. Sin estado en disco: tras un reinicio se
-// reconstruye desde DEPLOY_BLOCK.
+// Ranking on-chain ("salón de la fama"): indexa los eventos de GameItem, Mercado y
+// Recompensas desde el bloque de despliegue, con refresco incremental y `getLogs`
+// por tramos.
+//
+// 1.4: el índice se persiste con la capa `almacen.js`. Antes, cada reinicio de Render
+// obligaba a reindexar desde DEPLOY_BLOCK (~25 s de 503 en GET /ranking); ahora se
+// restaura el índice guardado y solo se leen los bloques nuevos.
 //
 // Tolerancia a RPC públicos (que a veces van desfasados o limitan rangos):
 //  - solo se indexa hasta `cabeza - margen` (bloques recientes pueden faltar o reorganizarse);
@@ -17,6 +20,26 @@ import { ABI_GAMEITEM_EVENTOS, ABI_MERCADO_EVENTOS, ABI_RECOMPENSAS, DECIMALES_O
 
 export const CATEGORIAS = Object.freeze(['objetos', 'legendarios', 'oroVentas', 'rachaDiaria']);
 export const TOP = 20;
+
+/**
+ * Versión del formato de la instantánea. Al subirla, las guardadas se descartan
+ * (el servidor reindexa desde DEPLOY_BLOCK, como antes de la 1.4).
+ */
+export const VERSION_INSTANTANEA = 1;
+/**
+ * Si la instantánea pasa de este tamaño no se guarda: el plan gratuito de Upstash
+ * limita la petición a 10 MB. Con 4 MB caben decenas de miles de jugadores.
+ */
+export const MAX_BYTES_INSTANTANEA = 4 * 1024 * 1024;
+/** Máximo de jugadores que se aceptan al restaurar (cota de memoria). */
+export const MAX_JUGADORES_INSTANTANEA = 50_000;
+/**
+ * Cada cuántos bloques se vuelve a guardar aunque no haya habido eventos nuevos.
+ * Guardar en cada refresco sería un comando por minuto para nada; con 500 bloques
+ * (~100 min en Sepolia) un reinicio solo tiene que releer un tramo, que es una
+ * sola llamada a `getLogs`.
+ */
+export const BLOQUES_POR_GUARDADO = 500;
 
 const ifaceGameItem = new Interface(ABI_GAMEITEM_EVENTOS);
 const ifaceMercado = new Interface(ABI_MERCADO_EVENTOS);
@@ -38,7 +61,9 @@ export class IndexadorRanking {
    *   gameItem: string, mercado: string, recompensas: string, deployBlock: number,
    *   tramo?: number, tramoMin?: number, margen?: number, solape?: number,
    *   maxTramosPorRefresco?: number, maxFallos?: number, pausaMs?: number,
-   *   now?: () => number, logger?: Pick<Console, 'log' | 'error' | 'warn'>
+   *   now?: () => number, logger?: Pick<Console, 'log' | 'error' | 'warn'>,
+   *   alCambiar?: (() => void) | null, bloquesPorGuardado?: number,
+   *   maxBytes?: number, maxJugadores?: number
    * }} opts
    */
   constructor({
@@ -46,6 +71,8 @@ export class IndexadorRanking {
     tramo = 50_000, tramoMin = 50, margen = 3, solape = 50,
     maxTramosPorRefresco = 100, maxFallos = 8, pausaMs = 1_000,
     now = Date.now, logger = console,
+    alCambiar = null, bloquesPorGuardado = BLOQUES_POR_GUARDADO,
+    maxBytes = MAX_BYTES_INSTANTANEA, maxJugadores = MAX_JUGADORES_INSTANTANEA,
   }) {
     this.provider = provider;
     this.dir = {
@@ -76,6 +103,118 @@ export class IndexadorRanking {
     this.ordenados = Object.fromEntries(CATEGORIAS.map((c) => [c, []]));
     this._enCurso = null;
     this._timer = null;
+
+    // ── 1.4: persistencia ──
+    /** Lo pone `persistencia.conectar`; se llama cuando merece la pena guardar. */
+    this.alCambiar = alCambiar;
+    this.bloquesPorGuardado = bloquesPorGuardado;
+    this.maxBytes = maxBytes;
+    this.maxJugadores = maxJugadores;
+    this.ultimoGuardado = deployBlock;   // `siguiente` de la última vez que se marcó
+    this.restaurado = false;             // true si el índice viene de una instantánea
+  }
+
+  /**
+   * Estado completo del índice, serializable a JSON.
+   *
+   * Se guarda también `vistos` (los ids de log ya contados): sin él, el solape de
+   * `solape` bloques del primer refresco tras un reinicio **contaría dos veces** los
+   * mismos eventos. Y se guardan `deployBlock` y las tres direcciones para no aplicar
+   * una instantánea de otro despliegue.
+   *
+   * Siempre es coherente: `siguiente` solo avanza después de procesar los logs de su
+   * tramo, así que da igual en qué momento se tome.
+   */
+  instantanea() {
+    const datos = {
+      v: VERSION_INSTANTANEA,
+      deployBlock: this.deployBlock,
+      dir: { ...this.dir },
+      siguiente: this.siguiente,
+      actualizado: this.actualizado,
+      descartados: this.descartados,
+      jugadores: [...this.jugadores].map(([a, j]) => [a, j.objetos, j.legendarios, j.oroVentas.toString(), j.rachaDiaria]),
+      recompensados: [...this.recompensados].map(([a, motivos]) => [a, [...motivos]]),
+      vistos: [...this.vistos],
+    };
+    const bytes = Buffer.byteLength(JSON.stringify(datos), 'utf8');
+    if (bytes > this.maxBytes) {
+      throw new Error(`la instantánea del ranking ocupa ${bytes} bytes (máximo ${this.maxBytes})`);
+    }
+    return datos;
+  }
+
+  /**
+   * Vuelca una instantánea. Lanza si no es aplicable (otra versión, otro despliegue):
+   * `persistencia.js` lo registra y arranca reindexando desde `deployBlock`, que es
+   * el comportamiento anterior a la 1.4. Las filas sueltas con forma rara se ignoran.
+   */
+  restaurar(datos) {
+    if (!datos || typeof datos !== 'object') throw new Error('instantánea vacía');
+    if (datos.v !== VERSION_INSTANTANEA) {
+      throw new Error(`instantánea de otra versión (${datos.v}, se esperaba ${VERSION_INSTANTANEA})`);
+    }
+    if (datos.deployBlock !== this.deployBlock) {
+      throw new Error(`instantánea de otro DEPLOY_BLOCK (${datos.deployBlock}, ahora ${this.deployBlock})`);
+    }
+    for (const nombre of ['gameItem', 'mercado', 'recompensas']) {
+      if (datos.dir?.[nombre] !== this.dir[nombre]) {
+        throw new Error(`instantánea de otro contrato ${nombre} (${datos.dir?.[nombre]}, ahora ${this.dir[nombre]})`);
+      }
+    }
+    if (!Number.isInteger(datos.siguiente) || datos.siguiente < this.deployBlock) {
+      throw new Error(`instantánea con un bloque inválido (${datos.siguiente})`);
+    }
+
+    this.jugadores.clear();
+    for (const fila of Array.isArray(datos.jugadores) ? datos.jugadores : []) {
+      if (!Array.isArray(fila) || fila.length < 5) continue;
+      const [address, objetos, legendarios, oroVentas, rachaDiaria] = fila;
+      if (typeof address !== 'string') continue;
+      if (![objetos, legendarios, rachaDiaria].every((n) => Number.isInteger(n) && n >= 0)) continue;
+      let oro;
+      try { oro = BigInt(oroVentas); } catch { continue; }
+      if (oro < 0n) continue;
+      if (this.jugadores.size >= this.maxJugadores) break;
+      try {
+        this.jugadores.set(getAddress(address), { objetos, legendarios, oroVentas: oro, rachaDiaria });
+      } catch { /* dirección inválida: se ignora la fila */ }
+    }
+
+    this.recompensados.clear();
+    for (const fila of Array.isArray(datos.recompensados) ? datos.recompensados : []) {
+      if (!Array.isArray(fila) || fila.length < 2 || typeof fila[0] !== 'string' || !Array.isArray(fila[1])) continue;
+      try {
+        this.recompensados.set(getAddress(fila[0]), new Set(fila[1].filter((m) => typeof m === 'string')));
+      } catch { /* dirección inválida: se ignora la fila */ }
+    }
+
+    this.vistos.clear();
+    for (const fila of Array.isArray(datos.vistos) ? datos.vistos : []) {
+      if (!Array.isArray(fila) || fila.length < 2) continue;
+      const [clave, bloque] = fila;
+      if (typeof clave !== 'string' || !Number.isInteger(bloque)) continue;
+      this.vistos.set(clave, bloque);
+    }
+
+    this.siguiente = datos.siguiente;
+    this.ultimoGuardado = datos.siguiente;
+    this.descartados = Number.isInteger(datos.descartados) ? datos.descartados : 0;
+    // `actualizado` es la verdad: cuándo se refrescó por última vez. Al restaurarlo,
+    // `listo()` ya es true y GET /ranking sirve el índice guardado en vez de dar 503.
+    this.actualizado = typeof datos.actualizado === 'number' ? datos.actualizado : null;
+    // En cambio no se sabe si seguimos a la altura de la cabeza: lo dirá el primer refresco.
+    this.sincronizado = false;
+    this.restaurado = true;
+    this._ordenar();
+  }
+
+  /** Avisa al persistidor si hay algo que merezca la pena guardar. */
+  _marcar(nuevos) {
+    if (nuevos > 0 || this.siguiente - this.ultimoGuardado >= this.bloquesPorGuardado) {
+      this.ultimoGuardado = this.siguiente;
+      this.alCambiar?.();
+    }
   }
 
   /** Refresca (si ya hay un refresco en marcha, devuelve ese mismo). */
@@ -131,6 +270,8 @@ export class IndexadorRanking {
         if (fallos >= this.maxFallos) {
           this.ultimoError = msg;
           this._ordenar();
+          // El progreso de los tramos ya completados no se tira: se guarda igual.
+          this._marcar(nuevos);
           throw new Error(`getLogs falló ${fallos} veces (bloques ${desde}-${fin}): ${msg}`);
         }
         this.tramo = Math.max(this.tramoMin, Math.floor((fin - desde + 1) / 2));
@@ -151,6 +292,7 @@ export class IndexadorRanking {
     this._ordenar();
     this.actualizado = this.now();
     this.ultimoError = null;
+    this._marcar(nuevos);
     return { nuevos, hasta: this.siguiente - 1, desfasado: false };
   }
 

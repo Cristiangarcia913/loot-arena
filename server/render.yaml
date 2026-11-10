@@ -37,4 +37,15 @@ services:
         value: "0x67436408fe590dA830E783dc20345CccBCDbEE56"
       - key: DEPLOY_BLOCK
         value: "12072405"
+      # 1.4: persistencia. El plan gratuito de Render NO permite discos persistentes y
+      # duerme el servicio, así que el estado del juego se guarda en Upstash Redis
+      # (plan gratuito permanente, sin tarjeta). Ver README §Persistencia.
+      # Si no se rellena el token, el servidor arranca igual pero en modo memoria:
+      # funciona todo y /health avisa con "almacen.degradado": true.
+      - key: ALMACEN
+        value: upstash
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
       # PORT lo inyecta Render automáticamente; no hace falta definirlo.

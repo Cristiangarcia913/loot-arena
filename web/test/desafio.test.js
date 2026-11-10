@@ -28,7 +28,7 @@ test("desafío del día: igual para todos, varía entre días, modificadores com
     assert.equal(new Set(grupos).size, grupos.length);
     for (const m of mods) if (m.claves) assert.ok(m.claves.includes(x.clave), `${m.id} con ${x.clave}`);
   }
-  assert.equal(claves.size, 10);
+  assert.equal(claves.size, C.BESTIARIO.length);
   assert.ok(jefes > 10 && jefes < 60, `${jefes}`);
   assert.equal(D.desafioDeHoy(HOY).dia, diaUTC(HOY));
 });

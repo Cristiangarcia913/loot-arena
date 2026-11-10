@@ -255,3 +255,144 @@ npx hardhat verify --network sepolia <recompensas> <oro> <mercado> <operador>
 Coste aproximado (medido en local): unos 6,3 M de gas en total (LootGold ~0,72 M, Mercado ~4,12 M, Recompensas ~1,30 M y unos 30–48 k por cada transacción de permisos). Operaciones: `reclamarDiario` ~103 k el primer día y ~53 k los siguientes, ~194 k el día 7 (con cofre); `recompensar` ~97 k la primera vez del día para un jugador y ~63 k después.
 
 Recuerda recargar la caja de ETH del **Mercado nuevo** (la del viejo se puede recuperar con `retirarEth` desde el owner).
+
+---
+
+## Loot Arena 1.4 (fase C): `MercadoP2P`, el mercado entre jugadores
+
+Diseño en `../PLAN-MAESTRO.md` §3.2 y §6 fase C. **No se redespliega nada**: `MercadoP2P`
+es un contrato nuevo que lee el `GameItem` y el `LootGold` ya desplegados.
+
+La diferencia con `Mercado.sol`: el `Mercado` es una **tienda** (compra al jugador a un
+precio que calcula el propio contrato con los stats del objeto). El `MercadoP2P` es un
+**mercado**: el precio lo pone el vendedor y el comprador decide si le vale. Eso es lo
+que convierte el ORO en una moneda con valor de uso.
+
+### Flujo de una venta
+
+1. Vendedor: `GameItem.setApprovalForAll(mercadoP2P, true)` (una vez; también vale
+   `approve(mercadoP2P, tokenId)` para un objeto suelto).
+2. Vendedor: `listar(tokenId, precioOro)` → el NFT pasa a **custodia del contrato**.
+3. Comprador: `LootGold.approve(mercadoP2P, precio)`.
+4. Comprador: `comprarHasta(tokenId, precioMaximo)` → en una transacción, `precio − comisión`
+   ORO al vendedor, `comisión` quemada y el NFT al comprador.
+
+La **custodia** (escrow) es lo que hace que la compra no pueda fallar por culpa del
+vendedor: cuando el comprador paga, el objeto ya está en el contrato, así que no sirve
+de nada revocar la aprobación ni transferirlo a otra cuenta. El vendedor lo recupera
+cuando quiera con `cancelar(tokenId)`.
+
+La **comisión** es del 5 % (`comisionBps = 500`, ajustable por el owner con tope
+`COMISION_MAXIMA = 1000`, el 10 %) y **se quema**: baja la oferta monetaria de ORO, no
+se la queda nadie. Se quema con `LootGold.burnFrom`, que gasta la misma aprobación del
+comprador, así que el contrato **nunca llega a tener ORO** en su saldo.
+
+### Permisos: ninguno
+
+A propósito, el `MercadoP2P` **no es minter de `LootGold`** (no puede acuñar ORO) y **no
+es owner de `GameItem`** (no puede mintear objetos). Lo único que puede mover son los
+NFT que un vendedor le ha entregado al listar, y el ORO que un comprador le ha aprobado.
+Si se descubriera un fallo, el daño está acotado a eso.
+
+### Referencia rápida
+
+| Función | Quién | Descripción |
+|---|---|---|
+| `listar(tokenId, precioOro)` | dueño del NFT | Pone el objeto a la venta y lo entrega en custodia. Emite `Listado`. |
+| `comprar(tokenId)` | cualquiera menos el vendedor | Compra al precio publicado. Devuelve `(precio, comision)`. Emite `Vendido`. |
+| `comprarHasta(tokenId, precioMaximo)` | ídem | Igual, pero no paga más de `precioMaximo`. **Es la que debe usar la interfaz.** |
+| `cambiarPrecio(tokenId, nuevo)` | vendedor | Cambia el precio. Emite `PrecioCambiado`. |
+| `cancelar(tokenId)` | vendedor | Retira la oferta y recupera el NFT. Emite `Cancelado`. |
+| `rescatar(tokenId)` | vendedor, solo en pausa | Recupera el NFT con el mercado pausado. Emite `Rescatado`. |
+| `listado(tokenId)` | cualquiera | `Oferta { vendedor, rareza, creado, precio }`; `vendedor = 0x0` si no está a la venta (no revierte). |
+| `estaListado(tokenId)` | cualquiera | `bool`. |
+| `totalListados()` | cualquiera | Número de ofertas vivas. |
+| `listados(desde, cuantos)` | cualquiera | Página de ofertas. Recorta al final y nunca revierte. |
+| `listadosDe(vendedor)` | cualquiera | Todas las ofertas de ese jugador. |
+| `desglose(precio)` | cualquiera | `(comision, neto)` con la comisión vigente. |
+| `mercadoTotal()` | cualquiera | `(volumen, ventas, precioMedio, oroQuemado)`. |
+| `mercadoRareza(rareza)` | cualquiera | `(volumen, ventas, precioMedio)` de esa rareza. |
+| `setComision(bps)`, `pausar()`, `reanudar()`, `devolverNftPerdido(tokenId, a)` | owner | Administración. |
+
+`listados` y `listadosDe` devuelven `OfertaVista { tokenId, vendedor, rareza, creado, precio }`.
+**El orden de `listados` no es estable**: al quitar una oferta, la última ocupa su hueco
+(swap-and-pop). Es una foto del momento, suficiente para paginar.
+
+### Eventos (los que debe indexar el servidor)
+
+```
+Listado(uint256 indexed tokenId, address indexed vendedor, uint8 indexed rareza, uint256 precio)
+Vendido(uint256 indexed tokenId, address indexed vendedor, address indexed comprador,
+        uint256 precio, uint256 comision, uint8 rareza)
+PrecioCambiado(uint256 indexed tokenId, address indexed vendedor, uint256 anterior, uint256 nuevo)
+Cancelado(uint256 indexed tokenId, address indexed vendedor)
+Rescatado(uint256 indexed tokenId, address indexed vendedor)
+ComisionCambiada(uint256 anterior, uint256 nueva)
+NftPerdidoDevuelto(uint256 indexed tokenId, address indexed a)
+Paused(address) / Unpaused(address)   ← de OpenZeppelin Pausable
+```
+
+`Vendido` lleva la rareza en los datos (no indexada) para que el indexador no tenga que
+consultar `GameItem.getItem` por cada venta. `Listado` sí la lleva indexada, para poder
+pedir al RPC solo las ofertas de una rareza.
+
+### Seguridad
+
+- `ReentrancyGuard` en `listar`, `comprar`, `comprarHasta`, `cancelar`, `rescatar` y
+  `devolverNftPerdido`, y **efectos antes de interacciones**: cuando se paga, la oferta
+  ya está borrada, así que ni una reentrada puede comprar dos veces lo mismo. El test
+  lo comprueba con un ORO hostil (`contracts/test/OroReentrante.sol`, solo para tests)
+  que reentra desde `transferFrom`: el caso más pesimista, porque el `LootGold` real no
+  tiene ningún callback.
+- El contrato **no implementa `onERC721Received`**: un `safeTransferFrom` hacia él
+  revierte, así que no se le pueden colar objetos por accidente. Si alguien usa el
+  `transferFrom` crudo, el owner los devuelve con `devolverNftPerdido`, que **solo
+  funciona con objetos no listados** (el owner no puede tocar lo que está en custodia).
+- `PRECIO_MAXIMO = 1e12 ORO` evita que el precio se trunque al guardarse en `uint128` y
+  que el volumen acumulado desborde.
+- **Pausa de emergencia**: con el mercado pausado no se lista, ni se cambia el precio,
+  ni se compra; los vendedores recuperan sus objetos con `rescatar`. La pausa nunca deja
+  nada atrapado.
+- Riesgos conocidos y acotados: el owner puede subir la comisión hasta el 10 % justo
+  antes de una venta (el vendedor cobraría 90 % en vez de 95 %); y dos cuentas de la
+  misma persona pueden comerciar entre sí para inflar el volumen (*wash trading*), que
+  es un problema de todos los mercados y se filtra en el indexador, no en el contrato.
+
+### Tests
+
+`npx hardhat test` ejecuta también `test/mercado-p2p.test.js` (60 tests): listar,
+cambiar precio, cancelar, comprar, los casos de seguridad (reentrada, listar lo ajeno,
+comprar lo ya vendido, precio cero, comprador = vendedor, aprobación revocada, ORO
+insuficiente, precio subido a traición, pausa), paginación, datos de mercado y gas.
+
+### Despliegue
+
+```bash
+npx hardhat node                                              # terminal 1
+npx hardhat run scripts/deploy.js          --network localhost # terminal 2
+npx hardhat run scripts/deploy-economia.js --network localhost
+npx hardhat run scripts/deploy-1.2.js      --network localhost
+npx hardhat run scripts/deploy-p2p.js      --network localhost
+npx hardhat run scripts/demo-p2p.js        --network localhost # opcional: deja una oferta viva
+```
+
+`deploy-p2p.js` lee el GameItem (`address`) y el LootGold (`oro`) de la entrada de la red
+en `../shared/deployments.json`, despliega `MercadoP2P`, ajusta la comisión si hace falta
+y escribe `mercadoP2P` y `bloqueMercadoP2P` (el bloque del despliegue, para que el
+servidor sepa desde dónde indexar) más `../shared/MercadoP2P.abi.json`. Es idempotente:
+con `MERCADOP2P_EXISTENTE` reutiliza lo ya desplegado y solo envía las transacciones que
+falten. Variables opcionales: `COMISION_BPS` (500 por defecto, tope 1000), `GAMEITEM_DIR`
+y `LOOTGOLD_DIR`.
+
+En Sepolia:
+
+```bash
+npx hardhat run scripts/deploy-p2p.js --network sepolia
+npx hardhat verify --network sepolia <mercadoP2P> <gameItem> <oro>
+```
+
+Coste medido en local: despliegue **2 140 482** de gas; `setComision` 30 k. Operaciones del
+jugador: `setApprovalForAll` 46 k (una vez), `approve` de ORO 46 k (una vez),
+`listar` **243–253 k**, `cambiarPrecio` **37 k**, `cancelar` **111 k**,
+`comprar` / `comprarHasta` **169–218 k** (la primera venta de una rareza paga las
+ranuras nuevas de las estadísticas).

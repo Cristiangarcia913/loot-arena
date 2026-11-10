@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arnés de interfaz · Loot Arena</title>
+<style>
+  :root { color-scheme: dark; --ok:#4ade80; --mal:#f87171; --aviso:#fbbf24; --tenue:#9ca3af; }
+  body { margin:0; font:14px/1.5 ui-monospace, Consolas, monospace; background:#0f0d0b; color:#e7e2db; }
+  header { position:sticky; top:0; background:#1a1613; border-bottom:1px solid #342c25; padding:12px 16px; z-index:5; }
+  h1 { font-size:16px; margin:0 0 8px; }
+  .barra { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button { font:inherit; background:#3b2f23; color:#f5e6c8; border:1px solid #6b553a; border-radius:6px; padding:6px 12px; cursor:pointer; }
+  button:hover { background:#4d3d2d; }
+  button:disabled { opacity:.5; cursor:default; }
+  input { font:inherit; background:#120f0d; color:#e7e2db; border:1px solid #4a3d31; border-radius:6px; padding:6px 10px; }
+  #resumen { margin-left:auto; font-weight:bold; }
+  main { padding:12px 16px 60px; }
+  .caso { border-left:3px solid #3f3630; padding:4px 10px; margin:2px 0; white-space:pre-wrap; }
+  .caso.ok { border-color:var(--ok); }
+  .caso.fallo { border-color:var(--mal); background:#2a1414; }
+  .caso.error { border-color:var(--aviso); background:#2a2314; }
+  .caso.corriendo { border-color:#60a5fa; opacity:.8; }
+  .grupo { color:var(--tenue); }
+  .ms { color:var(--tenue); float:right; }
+  .detalle { color:#fca5a5; margin-top:4px; font-size:13px; }
+  .error .detalle { color:#fcd34d; }
+  h2 { font-size:14px; margin:20px 0 6px; color:var(--aviso); border-bottom:1px solid #342c25; padding-bottom:4px; }
+  table { border-collapse:collapse; width:100%; margin:6px 0 14px; font-size:13px; }
+  th, td { border:1px solid #342c25; padding:4px 8px; text-align:left; vertical-align:top; }
+  th { background:#1a1613; }
+  td.ok { color:var(--ok); } td.mal { color:var(--mal); }
+  #marcos { position:fixed; left:-10000px; top:0; }
+  #marcos.ver { position:static; left:0; }
+  #marcos iframe { border:1px solid #342c25; background:#000; }
+  #marcos iframe.marco:not(.visible):not(.medir) { width:1280px; height:860px; }
+  pre { background:#120f0d; border:1px solid #342c25; padding:10px; overflow:auto; max-height:400px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚔️ Arnés de pruebas de interfaz · Loot Arena</h1>
+  <div class="barra">
+    <button id="b-todo">▶ Ejecutar todo</button>
+    <button id="b-a11y">♿ Solo accesibilidad</button>
+    <button id="b-perf">📈 Solo rendimiento</button>
+    <input id="filtro" placeholder="filtrar por texto…" size="24">
+    <label><input type="checkbox" id="ver"> ver los iframes</label>
+    <button id="b-json">⬇ Copiar informe JSON</button>
+    <span id="resumen">listo</span>
+  </div>
+</header>
+<main>
+  <div id="salida"></div>
+  <div id="informes"></div>
+</main>
+<div id="marcos"></div>
+
+<script type="module">
+import { ejecutarCasos, CASOS, abrirApp, limpiarAlmacenamiento } from "./arnes.js";
+import { auditar } from "./accesibilidad.js";
+import { medirPerfil, OBJETIVOS } from "./rendimiento.js";
+import "./casos-navegacion.js";
+import "./casos-combate.js";
+import "./casos-contenido.js";
+import "./casos-robustez.js";
+
+const salida = document.getElementById("salida");
+const informes = document.getElementById("informes");
+const resumen = document.getElementById("resumen");
+const estado = { casos: null, accesibilidad: null, rendimiento: null };
+window.ARNES = estado;
+
+document.getElementById("ver").addEventListener("change", (e) => document.getElementById("marcos").classList.toggle("ver", e.target.checked));
+
+const el = (tag, clase, texto) => { const n = document.createElement(tag); if (clase) n.className = clase; if (texto != null) n.textContent = texto; return n; };
+
+function pintarCaso(c) {
+  const n = el("div", "caso corriendo");
+  n.append(el("span", "grupo", `[${c.grupo}] `), el("span", null, c.nombre));
+  salida.append(n);
+  return n;
+}
+function cerrarCaso(n, r) {
+  n.className = `caso ${r.estado}`;
+  n.prepend(el("span", "ms", `${r.ms} ms`));
+  n.firstChild.after(document.createTextNode(r.estado === "ok" ? "✔ " : r.estado === "saltado" ? "— " : "✘ "));
+  if (r.mensaje) n.append(el("div", "detalle", r.mensaje + (r.pila ? `\n${r.pila}` : "")));
+}
+
+async function correr(filtro = "") {
+  salida.replaceChildren(); informes.replaceChildren();
+  deshabilitar(true);
+  limpiarAlmacenamiento();
+  let actual = null;
+  const r = await ejecutarCasos({
+    filtro,
+    alEmpezar: (c) => { actual = pintarCaso(c); resumen.textContent = `${c.grupo}: ${c.nombre}…`; },
+    alTerminar: (res) => cerrarCaso(actual, res),
+  });
+  estado.casos = r;
+  resumen.textContent = `${r.ok}/${r.total} ✔ · ${r.fallos} ✘ · ${Math.round(r.ms / 1000)} s`;
+  resumen.style.color = r.fallos ? "var(--mal)" : "var(--ok)";
+  deshabilitar(false);
+  return r;
+}
+
+function deshabilitar(v) { for (const b of document.querySelectorAll("header button")) b.disabled = v; }
+
+async function correrAccesibilidad() {
+  deshabilitar(true);
+  resumen.textContent = "auditando accesibilidad…";
+  const app = await abrirApp();
+  const inf = await auditar(app);
+  app.cerrar();
+  estado.accesibilidad = inf;
+  const sec = el("section");
+  sec.append(el("h2", null, `♿ Accesibilidad · ${inf.contraste.length} fallos de contraste, ${inf.sinNombre.length} sin nombre accesible, ${inf.imagenesSinTexto.length} imágenes sin texto`));
+  sec.append(tabla(["Sección", "Elemento", "Texto", "Contraste", "Mínimo", "Colores", "Nota"],
+    inf.contraste.map((f) => [f.seccion, f.selector, f.texto, `${f.contraste}:1`, `${f.minimo}:1`, `${f.color} / ${f.fondo}`, f.incierto ? "fondo con imagen" : ""])));
+  if (inf.sinNombre.length) sec.append(el("h2", null, "Elementos enfocables sin nombre accesible"), tabla(["Sección", "Elemento", "HTML"], inf.sinNombre.map((f) => [f.seccion, f.selector, f.html])));
+  informes.append(sec);
+  resumen.textContent = `accesibilidad: ${inf.contraste.length} contrastes bajos`;
+  deshabilitar(false);
+  return inf;
+}
+
+async function correrRendimiento() {
+  deshabilitar(true);
+  const out = {};
+  for (const perfil of ["escritorio", "movil"]) {
+    resumen.textContent = `midiendo rendimiento (${perfil})…`;
+    out[perfil] = await medirPerfil(perfil);
+  }
+  estado.rendimiento = out;
+  const sec = el("section");
+  sec.append(el("h2", null, "📈 Rendimiento"));
+  sec.append(tabla(["Medida", "Escritorio", "Móvil 375×812", "Objetivo"], [
+    ["Jugable (ms)", out.escritorio.jugableMs, out.movil.jugableMs, `≤ ${OBJETIVOS.jugableMs}`],
+    ["DOMContentLoaded (ms)", out.escritorio.domContentLoadedMs, out.movil.domContentLoadedMs, `≤ ${OBJETIVOS.domContentLoadedMs}`],
+    ["First Contentful Paint (ms)", out.escritorio.primerPintadoMs, out.movil.primerPintadoMs, "≤ 1800"],
+    ["Peso total (kB)", out.escritorio.peso.totalKb, out.movil.peso.totalKb, `≤ ${OBJETIVOS.pesoTotalKb}`],
+    ["· JavaScript (kB)", out.escritorio.peso.jsKb, out.movil.peso.jsKb, `≤ ${OBJETIVOS.pesoJsKb}`],
+    ["· CSS (kB)", out.escritorio.peso.cssKb, out.movil.peso.cssKb, "—"],
+    ["Peticiones", out.escritorio.peso.peticiones, out.movil.peso.peticiones, "—"],
+    ["fps medios en combate", out.escritorio.fps?.medio, out.movil.fps?.medio, `≥ ${OBJETIVOS.fpsMedio}`],
+    ["fps mínimos en combate", out.escritorio.fps?.minimo, out.movil.fps?.minimo, `≥ ${OBJETIVOS.fpsMinimo}`],
+    ["peor fotograma (ms)", out.escritorio.fps?.peorMs, out.movil.fps?.peorMs, "≤ 33"],
+    ["tareas largas (>50 ms)", out.escritorio.fps?.tareasLargas, out.movil.fps?.tareasLargas, "0"],
+  ]));
+  sec.append(el("h2", null, "Recursos más pesados (escritorio)"), el("pre", null, out.escritorio.masPesados.join("\n")));
+  informes.append(sec);
+  resumen.textContent = "rendimiento medido";
+  deshabilitar(false);
+  return out;
+}
+
+function tabla(cabeceras, filas) {
+  const t = document.createElement("table");
+  const tr = document.createElement("tr");
+  for (const c of cabeceras) tr.append(el("th", null, c));
+  t.append(tr);
+  for (const f of filas) {
+    const r = document.createElement("tr");
+    for (const c of f) r.append(el("td", null, c == null ? "—" : String(c)));
+    t.append(r);
+  }
+  return t;
+}
+
+document.getElementById("b-todo").addEventListener("click", async () => {
+  await correr(document.getElementById("filtro").value);
+  await correrAccesibilidad();
+  await correrRendimiento();
+});
+document.getElementById("b-a11y").addEventListener("click", () => correrAccesibilidad());
+document.getElementById("b-perf").addEventListener("click", () => correrRendimiento());
+document.getElementById("filtro").addEventListener("keydown", (e) => { if (e.key === "Enter") correr(e.target.value); });
+document.getElementById("b-json").addEventListener("click", () => navigator.clipboard?.writeText(JSON.stringify(estado, null, 2)));
+
+// API para automatización: await window.arnesEjecutarTodo()
+window.arnesEjecutarTodo = async (filtro = "") => ({ casos: await correr(filtro), accesibilidad: await correrAccesibilidad(), rendimiento: await correrRendimiento() });
+window.arnesCasos = () => CASOS.map((c) => `${c.grupo} · ${c.nombre}`);
+window.arnesSoloCasos = correr;
+window.arnesSoloA11y = correrAccesibilidad;
+window.arnesSoloPerf = correrRendimiento;
+
+if (new URLSearchParams(location.search).has("auto")) window.arnesEjecutarTodo();
+</script>
+</body>
+</html>

@@ -27,21 +27,49 @@ export const LIMITE_GAS_CONSULTA_IP = { windowMs: 60_000, max: 60 };    // GET /
 const eth = (wei) => Number(formatEther(wei));
 
 /**
- * Registro en memoria de quién ha pedido gas hoy y cuánto se ha repartido.
+ * Registro de quién ha pedido gas hoy y cuánto se ha repartido.
  * Solo guarda el día UTC en curso: al cambiar de día se vacía solo.
+ *
+ * Se persiste (ver `almacen.js`): sin persistencia, cada reinicio de Render vaciaba el
+ * tope diario y el grifo podía repartir mucho más de `GAS_TOPE_DIARIO` en un mismo día.
  */
 export class RegistroGas {
-  constructor({ topeDiario = TOPE_DIARIO_POR_DEFECTO, cantidad = CANTIDAD_GAS } = {}) {
+  constructor({ topeDiario = TOPE_DIARIO_POR_DEFECTO, cantidad = CANTIDAD_GAS, alCambiar = null } = {}) {
     this.topeDiario = topeDiario;
     this.cantidad = cantidad;
     this.dia = null;
     this.direcciones = new Set(); // enviadas o en vuelo hoy
     this.totalHoy = 0n;           // incluye las reservas en vuelo
+    /** Lo pone `persistencia.conectar`; se llama tras cada cambio. */
+    this.alCambiar = alCambiar;
+  }
+
+  /** Estado completo, serializable a JSON (`totalHoy` va como string: es un bigint). */
+  instantanea() {
+    return { v: 1, dia: this.dia, direcciones: [...this.direcciones], totalHoy: this.totalHoy.toString() };
+  }
+
+  /**
+   * Vuelca una instantánea. Si es de otro día UTC no se aplica: el primer uso ya la
+   * habría tirado igualmente (`#alDia`), y así no se arrastra un tope viejo.
+   */
+  restaurar(datos) {
+    if (!datos || typeof datos.dia !== 'string' || !Array.isArray(datos.direcciones)) return;
+    let total;
+    try { total = BigInt(datos.totalHoy ?? 0); } catch { return; }
+    if (total < 0n) return;
+    this.dia = datos.dia;
+    this.direcciones = new Set(datos.direcciones.filter((d) => typeof d === 'string'));
+    this.totalHoy = total;
   }
 
   #alDia(ahora) {
     const hoy = diaUtc(ahora);
-    if (this.dia !== hoy) { this.dia = hoy; this.direcciones.clear(); this.totalHoy = 0n; }
+    if (this.dia !== hoy) {
+      const habiaAlgo = this.dia !== null && (this.direcciones.size > 0 || this.totalHoy > 0n);
+      this.dia = hoy; this.direcciones.clear(); this.totalHoy = 0n;
+      if (habiaAlgo) this.alCambiar?.();
+    }
   }
 
   yaPedido(address, ahora) { this.#alDia(ahora); return this.direcciones.has(address); }
@@ -59,6 +87,7 @@ export class RegistroGas {
     if (this.totalHoy + this.cantidad > this.topeDiario) return { ok: false, motivo: 'tope' };
     this.direcciones.add(address);
     this.totalHoy += this.cantidad;
+    this.alCambiar?.();
     return { ok: true, reserva: { address, dia: this.dia } };
   }
 
@@ -66,6 +95,7 @@ export class RegistroGas {
   liberar({ address, dia }) {
     if (this.dia !== dia || !this.direcciones.delete(address)) return;
     this.totalHoy -= this.cantidad;
+    this.alCambiar?.();
   }
 }
 

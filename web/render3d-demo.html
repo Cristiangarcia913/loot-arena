@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loot Arena · Demo de la arena en 3D</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧊</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/render3d.css">
+  <style>
+    .demo { max-width: 1280px; margin: 0 auto; padding: 16px clamp(10px, 3vw, 32px) 40px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); }
+    .demo > .ancho { grid-column: 1 / -1; }
+    @media (max-width: 980px) { .demo { grid-template-columns: minmax(0, 1fr); } }
+    .grupo { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; align-items: center; }
+    .grupo h3 { width: 100%; font-size: .78rem; color: var(--tenue); text-transform: uppercase; letter-spacing: .12em; margin: 6px 0 2px; }
+    .grupo .btn { font-size: .8rem; padding: 7px 10px; }
+    .grupo label { font-size: .8rem; color: var(--tenue); display: inline-flex; gap: 5px; align-items: center; }
+    select, input[type="number"] { background: #120e0b; color: var(--texto); border: 1px solid var(--borde); border-radius: 8px; padding: 6px; font: inherit; font-size: .82rem; }
+    #escena { min-height: clamp(300px, 46vh, 520px); }
+    .nota { font-size: .8rem; color: var(--tenue); line-height: 1.5; }
+    .nota code { background: rgba(0,0,0,.35); padding: 1px 5px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">🧊</span>
+      <div><h1>Loot Arena</h1><p class="tagline">Arena en 3D (three.js por CDN), sin wallet y sin build</p></div>
+    </div>
+    <div class="wallet"><button id="btn-sonido" class="btn btn-icono" type="button">🔊</button></div>
+  </header>
+
+  <main class="demo">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>La Arena en 3D</h2>
+        <div class="chips"><span id="chip-ver" class="chip">three.js —</span><span id="chip-cal" class="chip chip-nivel">calidad —</span></div>
+      </div>
+
+      <div id="escena" class="arena escena">
+        <div class="fighter" id="f-jugador" data-lado="heroe">
+          <div class="f-hud">
+            <div class="f-name">Tu héroe</div>
+            <div class="hp" aria-label="Vida del héroe"><div class="hp-fill" style="width:100%"></div><span class="hp-text">100 / 100</span></div>
+            <div class="f-stats">⚔️ 14 · 🛡️ 7</div>
+            <div class="estados" role="list" aria-label="Estados del héroe"></div>
+          </div>
+          <div class="retrato"><div class="sprite"></div><div class="avatar" aria-hidden="true">🤺</div></div>
+        </div>
+        <div class="vs" aria-hidden="true">VS</div>
+        <div class="fighter enemy" id="f-enemigo" data-lado="enemigo">
+          <div class="f-hud">
+            <div class="f-name">—</div>
+            <div class="hp" aria-label="Vida del enemigo"><div class="hp-fill" style="width:100%"></div><span class="hp-text">— / —</span></div>
+            <div class="f-stats"></div>
+            <div class="estados" role="list" aria-label="Estados del enemigo"></div>
+          </div>
+          <div class="retrato"><div class="intencion" hidden aria-live="polite"></div><div class="sprite"></div><div class="avatar" aria-hidden="true">❔</div></div>
+        </div>
+      </div>
+
+      <div class="r3d-medidor" role="status" aria-live="off">
+        <b id="m-fps">—</b><span>fps ahora</span>
+        <b id="m-peor">—</b><span>peor</span>
+        <b id="m-mejor">—</b><span>mejor</span>
+        <b id="m-tiron">—</b><span>ms del peor fotograma</span>
+        <b id="m-fot">—</b><span>fotogramas</span>
+      </div>
+
+      <h3 class="sub">Crónica</h3>
+      <ol id="log" class="log" aria-live="polite"></ol>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Mandos</h2></div>
+
+      <div class="grupo">
+        <h3>Enemigo</h3>
+        <select id="sel-enemigo" aria-label="Criatura"></select>
+        <label><input type="checkbox" id="chk-jefe"> jefe</label>
+        <button class="btn btn-gold" id="b-aparecer" type="button">Aparecer</button>
+        <button class="btn btn-ghost" id="b-vaciar" type="button">Vaciar arena</button>
+        <button class="btn btn-ghost" id="b-desfile" type="button">Desfile del bestiario</button>
+      </div>
+
+      <div class="grupo">
+        <h3>Ataque (quién golpea)</h3>
+        <button class="btn btn-red" id="b-at-h" type="button">Héroe ataca</button>
+        <button class="btn btn-red" id="b-at-e" type="button">Enemigo ataca</button>
+        <label><input type="checkbox" id="chk-crit"> crítico</label>
+        <label><input type="checkbox" id="chk-brutal"> brutal</label>
+      </div>
+
+      <div class="grupo">
+        <h3>Recibir golpe</h3>
+        <button class="btn btn-red" id="b-g-normal" type="button">Golpe −18</button>
+        <button class="btn btn-gold" id="b-g-crit" type="button">Crítico ¡42!</button>
+        <button class="btn btn-blue" id="b-g-bloq" type="button">Bloqueado</button>
+        <button class="btn btn-ghost" id="b-g-esq" type="button">Esquiva</button>
+        <button class="btn btn-verde" id="b-cura" type="button">Curación +25</button>
+        <label>a <select id="sel-objetivo"><option value="enemigo">enemigo</option><option value="heroe">héroe</option></select></label>
+      </div>
+
+      <div class="grupo">
+        <h3>Estados e intención</h3>
+        <button class="btn btn-ghost" id="b-est-veneno" type="button">Veneno</button>
+        <button class="btn btn-ghost" id="b-est-escudo" type="button">Escudo</button>
+        <button class="btn btn-ghost" id="b-est-furia" type="button">Furia + sangrado</button>
+        <button class="btn btn-ghost" id="b-est-nada" type="button">Sin estados</button>
+        <button class="btn btn-ghost" id="b-int" type="button">Intención: cargar</button>
+        <button class="btn btn-ghost" id="b-int-no" type="button">Sin intención</button>
+      </div>
+
+      <div class="grupo">
+        <h3>Muerte y resurrección</h3>
+        <button class="btn btn-red" id="b-muere-e" type="button">Muere el enemigo</button>
+        <button class="btn btn-red" id="b-muere-h" type="button">Muere el héroe</button>
+        <button class="btn btn-verde" id="b-revive" type="button">Revivir a los dos</button>
+      </div>
+
+      <div class="grupo">
+        <h3>Equipo del héroe (se nota en el modelo)</h3>
+        <label>Espada <select class="eq" data-tipo="Espada"></select></label>
+        <label>Escudo <select class="eq" data-tipo="Escudo"></select></label>
+        <label>Casco <select class="eq" data-tipo="Casco"></select></label>
+        <label>Armadura <select class="eq" data-tipo="Armadura"></select></label>
+        <label>Botas <select class="eq" data-tipo="Botas"></select></label>
+        <button class="btn btn-gold" id="b-legendario" type="button">Todo legendario</button>
+        <button class="btn btn-ghost" id="b-desnudo" type="button">Sin nada</button>
+      </div>
+
+      <div class="grupo">
+        <h3>Cosméticos</h3>
+        <label>Tinte <select class="cos" data-ranura="color"><option value="">—</option><option value="1">rojo</option><option value="2">verde</option><option value="3">morado</option></select></label>
+        <label>Sombrero <select class="cos" data-ranura="sombrero"><option value="">—</option><option value="4">pico</option><option value="5">corona</option><option value="6">cuernos</option></select></label>
+        <label>Capa <select class="cos" data-ranura="capa"><option value="">—</option><option value="7">granate</option><option value="8">azul</option><option value="9">morada</option></select></label>
+        <label>Aura <select class="cos" data-ranura="aura"><option value="">—</option><option value="10">cian</option><option value="11">oro</option></select></label>
+        <label>Mascota <select class="cos" data-ranura="mascota"><option value="">—</option><option value="12">chispa</option><option value="13">hada</option></select></label>
+      </div>
+
+      <div class="grupo">
+        <h3>Cámara y escena</h3>
+        <button class="btn btn-ghost" id="b-sacudir" type="button">Sacudir</button>
+        <button class="btn btn-ghost" id="b-destello" type="button">Destello</button>
+        <button class="btn btn-ghost" id="b-rotulo" type="button">Rótulo suelto</button>
+        <button class="btn btn-ghost" id="b-hitstop" type="button">Hit-stop</button>
+      </div>
+
+      <div class="grupo">
+        <h3>Rendimiento y memoria</h3>
+        <label>Calidad <select id="sel-calidad"><option value="">detectar</option><option value="alto">alto</option><option value="medio">medio</option><option value="bajo">bajo</option></select></label>
+        <button class="btn btn-ghost" id="b-remontar" type="button">Volver a montar</button>
+        <button class="btn btn-ghost" id="b-desmontar" type="button">Desmontar (liberar GPU)</button>
+        <button class="btn btn-gold" id="b-estres" type="button">Prueba de esfuerzo (10 s)</button>
+      </div>
+
+      <div class="grupo">
+        <h3>Combate completo</h3>
+        <button class="btn btn-gold btn-grande" id="b-combate" type="button">⚔️ Simular un combate</button>
+        <button class="btn btn-ghost" id="b-parar" type="button">Parar</button>
+      </div>
+
+      <p class="nota">
+        Esta página no usa wallet ni servidor. three.js se descarga del CDN con un
+        <code>import()</code> de la URL completa: no hay importmap y no se toca ningún HTML del juego.
+        Todo lo que se ve está generado por código con geometrías de three.js.
+      </p>
+    </section>
+  </main>
+
+  <script type="module">
+    import * as R3D from "./js/render3d/escena3d.js";
+    import { CLAVES_3D } from "./js/render3d/criaturas.js";
+    import { BESTIARIO } from "./js/combat.js";
+    // El bestiario manda: salen las 20 criaturas del juego más el jefe propio del motor.
+    const TODAS = [...BESTIARIO.map((b) => b.clave), "jefe"];
+    import { conectarBotonSonido, desbloquear } from "./js/audio.js";
+
+    const $ = (s) => document.querySelector(s);
+    const escena = $("#escena");
+    const log = $("#log");
+    const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+    let cancelar = false;
+
+    function apunte(txt) {
+      const li = document.createElement("li");
+      li.textContent = txt;
+      log.prepend(li);
+      while (log.children.length > 40) log.lastElementChild.remove();
+    }
+
+    // ── Estado de la demo ──
+    const NOMBRES = Object.fromEntries(BESTIARIO.map((b) => [b.clave, b]));
+    const equipo = { Espada: null, Escudo: null, Casco: null, Armadura: null, Botas: null };
+    const apariencia = { color: null, sombrero: null, capa: null, aura: null, mascota: null };
+    const vidas = { heroe: { v: 100, max: 100 }, enemigo: { v: 60, max: 60 } };
+
+    // ── Rellenar los selectores ──
+    for (const clave of TODAS) {
+      const o = document.createElement("option");
+      o.value = clave;
+      const b = NOMBRES[clave];
+      const propia = CLAVES_3D.includes(clave) ? "" : ` · por silueta (${b?.silueta})`;
+      o.textContent = (b?.nombre ?? "Caudillo (jefe propio del motor)") + propia;
+      $("#sel-enemigo").append(o);
+    }
+    for (const sel of document.querySelectorAll("select.eq")) {
+      for (const [v, t] of [["", "— nada —"], ["0", "común"], ["1", "raro"], ["2", "legendario"]]) {
+        const o = document.createElement("option");
+        o.value = v; o.textContent = t;
+        sel.append(o);
+      }
+    }
+
+    const equipados = () => Object.entries(equipo).filter(([, r]) => r != null).map(([tipo, rareza]) => ({ tipo, rareza }));
+    const pintarHeroe = () => R3D.actualizarHeroe(equipados(), { ...apariencia });
+
+    // ── Montaje ──
+    conectarBotonSonido($("#btn-sonido"));
+    document.addEventListener("pointerdown", () => desbloquear(), { once: true });
+
+    function montar() {
+      const cal = $("#sel-calidad").value || undefined;
+      R3D.montarEscena(escena, { auto: false, calidad: cal, alAviso: (m) => apunte(`⚠ ${m}`) });
+      $("#chip-ver").textContent = `three.js ${R3D.TRES_REVISION}`;
+      R3D.listo().then(() => {
+        $("#chip-cal").textContent = `calidad ${R3D.calidad()}`;
+        apunte(`Escena 3D lista · three.js ${R3D.TRES_VERSION} · calidad ${R3D.calidad()}`);
+        pintarHeroe();
+        R3D.actualizarVida("heroe", vidas.heroe.v, vidas.heroe.max);
+        aparecer();
+      }).catch((e) => apunte(`No se pudo arrancar el 3D: ${e.message}`));
+    }
+    montar();
+
+    setInterval(() => {
+      const r = R3D.rendimiento();
+      if (!r) return;
+      const c = r.fps >= 55 ? "bien" : r.fps >= 40 ? "regular" : "mal";
+      $("#m-fps").textContent = r.fps; $("#m-fps").className = c;
+      $("#m-peor").textContent = r.peor || "—";
+      $("#m-mejor").textContent = r.mejor || "—";
+      $("#m-tiron").textContent = r.peorFotogramaMs || "—";
+      $("#m-fot").textContent = r.fotogramas;
+      $("#chip-cal").textContent = `calidad ${r.calidad}`;
+    }, 400);
+
+    // ── Enemigo ──
+    function aparecer() {
+      const clave = $("#sel-enemigo").value;
+      const jefe = $("#chk-jefe").checked;
+      const base = NOMBRES[clave];
+      const nombre = base?.nombre ?? "Caudillo de la Arena";
+      const e = { clave, nombre, emoji: base?.emoji ?? "👑", nivel: jefe ? 8 : 3, jefe, titulo: base?.titulo };
+      vidas.enemigo = { v: jefe ? 180 : 60, max: jefe ? 180 : 60 };
+      R3D.mostrarEnemigo(e);
+      $("#f-enemigo").classList.remove("vacio");
+      $("#f-enemigo .f-name").textContent = `${nombre} · Nv. ${e.nivel}`;
+      $("#f-enemigo .f-stats").textContent = jefe ? "👑 Jefe · 2 fases" : base?.rasgo ?? "";
+      R3D.actualizarVida("enemigo", vidas.enemigo.v, vidas.enemigo.max);
+      apunte(`Aparece ${nombre}${jefe ? " (jefe)" : ""}`);
+    }
+    $("#b-aparecer").onclick = aparecer;
+    $("#sel-enemigo").onchange = aparecer;
+    $("#chk-jefe").onchange = aparecer;
+    $("#b-vaciar").onclick = () => {
+      R3D.mostrarEnemigo(null);
+      $("#f-enemigo").classList.add("vacio");
+      $("#f-enemigo .f-name").textContent = "Arena vacía";
+      apunte("Arena vacía");
+    };
+    $("#b-desfile").onclick = async () => {
+      cancelar = false;
+      for (const clave of TODAS) {
+        if (cancelar) return;
+        $("#sel-enemigo").value = clave;
+        $("#chk-jefe").checked = clave === "jefe";
+        aparecer();
+        await esperar(1200);
+      }
+    };
+
+    // ── Ataques y golpes ──
+    const mods = () => ({ critico: $("#chk-crit").checked, brutal: $("#chk-brutal").checked });
+    $("#b-at-h").onclick = async () => { await R3D.animarAtaque("heroe", mods()); apunte("Impacto del héroe"); };
+    $("#b-at-e").onclick = async () => { await R3D.animarAtaque("enemigo", mods()); apunte("Impacto del enemigo"); };
+
+    const obj = () => $("#sel-objetivo").value;
+    function restarVida(quien, n) {
+      const v = vidas[quien];
+      v.v = Math.max(0, v.v - n);
+      R3D.actualizarVida(quien, v.v, v.max);
+    }
+    $("#b-g-normal").onclick = () => { R3D.animarGolpe(obj(), 18); restarVida(obj(), 18); };
+    $("#b-g-crit").onclick = () => { R3D.animarGolpe(obj(), 42, { critico: true }); restarVida(obj(), 42); };
+    $("#b-g-bloq").onclick = () => { R3D.animarGolpe(obj(), 4, { bloqueado: true }); restarVida(obj(), 4); };
+    $("#b-g-esq").onclick = () => R3D.animarGolpe(obj(), 0, { esquivado: true });
+    $("#b-cura").onclick = () => {
+      const v = vidas[obj()];
+      v.v = Math.min(v.max, v.v + 25);
+      R3D.animarCuracion(obj(), 25);
+      R3D.actualizarVida(obj(), v.v, v.max);
+    };
+
+    // ── Estados e intención ──
+    $("#b-est-veneno").onclick = () => R3D.mostrarEstado(obj(), [{ tipo: "veneno", turnos: 3 }]);
+    $("#b-est-escudo").onclick = () => R3D.mostrarEstado(obj(), [{ tipo: "escudo", valor: 12 }]);
+    $("#b-est-furia").onclick = () => R3D.mostrarEstado(obj(), [{ tipo: "furia", turnos: 2 }, { tipo: "sangrado", turnos: 3 }]);
+    $("#b-est-nada").onclick = () => R3D.mostrarEstado(obj(), []);
+    $("#b-int").onclick = () => R3D.mostrarIntencion({ tipo: "cargar", texto: "Carga un golpe brutal", icono: "💥", definitiva: true });
+    $("#b-int-no").onclick = () => R3D.mostrarIntencion(null);
+
+    // ── Muerte ──
+    $("#b-muere-e").onclick = async () => { await R3D.animarMuerte("enemigo"); R3D.actualizarVida("enemigo", 0, vidas.enemigo.max); apunte("El enemigo cae"); };
+    $("#b-muere-h").onclick = async () => { await R3D.animarMuerte("heroe"); R3D.actualizarVida("heroe", 0, vidas.heroe.max); apunte("El héroe cae"); };
+    $("#b-revive").onclick = () => {
+      R3D.revivir("heroe"); R3D.revivir("enemigo");
+      vidas.heroe = { v: 100, max: 100 };
+      R3D.actualizarVida("heroe", 100, 100);
+      R3D.actualizarVida("enemigo", vidas.enemigo.max, vidas.enemigo.max);
+      vidas.enemigo.v = vidas.enemigo.max;
+      apunte("Los dos en pie");
+    };
+
+    // ── Equipo y cosméticos ──
+    for (const sel of document.querySelectorAll("select.eq")) {
+      sel.onchange = () => { equipo[sel.dataset.tipo] = sel.value === "" ? null : Number(sel.value); pintarHeroe(); };
+    }
+    for (const sel of document.querySelectorAll("select.cos")) {
+      sel.onchange = () => { apariencia[sel.dataset.ranura] = sel.value === "" ? null : Number(sel.value); pintarHeroe(); };
+    }
+    $("#b-legendario").onclick = () => {
+      for (const sel of document.querySelectorAll("select.eq")) { sel.value = "2"; equipo[sel.dataset.tipo] = 2; }
+      pintarHeroe();
+      apunte("Héroe con todo legendario");
+    };
+    $("#b-desnudo").onclick = () => {
+      for (const sel of document.querySelectorAll("select.eq")) { sel.value = ""; equipo[sel.dataset.tipo] = null; }
+      pintarHeroe();
+      apunte("Héroe sin equipo");
+    };
+
+    // ── Cámara y escena ──
+    $("#b-sacudir").onclick = () => R3D.sacudir(14, 480);
+    $("#b-destello").onclick = () => R3D.destello(0xfff2c4, 0.5, 320);
+    $("#b-rotulo").onclick = () => R3D.numeroFlotante(obj(), "¡Toma!", "info");
+    $("#b-hitstop").onclick = () => R3D.hitStop(220);
+
+    // ── Rendimiento ──
+    $("#sel-calidad").onchange = () => { R3D.desmontar(); montar(); };
+    $("#b-remontar").onclick = () => { R3D.desmontar(); montar(); };
+    $("#b-desmontar").onclick = () => { R3D.desmontar(); apunte("Escena desmontada: contexto WebGL y memoria de GPU liberados"); };
+    $("#b-estres").onclick = async () => {
+      cancelar = false;
+      apunte("Prueba de esfuerzo: 10 s de golpes seguidos");
+      const fin = performance.now() + 10000;
+      while (performance.now() < fin && !cancelar) {
+        R3D.animarGolpe("enemigo", 99, { critico: true });
+        R3D.animarGolpe("heroe", 77, { critico: true });
+        await esperar(120);
+      }
+      const r = R3D.rendimiento();
+      apunte(`Esfuerzo terminado · ahora ${r.fps} fps · peor ${r.peor} · peor fotograma ${r.peorFotogramaMs} ms`);
+    };
+
+    // ── Combate simulado completo ──
+    $("#b-parar").onclick = () => { cancelar = true; };
+    $("#b-combate").onclick = async () => {
+      cancelar = false;
+      $("#b-combate").disabled = true;
+      try {
+        R3D.revivir("heroe"); R3D.revivir("enemigo");
+        vidas.heroe = { v: 100, max: 100 };
+        aparecer();
+        R3D.actualizarVida("heroe", 100, 100);
+        await esperar(900);
+        let turno = 0;
+        while (vidas.heroe.v > 0 && vidas.enemigo.v > 0 && !cancelar) {
+          turno++;
+          const deHeroe = turno % 2 === 1;
+          const quien = deHeroe ? "heroe" : "enemigo";
+          const victima = deHeroe ? "enemigo" : "heroe";
+          const r = Math.random();
+          if (!deHeroe) R3D.mostrarIntencion(null);
+
+          if (r < 0.12) {                                     // esquiva
+            await R3D.animarAtaque(quien, {});
+            await R3D.animarGolpe(victima, 0, { esquivado: true });
+            apunte(`Turno ${turno}: esquiva`);
+          } else if (r < 0.24) {                              // bloqueo
+            await R3D.animarAtaque(quien, {});
+            const d = 3 + Math.floor(Math.random() * 5);
+            await R3D.animarGolpe(victima, d, { bloqueado: true });
+            restarVida(victima, d);
+            apunte(`Turno ${turno}: bloqueado (−${d})`);
+          } else {
+            const critico = r > 0.82;
+            const brutal = !deHeroe && r > 0.95;
+            await R3D.animarAtaque(quien, { critico, brutal });
+            const d = Math.round((critico ? 26 : 12) * (0.85 + Math.random() * 0.4)) * (brutal ? 2 : 1);
+            await R3D.animarGolpe(victima, d, { critico });
+            restarVida(victima, d);
+            apunte(`Turno ${turno}: ${critico ? "¡crítico! " : ""}−${d}`);
+          }
+
+          if (turno === 4) R3D.mostrarEstado("enemigo", [{ tipo: "veneno", turnos: 3 }]);
+          if (turno === 6 && vidas.heroe.v < 70) {
+            vidas.heroe.v = Math.min(100, vidas.heroe.v + 25);
+            R3D.animarCuracion("heroe", 25);
+            R3D.actualizarVida("heroe", vidas.heroe.v, 100);
+          }
+          if (deHeroe && vidas.enemigo.v > 0) {
+            R3D.mostrarIntencion({ tipo: Math.random() < 0.3 ? "cargar" : "atacar", texto: Math.random() < 0.3 ? "Prepara un golpe" : "Va a atacar", icono: "⚔️" });
+          }
+          await esperar(260);
+        }
+        if (cancelar) { apunte("Combate detenido"); return; }
+        R3D.mostrarIntencion(null);
+        const gana = vidas.enemigo.v <= 0;
+        await R3D.animarMuerte(gana ? "enemigo" : "heroe");
+        R3D.mostrarEstado("enemigo", []);
+        apunte(gana ? "¡Victoria! El enemigo se disuelve" : "Derrota: el héroe cae");
+      } finally {
+        $("#b-combate").disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>

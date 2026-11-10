@@ -11,6 +11,8 @@
  * @property {string} descripcion
  * @property {boolean} [especial]   desbloqueada por un Legendario
  * @property {string} [tipoObjeto]  tipo de objeto Legendario que la desbloquea
+ * @property {number} [nivelHeroe]  nivel de héroe que la desbloquea (ver NIVEL_HABILIDAD)
+ * @property {string} [animacion3d] animación para el motor 3D (valor de combat.VALORES_3D.ataque)
  * // Campos de efecto (los interpreta combat.js):
  * @property {number} [mult]            multiplicador de daño (si falta, no golpea)
  * @property {boolean} [imparable]      no se puede esquivar
@@ -22,28 +24,44 @@
  * @property {boolean} [limpia]         elimina veneno, sangrado y aturdido del héroe
  */
 
-/** Habilidades básicas que tiene cualquier héroe (además de Atacar/Defender/Poción). */
+/** Habilidades del héroe: 3 básicas, 3 que se desbloquean por nivel y 5 especiales de Legendario. */
 export const HABILIDADES = Object.freeze({
   golpe_poderoso: Object.freeze({
     id: "golpe_poderoso", nombre: "Golpe Poderoso", icono: "💥", enfriamiento: 3,
     descripcion: "Un golpe devastador: ×1,8 de daño.",
-    mult: 1.8,
+    mult: 1.8, animacion3d: "arma",
   }),
   desangrar: Object.freeze({
     id: "desangrar", nombre: "Desangrar", icono: "🩸", enfriamiento: 3,
     descripcion: "Tajo ×0,8 que provoca sangrado 3 turnos.",
-    mult: 0.8, estadoEnemigo: Object.freeze({ tipo: "sangrado", turnos: 3, pct: 0.3 }),
+    mult: 0.8, estadoEnemigo: Object.freeze({ tipo: "sangrado", turnos: 3, pct: 0.3 }), animacion3d: "arma",
   }),
   grito_guerra: Object.freeze({
     id: "grito_guerra", nombre: "Grito de guerra", icono: "📯", enfriamiento: 4,
     descripcion: "+40 % de ataque durante 2 turnos (no ataca este turno).",
-    estadosPropios: Object.freeze([Object.freeze({ tipo: "furia", turnos: 2, valor: 0.4 })]),
+    estadosPropios: Object.freeze([Object.freeze({ tipo: "furia", turnos: 2, valor: 0.4 })]), animacion3d: "apoyo",
+  }),
+  // ── Por nivel de héroe (ver NIVEL_HABILIDAD) ──
+  estocada_precisa: Object.freeze({
+    id: "estocada_precisa", nombre: "Estocada Precisa", icono: "🗡️", enfriamiento: 3, nivelHeroe: 5,
+    descripcion: "Golpe ×1,2 imposible de esquivar, +15 % de crítico. Nivel 5.",
+    mult: 1.2, imparable: true, criticoExtra: 0.15, animacion3d: "arma",
+  }),
+  segundo_aliento: Object.freeze({
+    id: "segundo_aliento", nombre: "Segundo Aliento", icono: "💚", enfriamiento: 5, nivelHeroe: 10,
+    descripcion: "Recuperas el 26 % de tu vida y te libras de veneno, sangrado y aturdimiento. Nivel 10.",
+    curaPct: 0.26, limpia: true, animacion3d: "apoyo",
+  }),
+  rompearmaduras: Object.freeze({
+    id: "rompearmaduras", nombre: "Rompearmaduras", icono: "🔨", enfriamiento: 4, nivelHeroe: 15,
+    descripcion: "Mazazo ×1,4 que rompe la armadura del enemigo: −35 % de defensa durante 3 turnos. Nivel 15.",
+    mult: 1.4, estadoEnemigo: Object.freeze({ tipo: "fragil", turnos: 3, valor: 0.35 }), animacion3d: "embestida",
   }),
   // ── Especiales (una por tipo de objeto Legendario) ──
   tajo_celestial: Object.freeze({
     id: "tajo_celestial", nombre: "Tajo Celestial", icono: "✨", enfriamiento: 5, especial: true, tipoObjeto: "Espada",
     descripcion: "Golpe sagrado ×2,5 imposible de esquivar, +25 % de crítico.",
-    mult: 2.5, imparable: true, criticoExtra: 0.25,
+    mult: 2.5, imparable: true, criticoExtra: 0.25, animacion3d: "arma",
   }),
   muro_de_fe: Object.freeze({
     id: "muro_de_fe", nombre: "Muro de Fe", icono: "🛡️", enfriamiento: 5, especial: true, tipoObjeto: "Escudo",
@@ -51,27 +69,56 @@ export const HABILIDADES = Object.freeze({
     estadosPropios: Object.freeze([
       Object.freeze({ tipo: "escudo", turnos: 2, pct: 0.3 }),
       Object.freeze({ tipo: "reflejo", turnos: 2, valor: 0.5 }),
-    ]),
+    ]), animacion3d: "guardia",
   }),
   mente_ferrea: Object.freeze({
     id: "mente_ferrea", nombre: "Mente Férrea", icono: "🧠", enfriamiento: 5, especial: true, tipoObjeto: "Casco",
     descripcion: "Te libra de veneno, sangrado y aturdimiento y aturde al enemigo con un golpe ×1.",
-    mult: 1, limpia: true, estadoEnemigo: Object.freeze({ tipo: "aturdido", turnos: 1 }),
+    mult: 1, limpia: true, estadoEnemigo: Object.freeze({ tipo: "aturdido", turnos: 1 }), animacion3d: "conjuro",
   }),
   piel_de_dragon: Object.freeze({
     id: "piel_de_dragon", nombre: "Piel de Dragón", icono: "🐲", enfriamiento: 5, especial: true, tipoObjeto: "Armadura",
     descripcion: "Cura el 25 % de tu vida y te cubre con un escudo del 20 % durante 2 turnos.",
-    curaPct: 0.25, estadosPropios: Object.freeze([Object.freeze({ tipo: "escudo", turnos: 2, pct: 0.2 })]),
+    curaPct: 0.25, estadosPropios: Object.freeze([Object.freeze({ tipo: "escudo", turnos: 2, pct: 0.2 })]), animacion3d: "apoyo",
   }),
   paso_sombrio: Object.freeze({
     id: "paso_sombrio", nombre: "Paso Sombrío", icono: "👣", enfriamiento: 4, especial: true, tipoObjeto: "Botas",
     descripcion: "Crítico garantizado ×1,5 y esquivas el próximo ataque enemigo.",
-    mult: 1.5, siempreCritico: true, estadosPropios: Object.freeze([Object.freeze({ tipo: "evasion", turnos: 1 })]),
+    mult: 1.5, siempreCritico: true, estadosPropios: Object.freeze([Object.freeze({ tipo: "evasion", turnos: 1 })]), animacion3d: "garra",
   }),
 });
 
 /** Ids de las habilidades básicas, en el orden en que se muestran. */
 export const HABILIDADES_BASE = Object.freeze(["golpe_poderoso", "desangrar", "grito_guerra"]);
+
+/**
+ * Habilidades que se desbloquean al subir de nivel de héroe, en orden de nivel.
+ * Son la recompensa de progresar sin equipo NFT: el héroe gana herramientas, no solo números.
+ */
+export const HABILIDADES_POR_NIVEL = Object.freeze(["estocada_precisa", "segundo_aliento", "rompearmaduras"]);
+
+/** id de habilidad → nivel de héroe que la desbloquea. */
+export const NIVEL_HABILIDAD = Object.freeze(Object.fromEntries(
+  HABILIDADES_POR_NIVEL.map((id) => [id, HABILIDADES[id].nivelHeroe]),
+));
+
+/**
+ * Ids de las habilidades por nivel ya desbloqueadas con `nivel`.
+ * @param {number} [nivel] nivel de héroe (1 por defecto: solo las básicas)
+ */
+export function habilidadesDeNivel(nivel = 1) {
+  const n = Math.max(1, Math.floor(Number(nivel) || 1));
+  return HABILIDADES_POR_NIVEL.filter((id) => n >= NIVEL_HABILIDAD[id]);
+}
+
+/** La próxima habilidad por nivel que falta (o null si ya están todas): `{id, nombre, icono, nivel}`. */
+export function proximaHabilidad(nivel = 1) {
+  const n = Math.max(1, Math.floor(Number(nivel) || 1));
+  const id = HABILIDADES_POR_NIVEL.find((x) => n < NIVEL_HABILIDAD[x]);
+  if (!id) return null;
+  const d = HABILIDADES[id];
+  return { id, nombre: d.nombre, icono: d.icono, nivel: d.nivelHeroe };
+}
 
 /** Tipo de objeto Legendario → id de su habilidad especial. */
 export const ESPECIAL_POR_TIPO = Object.freeze({
@@ -102,13 +149,15 @@ export function habilidadEspecial(equipados = []) {
 }
 
 /**
- * Ids de las habilidades del héroe según el equipo: las 3 básicas + (opcional) la especial.
+ * Ids de las habilidades del héroe: las 3 básicas + las desbloqueadas por nivel + (opcional) la especial.
  * @param {Array<object>} equipados objetos equipados
+ * @param {number} [nivel] nivel de héroe (1 por defecto: solo las básicas)
  * @returns {string[]}
  */
-export function idsHabilidades(equipados = []) {
+export function idsHabilidades(equipados = [], nivel = 1) {
   const esp = habilidadEspecial(equipados);
-  return esp ? [...HABILIDADES_BASE, esp] : [...HABILIDADES_BASE];
+  const ids = [...HABILIDADES_BASE, ...habilidadesDeNivel(nivel)];
+  return esp ? [...ids, esp] : ids;
 }
 
 /**
@@ -124,7 +173,7 @@ export function idsHabilidades(equipados = []) {
 export function habilidadesDisponibles(heroe, equipados = []) {
   const propias = Array.isArray(heroe?.habilidades) && heroe.habilidades.length
     ? heroe.habilidades.map((h) => (typeof h === "string" ? { id: h, restante: 0 } : h))
-    : idsHabilidades(equipados).map((id) => ({ id, restante: 0 }));
+    : idsHabilidades(equipados, heroe?.nivel ?? 1).map((id) => ({ id, restante: 0 }));
   return propias
     .filter((h) => habilidad(h.id))
     .map(({ id, restante = 0 }) => {

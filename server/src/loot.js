@@ -3,8 +3,8 @@
 // Todas las funciones exportadas son PURAS y reciben un RNG inyectable
 // `rng: () => number` en [0, 1) para poder testear de forma determinista.
 // El único estado (pity por dirección y último nombre legendario) vive en
-// `EstadoBotin`, que es una clase aparte y en memoria (Render reinicia a veces,
-// y está bien que se pierda).
+// `EstadoBotin`, que es una clase aparte. Desde la 1.4 se persiste con la capa
+// `almacen.js`, así que el pity ya no se reinicia cada vez que Render duerme.
 //
 // El contrato NO cambia: un objeto sigue siendo
 // { nombre: string, tipo: Espada|Escudo|Casco|Armadura|Botas, rareza: 0..2, ataque: uint16, defensa: uint16 }.
@@ -329,10 +329,35 @@ export function tirarLoot(rng = Math.random, { dropChance = 0.6, ...opts } = {})
  * Acotado a `maxDirecciones` entradas (se olvida la menos reciente).
  */
 export class EstadoBotin {
-  constructor({ maxDirecciones = 10_000 } = {}) {
+  constructor({ maxDirecciones = 10_000, alCambiar = null } = {}) {
     this.maxDirecciones = maxDirecciones;
     this.contadores = new Map();
     this.ultimoLegendario = null;
+    /** Lo pone `persistencia.conectar`; se llama tras cada cambio. */
+    this.alCambiar = alCambiar;
+  }
+
+  /** Estado completo, serializable a JSON (para el almacén). */
+  instantanea() {
+    return { v: 1, contadores: [...this.contadores], ultimoLegendario: this.ultimoLegendario };
+  }
+
+  /** Vuelca una instantánea. Ignora entradas con forma rara en vez de fallar. */
+  restaurar(datos) {
+    if (!datos) return;
+    if (Array.isArray(datos.contadores)) {
+      this.contadores.clear();
+      for (const fila of datos.contadores) {
+        if (!Array.isArray(fila) || fila.length < 2) continue;
+        const [direccion, n] = fila;
+        if (typeof direccion !== 'string' || !Number.isInteger(n) || n < 0) continue;
+        if (this.contadores.size >= this.maxDirecciones) break;
+        this.contadores.set(direccion, n);
+      }
+    }
+    if (typeof datos.ultimoLegendario === 'string' || datos.ultimoLegendario === null) {
+      this.ultimoLegendario = datos.ultimoLegendario;
+    }
   }
 
   /** Drops seguidos sin Legendario de esta dirección. */
@@ -355,6 +380,7 @@ export class EstadoBotin {
       this.contadores.delete(this.contadores.keys().next().value);
     }
     this.contadores.set(direccion, n);
+    this.alCambiar?.();
   }
 }
 
@@ -369,15 +395,36 @@ export function tirarPrimerBotin(rng = Math.random, opts = {}) {
 }
 
 /**
- * Direcciones que ya recibieron su primer botín. EN MEMORIA: se pierde al
- * reiniciar el servidor (tras un reinicio, la siguiente victoria de cada
- * dirección vuelve a ser Rara). Acotado a `maxDirecciones` (se olvida la más antigua).
+ * Direcciones que ya recibieron su primer botín. Acotado a `maxDirecciones`
+ * (se olvida la más antigua).
+ *
+ * Se persiste (ver `almacen.js`): con `ALMACEN=upstash` ya no se regala un Raro de
+ * más tras cada reinicio. `enCurso` NO se guarda: es un apaño para peticiones
+ * simultáneas del mismo proceso y no significa nada tras reiniciar.
  */
 export class RegistroPrimerBotin {
-  constructor({ maxDirecciones = 100_000 } = {}) {
+  constructor({ maxDirecciones = 100_000, alCambiar = null } = {}) {
     this.maxDirecciones = maxDirecciones;
     this.entregados = new Set();
     this.enCurso = new Set();
+    /** Lo pone `persistencia.conectar`; se llama tras cada cambio. */
+    this.alCambiar = alCambiar;
+  }
+
+  /** Estado completo, serializable a JSON (para el almacén). */
+  instantanea() {
+    return { v: 1, entregados: [...this.entregados] };
+  }
+
+  /** Vuelca una instantánea. Ignora entradas con forma rara en vez de fallar. */
+  restaurar(datos) {
+    if (!datos || !Array.isArray(datos.entregados)) return;
+    this.entregados.clear();
+    for (const direccion of datos.entregados) {
+      if (typeof direccion !== 'string') continue;
+      if (this.entregados.size >= this.maxDirecciones) break;
+      this.entregados.add(direccion);
+    }
   }
 
   /** ¿Le toca el primer botín? Si sí, lo aparta (llama luego a confirmar o liberar). */
@@ -393,6 +440,7 @@ export class RegistroPrimerBotin {
       this.entregados.delete(this.entregados.values().next().value);
     }
     this.entregados.add(direccion);
+    this.alCambiar?.();
   }
 
   liberar(direccion) { this.enCurso.delete(direccion); }

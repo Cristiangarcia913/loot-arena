@@ -6,7 +6,9 @@
     "cosmeticos": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
     "mercado": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
     "recompensas": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
-    "bloqueDespliegue": 8
+    "bloqueDespliegue": 8,
+    "mercadoP2P": "0x0B306BF915C4d645ff596e518fAf3F9669b97016",
+    "bloqueMercadoP2P": 16
   },
   "sepolia": {
     "address": "0x32B89E29fACa1b1418B5802b6a2C7de71f3AdA2f",

@@ -103,13 +103,37 @@ export function oroWei(oro) {
 }
 
 /**
- * Racha diaria en memoria: `address → { racha, ultimoDia }`.
- * AVISO: se pierde al reiniciar el servidor (plan gratis de Render). Ver README.
+ * Racha diaria: `address → { racha, ultimoDia }`.
+ *
+ * Vive en memoria para que las rutas sean síncronas, pero se persiste: con
+ * `ALMACEN=upstash` sobrevive a los reinicios y a que Render duerma el servicio
+ * (ver `almacen.js` y `persistencia.js`). Sin almacén externo se pierde, como antes.
  */
 export class RegistroDiario {
-  constructor({ maxEntradas = 100_000 } = {}) {
+  constructor({ maxEntradas = 100_000, alCambiar = null } = {}) {
     this.maxEntradas = maxEntradas;
     this.reg = new Map();
+    /** Lo pone `persistencia.conectar`; se llama tras cada cambio. */
+    this.alCambiar = alCambiar;
+  }
+
+  /** Estado completo, serializable a JSON (para el almacén). */
+  instantanea() {
+    return { v: 1, reg: [...this.reg].map(([address, { racha, ultimoDia }]) => [address, racha, ultimoDia]) };
+  }
+
+  /** Vuelca una instantánea. Ignora entradas con forma rara en vez de fallar. */
+  restaurar(datos) {
+    if (!datos || !Array.isArray(datos.reg)) return;
+    this.reg.clear();
+    for (const fila of datos.reg) {
+      if (!Array.isArray(fila) || fila.length < 3) continue;
+      const [address, racha, ultimoDia] = fila;
+      if (typeof address !== 'string' || !Number.isInteger(racha) || racha < 0) continue;
+      if (typeof ultimoDia !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(ultimoDia)) continue;
+      if (this.reg.size >= this.maxEntradas) break;
+      this.reg.set(address, { racha, ultimoDia });
+    }
   }
 
   /**
@@ -137,6 +161,7 @@ export class RegistroDiario {
       this.reg.delete(this.reg.keys().next().value); // la más antigua
     }
     this.reg.set(address, { racha, ultimoDia: hoy });
+    this.alCambiar?.();
   }
 }
 
