@@ -43,15 +43,19 @@
 }
 .escena-3d .intencion { pointer-events: auto; }
 
-/* El HUD necesita fondo propio: debajo ya no hay un fondo plano, hay una arena con antorchas. */
+/* El HUD necesita fondo propio: debajo ya no hay un fondo plano, hay una arena con antorchas.
+   SIN desenfoque, y a propósito. `style.css` le pone `backdrop-filter: blur(2px)` al `.f-hud`, que
+   en 2D es gratis porque debajo hay una imagen quieta. En 3D el lienzo se repinta 60 veces por
+   segundo, así que el navegador tiene que recalcular ese desenfoque en CADA fotograma sobre toda
+   la arena. Medido en el juego a 1296×620: el render en sí cuesta 4 ms, pero el fotograma entero
+   se iba a 33 ms. Un fondo opaco se ve prácticamente igual y no cuesta nada.
+   Por eso aquí se APAGA el heredado, no solo se evita poner otro. */
 .escena-3d .f-hud {
-  background: color-mix(in srgb, #0c0806 72%, transparent);
-  backdrop-filter: blur(3px);
+  background: rgba(12, 8, 6, .88);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border-radius: 10px;
   padding: 6px 8px;
-}
-@supports not (backdrop-filter: blur(3px)) {
-  .escena-3d .f-hud { background: rgba(12, 8, 6, .86); }
 }
 
 /* El «VS» del centro estorba menos arriba. */
@@ -62,15 +66,17 @@
 }
 
 /* Aviso de rendimiento o de 3D no disponible: una cinta discreta abajo de la arena.
-   El texto lo pone `escena3d.js` en `data-r3d-aviso`, así que no hay que tocar el HTML. */
-.escena-3d.r3d-con-aviso::after {
-  content: attr(data-r3d-aviso);
+   Es un ELEMENTO de verdad, no un `::after` con `content: attr(...)`. Con el pseudoelemento el
+   texto no está en el DOM: no lo lee un lector de pantalla, no sale al buscar en la página y no
+   hay forma de comprobar desde fuera si el aviso saltó o no. */
+.escena-3d .r3d-aviso {
   position: absolute;
   left: 50%;
   bottom: 6px;
   transform: translateX(-50%);
   z-index: 6;
   max-width: min(92%, 460px);
+  margin: 0;
   padding: 5px 11px;
   border-radius: 999px;
   font-size: .78rem;
@@ -81,6 +87,7 @@
   border: 1px solid rgba(253, 230, 138, .35);
   pointer-events: none;
 }
+.escena-3d .r3d-aviso[hidden] { display: none; }
 
 /* ───── Barra de la demo (`render3d-demo.html`). No se usa en el juego. ───── */
 

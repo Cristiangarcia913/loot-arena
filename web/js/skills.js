@@ -171,7 +171,10 @@ export function idsHabilidades(equipados = [], nivel = 1) {
  * @returns {Array<{id:string, nombre:string, icono:string, enfriamiento:number, restante:number, lista:boolean, especial:boolean, descripcion:string}>}
  */
 export function habilidadesDisponibles(heroe, equipados = []) {
-  const propias = Array.isArray(heroe?.habilidades) && heroe.habilidades.length
+  // Una lista vacía significa «este héroe no tiene habilidades» (p. ej. el modificador
+  // «Sin trucos» del desafío diario), no «no me han dicho nada»: solo se calculan a partir
+  // del equipo cuando el campo falta. Si no, se pintarían botones que al pulsarlos lanzan.
+  const propias = Array.isArray(heroe?.habilidades)
     ? heroe.habilidades.map((h) => (typeof h === "string" ? { id: h, restante: 0 } : h))
     : idsHabilidades(equipados, heroe?.nivel ?? 1).map((id) => ({ id, restante: 0 }));
   return propias

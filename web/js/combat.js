@@ -312,10 +312,34 @@ export function nivelEnemigo(nivelDeArena, rng = Math.random) {
   return clampNivel(clampNivel(nivelDeArena) + randInt(-1, 1, rng));
 }
 
+/**
+ * Escalado de los enemigos, antes de los mods de la criatura. Se define por los DOS EXTREMOS
+ * (nivel 1 y nivel 10) y una curva con `exponente` que interpola los niveles de en medio.
+ *
+ * Con `exponente` 1 la curva es una recta. Con más de 1 sube despacio al principio y se
+ * acelera al final, que es lo que queremos: la arena 1 tiene que perdonar y el nivel 10 tiene
+ * que doler. Antes era una recta que arrancaba muy alta (ataque 16,3 en el nivel 1 contra los
+ * 10 del héroe recién llegado), así que quien solo pulsaba «Atacar» perdía su primer combate:
+ * 0,9 % de victorias en la arena 1. Los valores del nivel 10 son los de siempre, así que el
+ * reto de arriba y los jefes no cambian.
+ *
+ * Para reequilibrar, mover `nivel1` (lo acogedor que es el recibimiento), `nivel10` (el techo)
+ * y `exponente` (cómo de tarde llega la cuesta), y comprobar con `node tools/balance.mjs`.
+ */
+export const ESCALA_ENEMIGO = Object.freeze({
+  exponente: 1.45,
+  nivel1: Object.freeze({ vida: 82, ataque: 11.5, defensa: 2 }),
+  nivel10: Object.freeze({ vida: 156.6, ataque: 26.06, defensa: 7.21 }),
+});
+
 /** Estadísticas escaladas de un enemigo "estándar" de nivel n (antes de los mods de la criatura). */
 export function statsEnemigo(nivel) {
   const n = clampNivel(nivel);
-  return { vidaMax: 92 + 6 * n, ataque: 15.3 + 1.0 * n, defensa: 3 + 0.4 * n };
+  const { exponente, nivel1, nivel10 } = ESCALA_ENEMIGO;
+  // t va de 0 (nivel 1) a 1 (nivel 10) siguiendo la curva.
+  const t = (n ** exponente - 1) / (NIVEL_MAX ** exponente - 1);
+  const v = (k) => nivel1[k] + (nivel10[k] - nivel1[k]) * t;
+  return { vidaMax: v("vida"), ataque: v("ataque"), defensa: v("defensa") };
 }
 
 /**

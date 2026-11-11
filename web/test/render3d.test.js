@@ -8,8 +8,8 @@ import assert from "node:assert/strict";
 import { TRES_VERSION, TRES_REVISION, TRES_URLS, MSG_3D, soporta3d, cargarTres, _olvidar } from "../js/render3d/tres.js";
 import { hex, rareza3d, colorEnemigo, ENEMIGO_GENERICO, claveDeNombre, TEXTO, claseTexto } from "../js/render3d/paleta.js";
 import {
-  CALIDADES, ESCALERA, Medidor, Vigilante, bajarCalidad, subirCalidad,
-  detectarEquipo, duracion, movimientoReducido, nivelEquipo,
+  CALIDADES, DPR_MINIMO, ESCALERA, HUECO_DESCARTADO, HUECO_ESTRANGULADO, Medidor, Vigilante,
+  bajarCalidad, subirCalidad, detectarEquipo, duracion, movimientoReducido, nivelEquipo, pixelesPorCss,
 } from "../js/render3d/rendimiento.js";
 import { textoDeGolpe, altoTexto } from "../js/render3d/numeros.js";
 import { encuadre, distanciaCamara, CAMARA, MEDIO_PLANO, ANCHO_LUCHADOR, PUESTO_X, RADIO_ARENA } from "../js/render3d/escenario.js";
@@ -236,6 +236,98 @@ test("el Vigilante se rinde en vez de bajar la calidad sin fin", () => {
   assert.equal(paso(), "bajar");
   assert.equal(paso(), "bajar");
   assert.equal(paso(), "rendirse");
+});
+
+// ───────────────────────── Bajar la calidad cuando toca ─────────────────────────
+
+/** Reproduce una tanda de fotogramas y devuelve qué hizo el vigilante. */
+function simular({ fps, p95 = 0, peor = 0, segundos = 8, objetivo = 55 }) {
+  const m = new Medidor();
+  const v = new Vigilante({ objetivo });
+  const paso = 1000 / fps;
+  const acciones = [];
+  let t = 0, i = 0;
+  while (t < segundos * 1000) {
+    let dt = paso;
+    if (p95 && i % 20 === 7) dt = p95;
+    if (peor && i % 97 === 5) dt = peor;
+    t += dt;
+    i++;
+    if (dt > HUECO_DESCARTADO) { m.reiniciar(); v.desde = null; continue; }
+    const f = m.fotograma(t);
+    if (m.estable()) {
+      const r = v.revisar(f, t);
+      if (r !== "nada") acciones.push([r, Math.round(t)]);
+    }
+  }
+  return { acciones, medidor: m };
+}
+
+test("a 30 fps en el juego real, la calidad BAJA (y no una vez, sino hasta rendirse)", () => {
+  // Números medidos en el juego, no inventados: lienzo de 1296×620 en una Intel UHD daba
+  // 29,8 fps, p95 52,7 ms y un peor fotograma de 187 ms.
+  // Comprobado: con los umbrales anteriores la calidad TAMBIÉN bajaba, pero a los 4,7 s; ahora
+  // reacciona a los 2,7 s. Lo que fallaba de verdad no era esto (ver el informe): era que el aviso
+  // vivía en un `::after` y que bajar de «alto» a «medio» no quitaba ni un píxel.
+  const { acciones } = simular({ fps: 29.8, p95: 52.7, peor: 187 });
+  assert.ok(acciones.length >= 1, "no se bajó la calidad ni una vez");
+  assert.equal(acciones[0][0], "bajar");
+  assert.ok(acciones[0][1] < 4000, `tardó ${acciones[0][1]} ms en reaccionar; debería ser en 2-3 s`);
+  assert.ok(acciones.some(([a]) => a === "rendirse"), "si sigue mal, hay que avisar y dejar de bajar");
+});
+
+test("a 60 fps no se toca nada, aunque haya algún tirón suelto", () => {
+  const { acciones } = simular({ fps: 60, peor: 180 });
+  assert.deepEqual(acciones, [], "no se puede bajar la calidad a quien va bien");
+});
+
+test("una página estrangulada (1 fotograma por segundo) no cuenta como equipo lento", () => {
+  // Pestaña de fondo o panel oculto: el navegador da ~1 fps. Eso NO es un equipo lento.
+  const { acciones, medidor } = simular({ fps: 1 });
+  assert.deepEqual(acciones, [], "se bajó la calidad por estar en segundo plano");
+  assert.equal(medidor.estable(), false);
+});
+
+test("los dos umbrales de hueco son coherentes entre sí", () => {
+  assert.ok(HUECO_ESTRANGULADO < HUECO_DESCARTADO, "primero se deja de juzgar, luego se descarta");
+  assert.ok(HUECO_ESTRANGULADO > 200, "un tirón de 187 ms es un equipo lento, no un parón");
+  assert.ok(HUECO_DESCARTADO < 1000, "un hueco de 1 s sí es el navegador estrangulando");
+});
+
+// ───────────────────────── Resolución del lienzo ─────────────────────────
+
+test("bajar la calidad quita píxeles de verdad en una arena grande", () => {
+  // Regresión: con solo el tope de `dpr`, en una pantalla de 1,25 bajar de «alto» (tope 2) a
+  // «medio» (tope 1,5) no quitaba NI UN PÍXEL, porque 1,25 ya estaba por debajo de los dos.
+  const w = 1296, h = 620, pantalla = 1.25;
+  const px = (cal) => { const d = pixelesPorCss(w, h, CALIDADES[cal], pantalla); return w * h * d * d; };
+  assert.ok(px("medio") < px("alto") * 0.8, `«medio» apenas ahorra: ${Math.round(px("medio"))} frente a ${Math.round(px("alto"))}`);
+  assert.ok(px("bajo") < px("medio") * 0.7, "«bajo» tiene que ahorrar mucho más");
+  assert.ok(px("bajo") < 600000, "en el perfil mínimo no se pueden pintar más de 0,6 Mpx");
+});
+
+test("en una arena pequeña el presupuesto no estropea la nitidez", () => {
+  // La demo (514×430) cabe de sobra en el presupuesto: ahí no hay que recortar nada.
+  assert.equal(pixelesPorCss(514, 430, CALIDADES.alto, 1.25), 1.25);
+  assert.equal(pixelesPorCss(514, 430, CALIDADES.alto, 2), 2);
+});
+
+test("la resolución nunca baja tanto que se vea a cuadros", () => {
+  for (const cal of ESCALERA) {
+    const d = pixelesPorCss(4000, 2500, CALIDADES[cal], 3);
+    assert.ok(d >= DPR_MINIMO, `${cal} baja a ${d}, por debajo del mínimo`);
+  }
+});
+
+test("pixelesPorCss aguanta tamaños imposibles", () => {
+  for (const [w, h] of [[0, 0], [-5, 10], [NaN, 100]]) {
+    const d = pixelesPorCss(w, h, CALIDADES.alto, 1);
+    assert.ok(Number.isFinite(d) && d > 0, `${w}x${h} da ${d}`);
+  }
+});
+
+test("quien monta la escena puede pedir su propio tope de resolución", () => {
+  assert.ok(pixelesPorCss(800, 600, CALIDADES.alto, 3, 1) <= 1);
 });
 
 // ───────────────────────── Movimiento reducido ─────────────────────────

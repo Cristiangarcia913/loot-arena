@@ -20,9 +20,14 @@ export const TORRE = Object.freeze({
   curaEntrePisos: 0.2,
   /** Pisos por cada nivel de enemigo (1..10). */
   pisosPorNivel: 3,
-  /** Multiplicadores de vida y ataque enemigos: empiezan bajos (la vida no se recupera del todo) y crecen por piso. */
+  /**
+   * Multiplicadores de vida y ataque enemigos: empiezan bajos (la vida no se recupera del todo)
+   * y crecen por piso. `factorAtaque.inicial` subió de 0,5 a 0,64 cuando se suavizó la curva de
+   * `ESCALA_ENEMIGO` (combat.js) para arreglar el recibimiento: los pisos bajos se volvieron
+   * fáciles y la mediana de la subida sin equipo se fue de 7 a 9 pisos. Con 0,64 vuelve a 5–8.
+   */
   factorVida: Object.freeze({ inicial: 0.6, porPiso: 0.03 }),
-  factorAtaque: Object.freeze({ inicial: 0.5, porPiso: 0.02 }),
+  factorAtaque: Object.freeze({ inicial: 0.64, porPiso: 0.02 }),
   /** Ajuste extra de los jefes de la torre (los de combat.js están pensados para llegar con la vida llena). */
   jefe: Object.freeze({ vida: 0.65, ataque: 0.9 }),
   /** Pociones al empezar la subida (se conservan entre pisos). */

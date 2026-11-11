@@ -60,7 +60,11 @@ test("toxinas duplica el veneno de la araña", () => {
     const c = { ...combate, enemigo: { ...combate.enemigo, intencion: { id: "picadura" } } };
     return C.turnoJugador(c, "defender", () => 0.5).eventos.find((e) => e.id === "picadura").estado.valor;
   };
-  assert.equal(veneno(["toxinas"]), veneno([]) * 2);
+  // El valor es round(ataque × pct × mult), así que el redondeo puede desviar 1 punto
+  // respecto al doble exacto; lo que fija el test es que «toxinas» dobla el multiplicador.
+  const base = veneno([]);
+  const doble = veneno(["toxinas"]);
+  assert.ok(Math.abs(doble - base * 2) <= 1, `${doble} frente a ${base} × 2`);
 });
 
 test("cañón de cristal y bendición cambian la vida del héroe", () => {

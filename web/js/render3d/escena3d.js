@@ -21,7 +21,8 @@ import { construirEnemigo, construirHeroe } from "./criaturas.js";
 import { Rotulos, textoDeGolpe } from "./numeros.js";
 import { liberarRama } from "./piezas.js";
 import {
-  CALIDADES, Medidor, Vigilante, bajarCalidad, consultaReducido, detectarEquipo, duracion, nivelEquipo,
+  CALIDADES, HUECO_DESCARTADO, Medidor, Vigilante, bajarCalidad, consultaReducido, detectarEquipo,
+  duracion, nivelEquipo, pixelesPorCss,
 } from "./rendimiento.js";
 import { claveDeNombre } from "./paleta.js";
 import { BESTIARIO } from "../combat.js";
@@ -219,14 +220,50 @@ export function medirCoste(n = 120) {
 }
 
 /** Medidas de rendimiento (fps actuales, peor, mejor, fotograma más lento). */
-export const rendimiento = () => (E.medidor ? { ...E.medidor.resumen(), calidad: E.calidad, aviso: E.aviso } : null);
+export const rendimiento = () => {
+  if (!E.medidor) return null;
+  const c = E.lienzo;
+  return {
+    ...E.medidor.resumen(),
+    calidad: E.calidad,
+    aviso: E.aviso,
+    dpr: E.dpr ?? 0,
+    lienzo: c ? `${c.width}\u00d7${c.height}` : "",
+    pixeles: c ? c.width * c.height : 0,
+    estable: E.medidor.estable(),
+  };
+};
 
+/**
+ * Enseña un aviso al jugador dentro de la arena, y lo cuenta por tres caminos para que nadie se lo
+ * pierda: un elemento de verdad en el DOM (lo lee un lector de pantalla y sale al buscar texto en
+ * la página), la función `alAviso` que se pasó al montar, y un evento `r3d:aviso` que burbujea.
+ */
 function avisar(msg, clave) {
   E.aviso = msg;
-  E.raiz?.classList.add("r3d-con-aviso");
-  E.raiz?.setAttribute("data-r3d-aviso", msg);
+  const raiz = E.raiz;
+  if (raiz) {
+    raiz.classList.add("r3d-con-aviso");
+    let caja = raiz.querySelector(".r3d-aviso");
+    if (!caja) {
+      caja = txt("p", "r3d-aviso", "");
+      caja.setAttribute("role", "status");
+      caja.setAttribute("aria-live", "polite");
+      raiz.append(caja);
+    }
+    caja.textContent = msg;
+    caja.hidden = false;
+    caja.dataset.clave = clave ?? "";
+  }
   try { E.alAviso?.(msg, clave); } catch { /* el aviso no puede romper nada */ }
-  E.raiz?.dispatchEvent(new CustomEvent("r3d:aviso", { detail: { mensaje: msg, clave }, bubbles: true }));
+  raiz?.dispatchEvent(new CustomEvent("r3d:aviso", { detail: { mensaje: msg, clave }, bubbles: true }));
+}
+
+/** Quita el aviso (al volver a montar o si deja de hacer falta). */
+function quitarAviso() {
+  E.aviso = "";
+  E.raiz?.classList.remove("r3d-con-aviso");
+  E.raiz?.querySelector(".r3d-aviso")?.remove();
 }
 
 /** Crea (o normaliza) el HUD en HTML de un luchador. Mismas clases que `fx.js` para reusar su CSS. */
@@ -347,8 +384,12 @@ function ajustarTamano() {
   const r = E.raiz.getBoundingClientRect();
   const w = Math.max(1, Math.round(r.width));
   const h = Math.max(1, Math.round(r.height));
-  const tope = E.maxDpr || CALIDADES[E.calidad].dpr;
-  E.render.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, tope));
+  // Cuántos píxeles de verdad por píxel CSS. No es solo el tope del perfil: también entra el
+  // presupuesto de píxeles, que es lo que hace que bajar la calidad sirva de algo en una arena
+  // grande (ver `pixelesPorCss`).
+  const dpr = pixelesPorCss(w, h, CALIDADES[E.calidad], globalThis.devicePixelRatio || 1, E.maxDpr);
+  E.dpr = dpr;
+  E.render.setPixelRatio(dpr);
   E.render.setSize(w, h, false);
   E.camara.aspect = w / h;
   // En una ventana estrecha (móvil en vertical) la cámara se echa atrás y abre ángulo hasta que
@@ -411,7 +452,7 @@ function bucle(t) {
   // Un hueco enorme entre fotogramas no es que el equipo vaya lento: es que el navegador ha
   // estrangulado la página (pestaña de fondo, ventana tapada, el sistema ocupado). Si se cuenta
   // como «va mal», el vigilante baja la calidad sin motivo en cuanto el jugador cambia de pestaña.
-  if (brutoDt > 0.2) {
+  if (brutoDt * 1000 > HUECO_DESCARTADO) {
     E.medidor.reiniciar();
     E.vigilante.desde = null;
     E.raf = requestAnimationFrame(bucle);
@@ -442,6 +483,7 @@ function bajarUnEscalon() {
   pararPrecalentado();
   vaciarAlmacen();
   if (E.calidad !== "bajo") { prepararCola(); precalentar(); }
+  quitarAviso();
   avisar(MSG_3D.equipoFlojo, "calidad-" + E.calidad);
 }
 

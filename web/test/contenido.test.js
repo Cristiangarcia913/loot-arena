@@ -288,3 +288,13 @@ test("frágil es un estado negativo: la fase 2 del jefe se lo sacude", () => {
   assert.equal(c2.enemigo.fase, 2);
   assert.equal(c2.enemigo.estados.some((e) => e.tipo === "fragil"), false);
 });
+
+test("una lista de habilidades vacía significa «ninguna», no «las de siempre»", () => {
+  // El modificador «Sin trucos» del desafío diario deja al héroe con `habilidades: []`.
+  // Antes se devolvían las básicas y la interfaz pintaba botones que al pulsarlos lanzaban.
+  assert.deepEqual(S.habilidadesDisponibles({ habilidades: [] }), []);
+  assert.deepEqual(S.habilidadesDisponibles({ habilidades: [] }, [{ tipo: "Espada", rareza: 2, ataque: 9, defensa: 1 }]), []);
+  // Sin el campo sí se calculan a partir del equipo y del nivel.
+  assert.equal(S.habilidadesDisponibles({}).length, S.HABILIDADES_BASE.length);
+  assert.equal(S.habilidadesDisponibles({ nivel: 15 }).length, S.HABILIDADES_BASE.length + S.HABILIDADES_POR_NIVEL.length);
+});

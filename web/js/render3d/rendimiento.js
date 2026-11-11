@@ -2,12 +2,54 @@
 // sola cuando hace falta. Módulo casi puro (todo lo del navegador entra por parámetro), así que
 // se prueba en Node.
 
-/** Perfiles de calidad. `dpr` es el tope de píxeles por píxel CSS, lo que más cuesta de todo. */
+/**
+ * Perfiles de calidad.
+ *
+ * `dpr` es el tope de píxeles por píxel CSS y `maxPixeles` el tope ABSOLUTO de píxeles del lienzo.
+ * Hacen falta los dos. Con solo `dpr` pasaba esto: en una pantalla de `devicePixelRatio` 1,25,
+ * bajar de «alto» (tope 2) a «medio» (tope 1,5) no quitaba ni un píxel, porque 1,25 ya estaba por
+ * debajo de los dos topes. O sea que bajar la calidad no servía de nada justo en el caso que la
+ * necesitaba: una arena grande (1296×620 = 1,26 millones de píxeles) en una tarjeta integrada.
+ * El presupuesto de píxeles sí se adapta al tamaño real de la arena, que es lo que varía entre la
+ * demo (pequeña) y el juego a pantalla completa.
+ */
 export const CALIDADES = Object.freeze({
-  alto:  Object.freeze({ dpr: 2,    sombras: true,  muestras: true,  polvo: 220, antorchas: 4, segmentos: 24, luzPorAntorcha: true }),
-  medio: Object.freeze({ dpr: 1.5,  sombras: false, muestras: true,  polvo: 120, antorchas: 4, segmentos: 16, luzPorAntorcha: true }),
-  bajo:  Object.freeze({ dpr: 1,    sombras: false, muestras: false, polvo: 0,   antorchas: 2, segmentos: 10, luzPorAntorcha: false }),
+  alto:  Object.freeze({ dpr: 2,    maxPixeles: 1300000, sombras: true,  muestras: true,  polvo: 220, antorchas: 4, segmentos: 24, luzPorAntorcha: true }),
+  medio: Object.freeze({ dpr: 1.5,  maxPixeles:  850000, sombras: false, muestras: true,  polvo: 120, antorchas: 4, segmentos: 16, luzPorAntorcha: true }),
+  bajo:  Object.freeze({ dpr: 1,    maxPixeles:  480000, sombras: false, muestras: false, polvo: 0,   antorchas: 2, segmentos: 10, luzPorAntorcha: false }),
 });
+
+/** Nunca se baja de aquí: por debajo se ve a cuadros y ya no compensa. */
+export const DPR_MINIMO = 0.6;
+
+/**
+ * Píxeles por píxel CSS que toca usar para un lienzo de `w`×`h` con la calidad `cal`.
+ * Respeta el tope de `dpr` y además el presupuesto de píxeles del perfil.
+ * @param {number} w @param {number} h ancho y alto en píxeles CSS
+ * @param {{dpr:number, maxPixeles?:number}} cal perfil de CALIDADES
+ * @param {number} [dprPantalla] `devicePixelRatio`
+ * @param {number} [tope] tope extra que pida quien monta la escena
+ * @returns {number}
+ */
+export function pixelesPorCss(w, h, cal, dprPantalla = 1, tope = 0) {
+  const area = Math.max(1, w) * Math.max(1, h);
+  let dpr = Math.min(Number(dprPantalla) || 1, tope || cal.dpr);
+  const presupuesto = cal.maxPixeles;
+  if (presupuesto && area * dpr * dpr > presupuesto) dpr = Math.sqrt(presupuesto / area);
+  return Math.max(DPR_MINIMO, Math.round(dpr * 1000) / 1000);
+}
+
+/**
+ * Hueco entre fotogramas a partir del cual se entiende que la página va ESTRANGULADA (pestaña de
+ * fondo, ventana tapada) y no simplemente lenta. El navegador estrangula a ~1 fotograma por
+ * segundo, así que los huecos de verdad son de ~1000 ms; un equipo lento de verdad da 30-200 ms.
+ * Antes estaba en 100 ms, y eso descartaba como «estrangulado» a un equipo que iba a 30 fps con
+ * algún tirón de 187 ms: justo al que había que bajarle la calidad.
+ */
+export const HUECO_ESTRANGULADO = 250;
+
+/** Hueco a partir del cual el fotograma ni se cuenta: seguro que es un parón del navegador. */
+export const HUECO_DESCARTADO = 350;
 
 /** Orden de peor a mejor, para subir y bajar un escalón. */
 export const ESCALERA = Object.freeze(["bajo", "medio", "alto"]);
@@ -99,7 +141,7 @@ export class Medidor {
    * les hace caso, se baja la calidad sin motivo.
    */
   estable() {
-    return this.total > 20 && this.marcas.length >= 10 && this.huecoMax > 0 && this.huecoMax < 100;
+    return this.total > 20 && this.marcas.length >= 6 && this.huecoMax > 0 && this.huecoMax < HUECO_ESTRANGULADO;
   }
 
   /**
@@ -121,7 +163,7 @@ export class Medidor {
       // el parón del arranque (compilar shaders) o un cambio de pestaña no dice nada de lo que
       // da el equipo, y antes ensuciaba el peor dato de toda la sesión.
       this.huecoMax = this.marcas.reduce((m, x, i) => (i ? Math.max(m, x - this.marcas[i - 1]) : m), 0);
-      if (this.total > 20 && this.huecoMax < 100) {
+      if (this.total > 20 && this.huecoMax < HUECO_ESTRANGULADO) {
         this.peor = Math.min(this.peor, this.fps);
         this.mejor = Math.max(this.mejor, this.fps);
       }
@@ -161,7 +203,7 @@ export class Vigilante {
    *        objetivo: fps por debajo de los cuales se considera que va mal (55, para 60 Hz)
    *        pacienciaMs: cuánto tiene que ir mal antes de actuar
    */
-  constructor({ objetivo = 55, pacienciaMs = 2500, maxBajadas = 2 } = {}) {
+  constructor({ objetivo = 55, pacienciaMs = 1800, maxBajadas = 2 } = {}) {
     this.objetivo = objetivo;
     this.pacienciaMs = pacienciaMs;
     this.maxBajadas = maxBajadas;

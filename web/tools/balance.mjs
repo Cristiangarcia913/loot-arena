@@ -3,6 +3,23 @@
 //   informe = niveles   tabla por nivel de arena (la de siempre)
 //             criaturas tabla criatura a criatura (normal y como jefe)
 //             todo      las dos
+//
+// ───────────────────── Objetivos de equilibrio (lo que hay que mantener) ─────────────────────
+//
+// 1. SOLO ATACAR (columna «Solo atacar»): 70-80 % de victorias en la arena 1, bajando a 40-50 %
+//    en la arena 3. Es el suelo del juego: quien llega nuevo y solo pulsa «Atacar» tiene que
+//    ganar sus primeros combates. Este es el objetivo que antes se escribía como «~70 % en el
+//    nivel 1»; se reasignó a esta columna porque el juego competente nunca puede quedar POR
+//    DEBAJO del suelo (jugar bien incluye la opción de solo atacar), así que pedir ~70 % en las
+//    dos a la vez era imposible.
+// 2. JUEGO COMPETENTE sin equipo, con el nivel de héroe esperado (columna «Sin equipo, nv esp.»):
+//    la arena 1 se gana casi siempre (>90 %) y la arena 10 ronda el 20 %.
+// 3. JEFES con equipo medio: un reto de verdad arriba. El de la arena 10 ronda el 25-40 % y el
+//    héroe lo remata con poca vida. Los de media tabla quedaron más asequibles al suavizar los
+//    niveles bajos: es el precio del recibimiento y está pendiente de un repaso por criatura.
+// 4. TORRE: mediana de 5-8 pisos sin equipo (se comprueba en test/torre.test.js).
+//
+// Los diales están en `ESCALA_ENEMIGO` (combat.js), los `mods` de cada criatura y `TORRE` (torre.js).
 import * as C from "../js/combat.js";
 import * as P from "../js/progression.js";
 import { habilidadesDisponibles } from "../js/skills.js";
@@ -37,10 +54,26 @@ export function iaJugador(c) {
   return "atacar";
 }
 
-/** Juega un combate ya creado hasta el final. @returns {{victoria:boolean, turnos:number, vidaPct:number}} */
-function jugar(c, r) {
+/**
+ * IA del jugador que acaba de llegar: pulsa «Atacar» y nada más.
+ * Es el suelo del juego. Si con esto se pierde el primer combate, el recibimiento está roto.
+ */
+export function iaSoloAtacar() {
+  return "atacar";
+}
+
+/** Héroe sin habilidades ni pociones: el que solo pulsa «Atacar». */
+export function heroeNovato(progreso = P.progresoNuevo(), equipados = []) {
+  return { ...P.statsHeroe(progreso, equipados), habilidades: [], pociones: 0, pocionesExtra: 0 };
+}
+
+/**
+ * Juega un combate ya creado hasta el final con la IA dada.
+ * @returns {{victoria:boolean, turnos:number, vidaPct:number}}
+ */
+function jugar(c, r, ia = iaJugador) {
   let t = 0;
-  while (c.fase === "en_curso" && t++ < 300) c = C.turnoJugador(c, iaJugador(c), r).combate;
+  while (c.fase === "en_curso" && t++ < 300) c = C.turnoJugador(c, ia(c), r).combate;
   return { victoria: c.fase === "victoria", turnos: t, vidaPct: c.jugador.vida / c.jugador.vidaMax };
 }
 
@@ -48,15 +81,16 @@ function jugar(c, r) {
  * Simula `n` combates del nivel de arena dado.
  * @param {object} heroe stats de progression.statsHeroe
  * @param {number} nivel nivel de arena 1..10
- * @param {{jefe?:boolean, pociones?:number, n?:number, r?:() => number, clave?:string}} [op]
+ * @param {{jefe?:boolean, pociones?:number, n?:number, r?:() => number, clave?:string, ia?:Function}} [op]
  *   `clave`: fuerza una criatura concreta (si falta, la que toque por nivel).
+ *   `ia`: IA del jugador (por defecto `iaJugador`; `iaSoloAtacar` para medir el suelo).
  */
-export function simular(heroe, nivel, { jefe = false, pociones = 1, n = N, r = rng, clave = null } = {}) {
+export function simular(heroe, nivel, { jefe = false, pociones = 1, n = N, r = rng, clave = null, ia = iaJugador } = {}) {
   let gana = 0, turnos = 0, vida = 0;
   for (let k = 0; k < n; k++) {
     const nv = jefe ? nivel : C.nivelEnemigo(nivel, r);
     const enemigo = clave ? C.generarEnemigoDe(clave, nv, { jefe }) : C.generarEnemigo(nv, r, { jefe });
-    const res = jugar(C.crearCombate({ ...heroe, pociones }, enemigo, r), r);
+    const res = jugar(C.crearCombate({ ...heroe, pociones }, enemigo, r), r, ia);
     if (res.victoria) { gana++; vida += res.vidaPct; }
     turnos += res.turnos;
   }
@@ -94,19 +128,22 @@ function tablaNiveles() {
     const nh = nivelHeroeEsperado(nv);
     const p1 = P.progresoNuevo();
     const pE = { ...P.progresoNuevo(), nivel: nh };
+    // El suelo del juego: jugador que solo pulsa «Atacar», sin habilidades ni pociones, con el
+    // nivel de héroe que ya tendría al llegar a esa arena (en la arena 1 es el nivel 1).
+    const solo = simular(heroeNovato(pE), nv, { pociones: 0, ia: iaSoloAtacar });
     const sin = simular(P.statsHeroe(p1, []), nv);
     const sin0 = simular(P.statsHeroe(p1, []), nv, { pociones: 0 });
     const sin3 = simular(P.statsHeroe(p1, []), nv, { pociones: 3 });
     const sinE = simular(P.statsHeroe(pE, []), nv);
     const med = simular(P.statsHeroe(pE, EQUIPO_MEDIO), nv);
     const jefe = simular(P.statsHeroe(pE, EQUIPO_MEDIO), nv, { jefe: true, pociones: 3, n: Math.round(N / 5) });
-    filas.push([nv, nh, sin.pct, sin0.pct, sin3.pct, sinE.pct, med.pct, jefe.pct, jefe.vidaRestante, sin.turnos]);
+    filas.push([nv, nh, solo.pct, sin.pct, sin0.pct, sin3.pct, sinE.pct, med.pct, jefe.pct, jefe.vidaRestante, sin.turnos]);
   }
   console.log(`\n${N} combates por celda (IA sencilla, semilla ${SEMILLA}). Héroe nv 1 salvo columnas "nv esp.".`);
-  console.log("| Arena | Nv héroe esp. | Sin equipo (1 poción) | Sin equipo (0) | Sin equipo (3) | Sin equipo, nv esp. | Equipo medio, nv esp. | Jefe (equipo medio, 3 poc.) | Vida al ganar al jefe | Turnos medios |");
-  console.log("|---|---|---|---|---|---|---|---|---|---|");
+  console.log("| Arena | Nv héroe esp. | **Solo atacar (nv esp.)** | Sin equipo (1 poción) | Sin equipo (0) | Sin equipo (3) | Sin equipo, nv esp. | Equipo medio, nv esp. | Jefe (equipo medio, 3 poc.) | Vida al ganar al jefe | Turnos medios |");
+  console.log("|---|---|---|---|---|---|---|---|---|---|---|");
   for (const r of filas) {
-    console.log(`| ${r[0]} | ${r[1]} | ${f(r[2])} | ${f(r[3])} | ${f(r[4])} | ${f(r[5])} | ${f(r[6])} | ${f(r[7])} | ${f(r[8])} | ${r[9].toFixed(1)} |`);
+    console.log(`| ${r[0]} | ${r[1]} | ${f(r[2])} | ${f(r[3])} | ${f(r[4])} | ${f(r[5])} | ${f(r[6])} | ${f(r[7])} | ${f(r[8])} | ${f(r[9])} | ${r[10].toFixed(1)} |`);
   }
 }
 
