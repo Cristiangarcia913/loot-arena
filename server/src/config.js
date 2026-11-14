@@ -1,5 +1,6 @@
 // Lectura y validación de la configuración (SPEC.md §2). Función pura sobre `env`.
 import { isAddress, getAddress, ZeroAddress, parseEther } from 'ethers';
+import { resolverRed } from './redes.js';
 
 /**
  * @param {Record<string, string | undefined>} env
@@ -46,8 +47,9 @@ export function cargarConfig(env = process.env) {
     if (!isAddress(v) || getAddress(v) === ZeroAddress) { avisos.push(`${k} no es una dirección válida ("${v}"): ${para} devolverá 503.`); return null; }
     return getAddress(v);
   };
-  const mercadoAddress = dirOpcional('MERCADO_ADDRESS', 'GET /ranking');
+  const mercadoAddress = dirOpcional('MERCADO_ADDRESS', 'GET /ranking y GET /tesoreria');
   const recompensasAddress = dirOpcional('RECOMPENSAS_ADDRESS', 'GET /ranking y POST /recompensa');
+  const oroAddress = dirOpcional('ORO_ADDRESS', 'GET /tesoreria');
   const dbTxt = limpio('DEPLOY_BLOCK');
   let deployBlock = null;
   if (!dbTxt) avisos.push('Falta DEPLOY_BLOCK: GET /ranking devolverá 503.');
@@ -72,10 +74,18 @@ export function cargarConfig(env = process.env) {
     else gasTopeDiario = wei;
   }
 
+  // ── 1.4.1 (fase E4): la red es un parámetro, no Sepolia a fuego ──
+  const red = resolverRed(limpio('RED'));
+  if (!red.conocida) {
+    avisos.push(`RED="${red.clave}" no está en la lista de redes conocidas: se usa igual, `
+      + 'pero no se puede comprobar que RPC_URL apunte a la red correcta.');
+  }
+
   return {
     config: {
       rpcUrl, privateKey, contractAddress, port, dropChance, allowedOrigin, trustProxy,
-      mercadoAddress, recompensasAddress, deployBlock, inicioTemporadas, gasTopeDiario,
+      mercadoAddress, recompensasAddress, oroAddress, deployBlock, inicioTemporadas, gasTopeDiario,
+      red,
     },
     errores,
     avisos,

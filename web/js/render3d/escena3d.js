@@ -25,7 +25,11 @@ import {
   duracion, nivelEquipo, pixelesPorCss,
 } from "./rendimiento.js";
 import { claveDeNombre } from "./paleta.js";
-import { BESTIARIO } from "../combat.js";
+import { BESTIARIO, metadatos3d } from "../combat.js";
+import { Director } from "./camara.js";
+import { construirCofre, pasoCofre, rarezaValida, DURACION, CHISPAS } from "./cofre.js";
+import { descriptor, elegir, viaja } from "./ataques.js";
+import { revelarBotin as fxRevelarBotin } from "../fx.js";
 import { iconoEstado, iconoIntencion } from "../sprites.js";
 import { sonar } from "../audio.js";
 import { iniciarInterfaz as fxIniciarInterfaz, montarEscena as fxMontarEscena } from "../fx.js";
@@ -51,6 +55,7 @@ const E = {
   sacudida: { amp: 0, hasta: 0, dur: 1 },
   auto: true, alAviso: null, aviso: "",
   precalentar: true, colaPrecalentado: [], idle: 0,
+  director: null, camaraViva: true,
   observadores: [],
   promesaListo: null,
 };
@@ -115,6 +120,7 @@ export function montarEscena(raizEl, opciones = {}) {
   E.maxDpr = Number(opciones.maxDpr) || 0;
   E.calidadPedida = opciones.calidad ?? null;
   E.precalentar = opciones.precalentar ?? true;
+  E.camaraViva = opciones.camaraViva ?? true;
 
   raizEl.classList.add("escena", "escena-montada", "escena-3d");
   limpiar2D(raizEl);                 // un solo lienzo en la arena: el nuestro
@@ -228,6 +234,8 @@ export const rendimiento = () => {
     calidad: E.calidad,
     aviso: E.aviso,
     dpr: E.dpr ?? 0,
+    plano: E.director?.plano ?? "",
+    camaraViva: !!E.director && !E.director.quieta,
     lienzo: c ? `${c.width}\u00d7${c.height}` : "",
     pixeles: c ? c.width * c.height : 0,
     estable: E.medidor.estable(),
@@ -271,10 +279,25 @@ function asegurarLuchador(raiz, quien) {
   let f = raiz.querySelector(`.fighter[data-lado="${quien}"]`) ?? raiz.querySelector(quien === "heroe" ? "#f-jugador" : "#f-enemigo");
   if (!f) {
     f = el("div", `fighter${quien === "enemigo" ? " enemy vacio" : ""}`);
-    f.innerHTML = '<div class="f-hud"><div class="f-name"></div><div class="hp"><div class="hp-fill"></div><span class="hp-text"></span></div><div class="f-stats"></div></div><div class="retrato"></div>';
+    const etiqueta = quien === "heroe" ? "Vida del héroe" : "Vida del enemigo";
+    f.innerHTML = '<div class="f-hud"><div class="f-name"></div>'
+      + `<div class="hp" role="progressbar" aria-label="${etiqueta}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">`
+      + '<div class="hp-fill"></div><span class="hp-text"></span></div>'
+      + '<div class="f-stats"></div></div><div class="retrato"></div>';
     raiz.append(f);
   }
   f.dataset.lado = quien;
+  // El HUD puede venir del HTML de la página. Si le faltan los atributos de accesibilidad de la
+  // barra de vida, se los ponemos: en 3D el lienzo no dice NADA a un lector de pantalla, así que
+  // esta barra es la única forma de saber cómo va el combate.
+  const barra = f.querySelector(".hp");
+  if (barra && !barra.getAttribute("role")) {
+    barra.setAttribute("role", "progressbar");
+    barra.setAttribute("aria-valuemin", "0");
+    if (!barra.getAttribute("aria-label")) {
+      barra.setAttribute("aria-label", quien === "heroe" ? "Vida del héroe" : "Vida del enemigo");
+    }
+  }
   const ret = f.querySelector(".retrato") ?? f.appendChild(el("div", "retrato"));
   if (!f.querySelector(".estados")) (f.querySelector(".f-hud") ?? f).append(Object.assign(el("div", "estados"), { role: "list" }));
   if (quien === "enemigo" && !f.querySelector(".intencion")) {
@@ -321,6 +344,7 @@ async function arrancar() {
   escena.fog = E.esc.niebla;
 
   E.rotulos = new Rotulos(T);
+  E.director = new Director({ reducido, viva: E.camaraViva });
   E.medidor = new Medidor();
   E.vigilante = new Vigilante({ objetivo: 55 });
 
@@ -413,6 +437,10 @@ function aplicarEncuadre() {
   E.distancia = enc.distancia;
   E.camara.fov = enc.fov;
   E.camara.updateProjectionMatrix();
+  // El director necesita saber el encuadre y lo ancho que es el bicho más ancho que hay puesto:
+  // de eso depende cuánto puede cerrar el plano sin dejar a nadie fuera.
+  const radio = Math.max(0.45, E.lados.heroe?.criatura?.radio ?? 0, E.lados.enemigo?.criatura?.radio ?? 0);
+  E.director?.encuadrar(enc, CAMARA.alto, radio);
   for (const q of ["heroe", "enemigo"]) {
     const L = E.lados[q];
     if (!L) continue;
@@ -445,7 +473,7 @@ function bucle(t) {
   reposo("heroe", s);
   reposo("enemigo", s);
   pasarTweens(t);
-  colocarCamara(s);
+  colocarCamara(s, brutoDt);
 
   E.render.render(E.escena, E.camara);
 
@@ -487,20 +515,23 @@ function bajarUnEscalon() {
   avisar(MSG_3D.equipoFlojo, "calidad-" + E.calidad);
 }
 
-/** Cámara: plano fijo con una deriva lenta, más la sacudida de los golpes gordos. */
-function colocarCamara(s) {
+/**
+ * Cámara: la manda el director (`camara.js`), que la acerca o la aparta según lo que esté
+ * pasando. Aquí solo se traduce su resultado a three.js y se le suma la sacudida de los golpes.
+ */
+function colocarCamara(s, dt = 1 / 60) {
   const c = E.camara;
   if (!c) return;
-  const quieto = reducido();
-  const vaiven = quieto ? 0 : 1;
-  const bz = E.distancia || encuadre(c.aspect).distancia;
-  let x = Math.sin(s * 0.16) * 0.34 * vaiven;
-  let y = CAMARA.alto + Math.sin(s * 0.23 + 1.2) * 0.07 * vaiven;
-  let z = bz + Math.cos(s * 0.13) * 0.2 * vaiven;
+  const d = E.director;
+  const ahora = performance.now();
+  const p = d
+    ? d.paso(dt, ahora, s)
+    : { x: 0, y: CAMARA.alto, z: E.distancia || encuadre(c.aspect).distancia, miraX: 0, miraY: E.encuadre?.miraY ?? 1, fov: c.fov };
 
+  let { x, y, z } = p;
   const sk = E.sacudida;
   if (sk.amp > 0) {
-    const k = Math.max(0, (sk.hasta - performance.now()) / sk.dur);
+    const k = Math.max(0, (sk.hasta - ahora) / sk.dur);
     if (k <= 0) { sk.amp = 0; }
     else {
       const f = sk.amp * k * k;
@@ -510,8 +541,15 @@ function colocarCamara(s) {
     }
   }
   c.position.set(x, y, z);
-  c.lookAt(CAMARA.mira[0] + x * 0.3, E.encuadre?.miraY ?? CAMARA.mira[1], CAMARA.mira[2]);
+  c.lookAt(p.miraX, p.miraY, 0);
 }
+
+/** Pide un plano al director. Un solo sitio para que sea fácil ver cuándo se mueve la cámara. */
+function plano(nombre, quien) {
+  const lado = quien == null ? 0 : (lado2(quien) === "heroe" ? -1 : 1);
+  E.director?.pedir(nombre, { lado, ahora: performance.now() });
+}
+const lado2 = (q) => (q === "enemigo" ? "enemigo" : "heroe");
 
 /** Respiración y vida propia de cada criatura (lo que distingue un muñeco de un bicho). */
 function reposo(q, s) {
@@ -543,8 +581,26 @@ function reposo(q, s) {
     while (n && i < 6) { n.rotation.y = Math.sin(s * 2.1 - i * 0.6 + fase) * 0.17; n = n.children.find((c) => c.name?.startsWith("cola")); i++; }
   }
   if (p?.jirones) for (const [i, j] of p.jirones.entries()) j.scale.y = 1 + Math.sin(s * 2.4 + i) * 0.17;
+  if (p?.bichos) {
+    // Un enjambre quieto parece muerto: cada avispa revolotea alrededor de su hueco en la nube.
+    for (const b of p.bichos) {
+      const [x, y, z] = b.userData.sitio ?? [0, 0, 0];
+      const f = b.userData.fase ?? 0;
+      b.position.set(x + Math.sin(s * 3.1 + f) * 0.07, y + Math.sin(s * 4.3 + f) * 0.06, z + Math.cos(s * 2.7 + f) * 0.07);
+      b.rotation.y = f + Math.sin(s * 1.6 + f) * 0.5;
+    }
+  }
+  if (p?.cabezas) {
+    // Las tres cabezas de la quimera miran a su aire, cada una por su lado.
+    for (const [i, cab] of p.cabezas.entries()) cab.rotation.y = (cab.userData.base ??= cab.rotation.y) + Math.sin(s * (0.5 + i * 0.3) + i * 2) * 0.22;
+  }
   if (p?.orbe) { const k = 1 + Math.sin(s * 3.1) * 0.12; p.orbe.scale.setScalar(k); }
-  if (p?.mascota) { p.mascota.position.x = -0.65 + Math.sin(s * 1.3) * 0.22; p.mascota.position.y = 1.45 + Math.cos(s * 1.9) * 0.1; }
+  if (p?.mascota) {
+    // Orbita alrededor del héroe en vez de quedarse clavada a un lado: así se ve desde cualquier
+    // ángulo de cámara y no se queda fuera de plano cuando el plano se cierra.
+    p.mascota.position.set(Math.cos(s * 1.1) * 0.62, 1.42 + Math.cos(s * 1.9) * 0.1, 0.1 + Math.sin(s * 1.1) * 0.4);
+    p.mascota.rotation.y = -s * 1.1;
+  }
   if (p?.aura) p.aura.rotation.z = s * 0.7;
   if (p?.corona) p.corona.rotation.y = s * 0.5;
   if (L.aura) { L.aura.rotation.z = -s * 0.9; L.aura.scale.setScalar(1 + Math.sin(s * 2.2) * 0.05); }
@@ -558,8 +614,9 @@ function reposo(q, s) {
  * @param {{ms:number, al:(p:number)=>void, fin?:()=>void, cumplirEn?:number, lado?:string}} o
  *        cumplirEn: fracción 0..1 en la que se cumple la promesa (el impacto del ataque)
  *        lado: "heroe"/"enemigo" si anima a una criatura (para poder cortarla cuando muere)
+ *        ref: objeto donde dejar la animación creada, para poder cortarla desde fuera
  */
-function animar({ ms, al, fin, cumplirEn = 1, lado: cual = null }) {
+function animar({ ms, al, fin, cumplirEn = 1, lado: cual = null, ref = null }) {
   if (!E.listo) return esperar(Math.round(ms * cumplirEn));
   const total = Math.max(1, ms);
   return new Promise((cumplir) => {
@@ -577,6 +634,7 @@ function animar({ ms, al, fin, cumplirEn = 1, lado: cual = null }) {
       tw.redImpacto = setTimeout(() => { if (!tw.cumplido) { tw.cumplido = true; tw.cumplir(); } },
         Math.round(total * cumplirEn) + 120);
     }
+    if (ref) ref.tw = tw;
     E.tweens.push(tw);
   });
 }
@@ -745,7 +803,7 @@ function aplicarEnemigo() {
   soltarCriatura("enemigo");
   const e = E.enemigo;
   const f = luchadorEl("enemigo");
-  if (!e) { f?.classList.remove("jefe"); return; }
+  if (!e) { f?.classList.remove("jefe"); E.director?.reposar(); return; }
   const cr = delAlmacen(llaveEnemigo(e.clave, e.jefe),
     () => construirEnemigo(E.T, e.clave, { ...opcionesTaller(), jefe: !!e.jefe }));
   L.mov.add(cr.raiz);
@@ -773,6 +831,7 @@ function aplicarEnemigo() {
   if (e.jefe) { sacudir(16, 700); destello(0xb91c1c, 0.45, 500); }
   pintarAuraEstados("enemigo");
   aplicarEncuadre();   // un dragón necesita más plano que una rata
+  plano("aparicion", "enemigo");
 }
 
 /**
@@ -1020,7 +1079,7 @@ export function numeroFlotante(quien, texto, clase = "dano") {
 }
 
 /** Chorro de partículas corto y barato (chispas, polvo, disolución). */
-function particulas(pos, { n = 24, color = 0xffffff, vel = 2.4, g = -5, ms = 700, tam = 0.07 } = {}) {
+function particulas(pos, { n = 24, color = 0xffffff, vel = 2.4, g = -5, ms = 700, tam = 0.07, hacia = null, ancho = 1 } = {}) {
   if (!E.listo || reducido() || CALIDADES[E.calidad].polvo === 0) return;
   const T = E.T;
   const cant = Math.max(4, Math.round(n * (E.calidad === "bajo" ? 0.3 : E.calidad === "medio" ? 0.65 : 1)));
@@ -1030,9 +1089,16 @@ function particulas(pos, { n = 24, color = 0xffffff, vel = 2.4, g = -5, ms = 700
     posiciones[i * 3] = pos.x; posiciones[i * 3 + 1] = pos.y; posiciones[i * 3 + 2] = pos.z;
     const a = Math.random() * Math.PI * 2, b = Math.random() * Math.PI - Math.PI / 2;
     const v = vel * (0.45 + Math.random() * 0.75);
-    vels[i * 3] = Math.cos(a) * Math.cos(b) * v;
-    vels[i * 3 + 1] = Math.abs(Math.sin(b)) * v + vel * 0.3;
-    vels[i * 3 + 2] = Math.sin(a) * Math.cos(b) * v;
+    if (hacia) {
+      // Cono dirigido: casi todo hacia donde apunta `hacia`, con algo de apertura.
+      vels[i * 3] = hacia[0] * v + Math.cos(a) * Math.cos(b) * v * ancho * 0.35;
+      vels[i * 3 + 1] = hacia[1] * v + Math.sin(b) * v * ancho * 0.5;
+      vels[i * 3 + 2] = hacia[2] * v + Math.sin(a) * Math.cos(b) * v * ancho * 0.5;
+    } else {
+      vels[i * 3] = Math.cos(a) * Math.cos(b) * v;
+      vels[i * 3 + 1] = Math.abs(Math.sin(b)) * v + vel * 0.3;
+      vels[i * 3 + 2] = Math.sin(a) * Math.cos(b) * v;
+    }
   }
   const geo = new T.BufferGeometry();
   geo.setAttribute("position", new T.BufferAttribute(posiciones, 3));
@@ -1094,45 +1160,151 @@ function destellarCriatura(q, fuerza = 1, ms = 320) {
  * @returns {Promise<void>} **se cumple en el instante del impacto** (la vuelta sigue animándose),
  *          igual que `fx.animarAtaque`, que es de lo que depende el ritmo del combate en main.js
  */
-export function animarAtaque(quien, { critico = false, brutal = false } = {}) {
+export function animarAtaque(quien, { critico = false, brutal = false, animacion = null } = {}) {
   sonar("ataque");
   const q = lado(quien);
   const L = E.lados[q];
-  if (!E.listo || !L?.criatura || !L.vivo) return esperar(dur(brutal ? 760 : critico ? 560 : 440) * 0.5);
+  // Qué gesto toca: lo que diga el evento, si no lo que declare la criatura en su ficha.
+  const d = descriptor(elegir(animacion, ataqueDe(q)), { critico, brutal });
+  if (!E.listo || !L?.criatura || !L.vivo) return esperar(dur(d.ms) * d.impacto);
 
   const otro = E.lados[otroLado(q)];
   const miX = L.baseX ?? L.ancla.position.x, suX = otro?.baseX ?? -miX;
-  const avance = (suX - miX) * 0.42;
-  const ms = dur(brutal ? 760 : critico ? 560 : 440);
-  const imp = brutal ? 0.62 : 0.5;
+  const recorrido = suX - miX;
+  const ms = dur(d.ms);
+  const imp = d.impacto;
   const arma = L.criatura.partes?.arma ?? null;
   const armaBase = arma?.rotation.x ?? 0;
+  const cabeza = L.criatura.partes?.cabeza ?? null;
+  const cabezaBase = cabeza?.rotation.x ?? 0;
+  const cuerpo = L.criatura.partes?.cuerpo ?? null;
+  const cuerpoBase = cuerpo?.rotation.x ?? 0;
 
-  if (brutal) setTimeout(() => { sacudir(14, 480); destello(0xef4444, 0.35); }, ms * imp);
-  else if (critico) setTimeout(() => sacudir(9, 360), ms * imp);
-  setTimeout(() => polvoDePisada(q), ms * imp * 0.9);
+  // La cámara: los ataques que no se mueven del sitio piden un plano más abierto, porque lo que
+  // hay que ver es lo que sale volando, no al que lo lanza.
+  plano(critico || brutal ? "critico" : viaja(d.nombre) ? "embestida" : "telegrafiado", q);
+
+  if (d.sacude) setTimeout(() => sacudir(d.sacude, brutal ? 480 : 360), ms * imp);
+  if (brutal) setTimeout(() => destello(0xef4444, 0.35), ms * imp);
+  if (viaja(d.nombre)) setTimeout(() => polvoDePisada(q), ms * imp * 0.9);
+  // Lo que sale despedido: cada uno en su momento.
+  if (d.chorro) setTimeout(() => chorroDeAliento(q, d), ms * imp * 0.82);
+  if (d.proyectil) setTimeout(() => lanzarProyectil(q, d, ms * (1 - imp) * 0.9), ms * imp * 0.55);
+  if (d.anillo) setTimeout(() => anilloDeConjuro(q, d), ms * imp * 0.7);
 
   return animar({
     ms, lado: q, cumplirEn: imp,
     al: (p) => {
-      // 0 → imp: retrocede un poco y se lanza. imp → 1: vuelve a su sitio.
+      // 0 → imp: se prepara (retrocede o se yergue) y se lanza. imp → 1: vuelve a su sitio.
       let k;
-      if (p < imp * 0.55) k = -0.22 * (p / (imp * 0.55));
-      else if (p < imp) k = -0.22 + 1.22 * salida((p - imp * 0.55) / (imp * 0.45));
+      if (p < imp * 0.55) k = -d.impulso * (p / (imp * 0.55));
+      else if (p < imp) k = -d.impulso + (1 + d.impulso) * salida((p - imp * 0.55) / (imp * 0.45));
       else k = 1 - suave((p - imp) / (1 - imp));
-      // El avance es en X del mundo, así que lo que se mueve es el puesto entero.
-      L.ancla.position.x = miX + avance * k;
-      L.mov.rotation.y = -0.18 * k;
-      L.mov.position.y = Math.sin(Math.max(0, Math.min(1, k)) * Math.PI) * (brutal ? 0.22 : 0.12);
-      // El arma traza el tajo: se levanta en la carga y cae con el impacto.
-      if (arma) arma.rotation.x = armaBase - 1.6 * k;
+
+      L.ancla.position.x = miX + recorrido * d.avance * k;
+      L.mov.position.y = Math.sin(Math.max(0, Math.min(1, k)) * Math.PI) * d.alzar;
+      L.mov.rotation.y = -0.18 * k + d.giro * Math.sin(Math.max(0, k) * Math.PI);
+      if (cuerpo) cuerpo.rotation.x = cuerpoBase + d.inclinar * Math.max(0, k);
+      if (cabeza && d.cabeza) cabeza.rotation.x = cabezaBase + d.cabeza * Math.max(0, k);
+      if (arma && d.arma) arma.rotation.x = armaBase - d.arma * k;
+      E.director?.juntando(Math.max(0, k) * (d.avance > 0 ? 1 : 0));
     },
     fin: () => {
+      E.director?.juntando(0);
       L.ancla.position.x = miX;
       L.mov.position.set(0, 0, 0);
       L.mov.rotation.y = 0;
       if (arma) arma.rotation.x = armaBase;
+      if (cabeza) cabeza.rotation.x = cabezaBase;
+      if (cuerpo) cuerpo.rotation.x = cuerpoBase;
     },
+  });
+}
+
+/** El ataque que declara en su ficha quien ocupa ese lado de la arena. */
+function ataqueDe(q) {
+  if (q === "enemigo") {
+    try { return metadatos3d(E.enemigo?.clave)?.ataque3d ?? null; } catch { return null; }
+  }
+  // El héroe pega con lo que lleva: con espada es un golpe de arma, a mano limpia un zarpazo.
+  return E.equipados?.some((x) => x?.tipo === "Espada") ? "arma" : "garra";
+}
+
+/** Cono de partículas hacia el rival: el aliento del dragón y del elemental. */
+function chorroDeAliento(q, d) {
+  const L = E.lados[q];
+  const otro = E.lados[otroLado(q)];
+  if (!L?.criatura || !E.listo) return;
+  const col = L.criatura.colores?.emision || L.criatura.colores?.acento || 0xffa33c;
+  const alto = (L.criatura.alto ?? 1.6) * 0.72;
+  const desde = L.mov.localToWorld(new E.T.Vector3(0, alto, 0));
+  const hacia = (otro?.baseX ?? -L.baseX) - (L.baseX ?? 0);
+  // Varias bocanadas escalonadas: una sola nube se ve pobre y además se dispersa enseguida.
+  for (let i = 0; i < 3; i++) {
+    setTimeout(() => particulas(desde, {
+      n: Math.round(d.chorro.n / 3), color: col, vel: d.chorro.vel, g: -1.2,
+      ms: 620, tam: 0.11, hacia: [Math.sign(hacia) || 1, 0, 0], ancho: d.chorro.ancho,
+    }), i * 90);
+  }
+  sonar("critico");
+}
+
+/** Una bola que viaja de verdad de quien la lanza a quien la recibe. */
+function lanzarProyectil(q, d, msVuelo) {
+  const L = E.lados[q];
+  const otro = E.lados[otroLado(q)];
+  if (!L?.criatura || !otro || !E.listo) return;
+  const T = E.T;
+  const col = L.criatura.colores?.emision || L.criatura.colores?.acento || 0xa78bfa;
+  const geo = new T.SphereGeometry(d.proyectil.tam, 10, 8);
+  const mat = new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, blending: T.AdditiveBlending, depthWrite: false });
+  const bola = new T.Mesh(geo, mat);
+  const desde = L.mov.localToWorld(new T.Vector3(0, (L.criatura.alto ?? 1.6) * 0.62, 0));
+  const hasta = otro.mov.localToWorld(new T.Vector3(0, (otro.criatura?.alto ?? 1.6) * 0.55, 0));
+  bola.position.copy(desde);
+  E.escena.add(bola);
+  sonar("ataque");
+  animar({
+    ms: dur(Math.max(160, msVuelo)),
+    al: (p) => {
+      bola.position.x = desde.x + (hasta.x - desde.x) * p;
+      bola.position.z = desde.z + (hasta.z - desde.z) * p;
+      // Arco: sube y baja, que una bola en línea recta parece un error de dibujo.
+      bola.position.y = desde.y + (hasta.y - desde.y) * p + Math.sin(p * Math.PI) * 0.55;
+      bola.scale.setScalar(1 + Math.sin(p * Math.PI) * 0.35);
+      mat.opacity = p > 0.85 ? (1 - p) / 0.15 : 0.95;
+    },
+    fin: () => {
+      E.escena.remove(bola);
+      particulas(hasta, { n: 26, color: col, vel: 2.6, g: -5, ms: 500, tam: 0.07 });
+      geo.dispose();
+      mat.dispose();
+    },
+  });
+}
+
+/** Anillo que se abre desde quien conjura: se ve de lejos y no ensucia el centro de la arena. */
+function anilloDeConjuro(q, d) {
+  const L = E.lados[q];
+  if (!L?.criatura || !E.listo) return;
+  const T = E.T;
+  const col = L.criatura.colores?.emision || L.criatura.colores?.acento || 0xa78bfa;
+  const geo = new T.TorusGeometry(0.4, 0.045, 8, 26);
+  const mat = new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, blending: T.AdditiveBlending, depthWrite: false });
+  const aro = new T.Mesh(geo, mat);
+  aro.rotation.x = Math.PI / 2;
+  aro.position.y = (L.criatura.alto ?? 1.6) * 0.5;
+  L.mov.add(aro);
+  sonar("estado");
+  animar({
+    ms: dur(d.anillo.ms),
+    al: (p) => {
+      const k = salida(p);
+      aro.scale.setScalar(0.4 + k * 2.6);
+      aro.position.y = (L.criatura.alto ?? 1.6) * (0.5 + k * 0.35);
+      mat.opacity = 0.85 * (1 - k);
+    },
+    fin: () => { L.mov.remove(aro); geo.dispose(); mat.dispose(); },
   });
 }
 
@@ -1283,7 +1455,11 @@ export function mostrarIntencion(intencion) {
   if (!reducido()) b.animate?.([{ transform: "translate(-50%, 8px) scale(.6)", opacity: 0 }, { transform: "translate(-50%, 0) scale(1)", opacity: 1 }], { duration: 260, easing: "cubic-bezier(.3,1.5,.5,1)" });
   // Si va a cargar un golpe gordo, el aura roja avisa también en 3D.
   const L = E.lados.enemigo;
-  if (L?.criatura && (tipo === "cargar" || intencion.definitiva)) destellarCriatura("enemigo", 0.5, 600);
+  if (L?.criatura && (tipo === "cargar" || intencion.definitiva)) {
+    destellarCriatura("enemigo", 0.5, 600);
+    // Se aparta en vez de acercarse: un golpe telegrafiado hay que VERLO venir entero.
+    plano("telegrafiado", "enemigo");
+  }
 }
 
 /**
@@ -1300,6 +1476,7 @@ export function animarMuerte(quien) {
   if (!E.listo || !L.criatura) return esperar(dur(500));
 
   cortarTweens(q);
+  plano("muerte", q);
   const cr = L.criatura;
   const centro = puntoImpacto(q);
   particulas(centro, { n: 90, color: cr.colores?.base ?? 0x9ca3af, vel: 1.9, g: -1.2, ms: 1500, tam: 0.085 });
@@ -1389,6 +1566,15 @@ export function actualizarVida(quien, vida, vidaMax) {
   if (fill) { fill.style.width = `${pct}%`; fill.classList.toggle("baja", pct <= 30); }
   const t = f.querySelector(".hp-text");
   if (t) t.textContent = `${Math.max(0, vida)} / ${vidaMax}`;
+  // Lo que oye quien no ve la barra. Mismo patrón que `fx.js`, para que el 2D y el 3D suenen igual.
+  const barra = f.querySelector(".hp");
+  if (barra) {
+    const v = Math.max(0, Number(vida) || 0);
+    const max = Math.max(0, Number(vidaMax) || 0);
+    barra.setAttribute("aria-valuemax", String(max));
+    barra.setAttribute("aria-valuenow", String(v));
+    barra.setAttribute("aria-valuetext", `${v} de ${max} puntos de vida`);
+  }
 }
 
 // ───────────────────────── Desmontaje ─────────────────────────
@@ -1425,6 +1611,7 @@ export function desmontar() {
     E.render = null;
   }
   E.camara = null;
+  E.director = null;
   E.horno = null;
   E.lados = { heroe: null, enemigo: null };
   E.lienzo?.remove();
@@ -1438,6 +1625,106 @@ export function desmontar() {
   E.T = null;
 }
 
+// ───────────────────────── El cofre del botín ─────────────────────────
+
+/**
+ * Revela el botín: primero el cofre EN LA ARENA y después la carta con el objeto y los botones,
+ * que siguen siendo los de `fx.js`.
+ *
+ * El contrato no cambia: `main.js` sigue llamando a `FX.revelarBotin(item)` y sigue recibiendo la
+ * misma promesa con `"otra"` o `"cerrar"`. **No hay que tocar `main.js` para esto.**
+ *
+ * @param {{rareza?:number}|null} item
+ * @returns {Promise<"otra"|"cerrar">}
+ */
+export async function revelarBotin(item) {
+  // Con movimiento reducido se va directo a la carta: el cofre es puro espectáculo.
+  if (E.listo && item && !reducido()) {
+    try { await abrirCofre(rarezaValida(item.rareza)); } catch { /* si falla, a la carta y ya */ }
+  }
+  return fxRevelarBotin(item);
+}
+
+/**
+ * Saca el cofre del suelo de la arena, lo abre y lanza la luz de su rareza.
+ *
+ * Se puede SALTAR con un clic o una tecla. No es un extra: esto se ve cientos de veces y la
+ * número doscientos tiene que poder pasarse de largo sin pelearse con el juego.
+ * @param {number} r rareza ya validada
+ * @returns {Promise<void>}
+ */
+function abrirCofre(r) {
+  const T = E.T;
+  const cr = delAlmacen(`cofre|${E.calidad}|${r}`, () => construirCofre(T, r, opcionesTaller()));
+  E.escena.add(cr.raiz);
+  cr.raiz.position.set(0, 0, 0.3);
+  precompilar(cr.raiz);
+
+  plano("botin", null);
+  sonar("aparicion");
+
+  const ms = dur(DURACION[r]);
+  const { tapa, haz, interior, anillo, cuerpo } = cr.partes;
+  const matHaz = haz.children.map((h) => h.material);
+  const matInterior = interior.material;
+  const matAnillo = anillo.material;
+  let abierto = false;
+
+  return new Promise((fin) => {
+    const ref = {};
+    let saltar = null;
+    let terminado = false;
+
+    const quitarSalto = () => {
+      if (!saltar) return;
+      removeEventListener("pointerdown", saltar, true);
+      removeEventListener("keydown", saltar, true);
+      saltar = null;
+    };
+    const acabar = () => {
+      if (terminado) return;
+      terminado = true;
+      quitarSalto();
+      E.escena?.remove(cr.raiz);
+      E.director?.reposar();
+      fin();
+    };
+
+    animar({
+      ms, ref,
+      al: (p) => {
+        const e = pasoCofre(p, r);
+        cuerpo.position.y = -0.95 * (1 - e.subir);
+        cuerpo.position.x = e.sacudir;
+        tapa.rotation.x = -e.tapa;
+        matInterior.opacity = e.interior;
+        for (const m of matHaz) m.opacity = e.haz;
+        matAnillo.opacity = e.anillo;
+        if (!abierto && p > 0.52) {
+          // El golpe de la apertura: chispas, destello y sacudida, con fuerza según la rareza.
+          abierto = true;
+          particulas(new T.Vector3(0, 0.6, 0.3), {
+            n: CHISPAS[r], color: cr.colores.luz, vel: 2 + r, g: -3.4,
+            ms: 900 + r * 400, tam: 0.07 + r * 0.02,
+          });
+          if (r >= 1) destello(cr.colores.luz, 0.18 + r * 0.16, 260 + r * 120);
+          if (r === 2) sacudir(10, 420);
+          sonar(r === 2 ? "nivel" : "aparicion");
+        }
+      },
+      fin: acabar,
+    });
+
+    saltar = (ev) => {
+      if (ev.type === "keydown" && ["Tab", "Shift", "Control", "Alt", "Meta"].includes(ev.key)) return;
+      if (ref.tw) rematar(ref.tw);      // deja el cofre en su estado final y cumple la promesa
+      acabar();
+    };
+    addEventListener("pointerdown", saltar, true);
+    addEventListener("keydown", saltar, true);
+  });
+}
+
 // ───────────────────────── Lo que no es la escena: se delega en fx.js ─────────────────────────
 //
 // Todas estas capas viven fuera de la arena (pantalla completa, inventario, tienda, sonido) y no
@@ -1449,7 +1736,7 @@ export {
   // Sonido (fx.js ya lo reexporta de audio.js)
   sonar, setSilencio, silenciado, setMusica, musicaActiva,
   // Capas a pantalla completa
-  anunciar, subidaDeNivel, revelarBotin, mostrarResultado, mostrarPortada, ocultarPortada,
+  anunciar, subidaDeNivel, mostrarResultado, mostrarPortada, ocultarPortada,
   // Enganche: logros, recompensas, pase, racha
   celebrarLogro, celebrarRecompensa, subirNivelPase, mostrarRachaDias,
   // HUD fuera de la arena e inventario

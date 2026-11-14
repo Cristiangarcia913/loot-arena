@@ -42,27 +42,35 @@ test('ALLOWED_ORIGIN admite lista separada por comas', () => {
 test('1.2: MERCADO_ADDRESS, RECOMPENSAS_ADDRESS y DEPLOY_BLOCK son opcionales (avisos, no errores)', () => {
   const sin = cargarConfig(BASE);
   assert.deepEqual(sin.errores, []);
-  assert.equal(sin.avisos.length, 3);
+  // Un aviso por cada variable opcional que falta (1.4.1 añadió ORO_ADDRESS, para /tesoreria).
+  for (const v of ['MERCADO_ADDRESS', 'RECOMPENSAS_ADDRESS', 'DEPLOY_BLOCK', 'ORO_ADDRESS']) {
+    assert.ok(sin.avisos.some((a) => a.includes(v)), `falta el aviso de ${v}: ${sin.avisos.join(' | ')}`);
+  }
+  assert.equal(sin.avisos.length, 4);
   assert.equal(sin.config.mercadoAddress, null);
   assert.equal(sin.config.recompensasAddress, null);
   assert.equal(sin.config.deployBlock, null);
+  assert.equal(sin.config.oroAddress, null);
 
   const con = cargarConfig({
     ...BASE,
     MERCADO_ADDRESS: '0x2279b7a0a67db372996a5fab50d91eaa73d2ebe6',
     RECOMPENSAS_ADDRESS: '0x8A791620dd6260079BF849Dc5567aDC3F2FdC318',
     DEPLOY_BLOCK: ' 7012345 ',
+    ORO_ADDRESS: '0xa513E6E4b8f2a923D98304ec87F64353C4D5C853',
     TEMPORADA_INICIO: '2026-11-02T00:00:00Z',
   });
   assert.deepEqual(con.errores, []);
   assert.deepEqual(con.avisos, []);
   assert.equal(con.config.mercadoAddress, '0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6');
+  assert.equal(con.config.oroAddress, '0xa513E6E4b8f2a923D98304ec87F64353C4D5C853');
   assert.equal(con.config.deployBlock, 7012345);
   assert.equal(con.config.inicioTemporadas, Date.UTC(2026, 10, 2));
 
   const mal = cargarConfig({ ...BASE, MERCADO_ADDRESS: 'x', RECOMPENSAS_ADDRESS: '0x0000000000000000000000000000000000000000', DEPLOY_BLOCK: '-5', TEMPORADA_INICIO: 'ayer' });
-  assert.deepEqual(mal.errores, []);
-  assert.equal(mal.avisos.length, 4);
+  assert.deepEqual(mal.errores, [], 'ninguna de estas impide arrancar');
+  // 4 variables mal puestas + ORO_ADDRESS que ni se ha puesto (1.4.1).
+  assert.equal(mal.avisos.length, 5, mal.avisos.join(' | '));
   assert.equal(mal.config.deployBlock, null);
   assert.equal(mal.config.inicioTemporadas, null);
 });

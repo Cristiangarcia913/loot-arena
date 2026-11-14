@@ -1150,27 +1150,41 @@ function renderRanking() {
   const enTop = lista.some((x) => x.address.toLowerCase() === yo);
   const medalla = (p) => ({ 1: "🥇", 2: "🥈", 3: "🥉" }[p] ?? `${p}.`);
   const fmt = (v) => `${new Intl.NumberFormat("es-ES").format(v)}${cat.unidad}`;
+  // Pestañas accesibles (hallazgo de Calidad #13): foco en roving-tabindex (solo la activa
+  // está en el recorrido de Tab, como las del Mercado) y flechas para moverse entre ellas.
+  // Las 4 categorías comparten un único panel de resultados (no hay 4 paneles separados,
+  // solo se repinta la lista), así que las 4 llevan el mismo aria-controls.
+  const irA = (id) => { S.catRanking = id; renderRanking(); el.querySelector(`#rk-tab-${id}`)?.focus(); };
   poner(el,
     h("div", { class: "eg-cabeza" }, h("h3", {}, "🏆 Salón de la fama"),
       h("button", { type: "button", class: "btn btn-small btn-ghost", disabled: S.cargandoRanking, onclick: refrescarRanking, title: "Actualizar", "aria-label": "Actualizar ranking" }, S.cargandoRanking ? "…" : "↻")),
-    h("div", { class: "eg-tabs", role: "tablist", "aria-label": "Categorías" }, CATEGORIAS_RANKING.map((c) => h("button", {
-      type: "button", role: "tab", class: `eg-tab${c.id === cat.id ? " on" : ""}`, "aria-selected": String(c.id === cat.id),
+    h("div", { class: "eg-tabs", role: "tablist", "aria-label": "Categorías" }, CATEGORIAS_RANKING.map((c, i) => h("button", {
+      type: "button", role: "tab", id: `rk-tab-${c.id}`, class: `eg-tab${c.id === cat.id ? " on" : ""}`,
+      "aria-selected": String(c.id === cat.id), "aria-controls": "rk-panel", tabIndex: c.id === cat.id ? 0 : -1,
       onclick: () => { S.catRanking = c.id; renderRanking(); },
+      onkeydown: (ev) => {
+        if (ev.key !== "ArrowRight" && ev.key !== "ArrowLeft") return;
+        ev.preventDefault();
+        const n = CATEGORIAS_RANKING.length;
+        const destino = CATEGORIAS_RANKING[(i + (ev.key === "ArrowRight" ? 1 : -1) + n) % n];
+        irA(destino.id);
+      },
     }, h("span", { "aria-hidden": "true" }, c.icono), " ", c.nombre))),
-    h("p", { class: "eg-tenue eg-mini" }, `${cat.largo}. Datos leídos de la cadena: no se pueden falsear.`,
-      S.ranking?.actualizado ? ` Actualizado a las ${new Date(S.ranking.actualizado).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}.` : ""),
-    S.sincronizando ? h("div", { class: "eg-sync", role: "status", "aria-live": "polite" }, h("span", { class: "eg-spinner", "aria-hidden": "true" }),
-      h("span", {}, "Sincronizando el ranking con la blockchain… (puede tardar medio minuto la primera vez)")) : null,
-    !S.sincronizando && S.cargandoRanking && !S.ranking ? h("div", { class: "eg-sync", role: "status" }, h("span", { class: "eg-spinner", "aria-hidden": "true" }), h("span", {}, "Cargando ranking…")) : null,
-    S.errorRanking && !S.cargandoRanking ? h("div", { class: "eg-aviso eg-aviso-fila", role: "alert" }, h("span", {}, `⚠️ ${S.errorRanking}`),
-      h("button", { type: "button", class: "btn btn-small", onclick: refrescarRanking }, "Reintentar")) : null,
-    S.ranking && !lista.length ? h("p", { class: "eg-tenue" }, "Todavía nadie en esta categoría. ¡Sé el primero!") : null,
-    lista.length ? h("ol", { class: "eg-ranking" }, lista.map((x) => h("li", { class: `eg-fila${x.address.toLowerCase() === yo ? " yo" : ""}${x.posicion <= 3 ? ` top${x.posicion}` : ""}` },
-      h("span", { class: "eg-pos" }, medalla(x.posicion)),
-      h("span", { class: "eg-dir", title: x.address }, x.address.toLowerCase() === yo ? "Tú" : acortar(x.address)),
-      h("span", { class: "eg-val" }, fmt(x.valor))))) : null,
-    S.cuenta && S.ranking && !enTop ? h("p", { class: "eg-tu-pos" }, mia?.posicion ? `Tu posición: ${mia.posicion}.º${mia.valor != null ? ` (${fmt(mia.valor)})` : ""}` : "Aún no apareces en esta categoría.") : null,
-    !S.cuenta ? h("p", { class: "eg-tenue eg-mini" }, "Conecta tu wallet para ver tu posición.") : null);
+    h("div", { id: "rk-panel", role: "tabpanel", "aria-labelledby": `rk-tab-${cat.id}`, tabIndex: -1 },
+      h("p", { class: "eg-tenue eg-mini" }, `${cat.largo}. Datos leídos de la cadena: no se pueden falsear.`,
+        S.ranking?.actualizado ? ` Actualizado a las ${new Date(S.ranking.actualizado).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}.` : ""),
+      S.sincronizando ? h("div", { class: "eg-sync", role: "status", "aria-live": "polite" }, h("span", { class: "eg-spinner", "aria-hidden": "true" }),
+        h("span", {}, "Sincronizando el ranking con la blockchain… (puede tardar medio minuto la primera vez)")) : null,
+      !S.sincronizando && S.cargandoRanking && !S.ranking ? h("div", { class: "eg-sync", role: "status" }, h("span", { class: "eg-spinner", "aria-hidden": "true" }), h("span", {}, "Cargando ranking…")) : null,
+      S.errorRanking && !S.cargandoRanking ? h("div", { class: "eg-aviso eg-aviso-fila", role: "alert" }, h("span", {}, `⚠️ ${S.errorRanking}`),
+        h("button", { type: "button", class: "btn btn-small", onclick: refrescarRanking }, "Reintentar")) : null,
+      S.ranking && !lista.length ? h("p", { class: "eg-tenue" }, "Todavía nadie en esta categoría. ¡Sé el primero!") : null,
+      lista.length ? h("ol", { class: "eg-ranking" }, lista.map((x) => h("li", { class: `eg-fila${x.address.toLowerCase() === yo ? " yo" : ""}${x.posicion <= 3 ? ` top${x.posicion}` : ""}` },
+        h("span", { class: "eg-pos" }, medalla(x.posicion)),
+        h("span", { class: "eg-dir", title: x.address }, x.address.toLowerCase() === yo ? "Tú" : acortar(x.address)),
+        h("span", { class: "eg-val" }, fmt(x.valor))))) : null,
+      S.cuenta && S.ranking && !enTop ? h("p", { class: "eg-tu-pos" }, mia?.posicion ? `Tu posición: ${mia.posicion}.º${mia.valor != null ? ` (${fmt(mia.valor)})` : ""}` : "Aún no apareces en esta categoría.") : null,
+      !S.cuenta ? h("p", { class: "eg-tenue eg-mini" }, "Conecta tu wallet para ver tu posición.") : null));
 }
 
 /** Importa los módulos de §5 (cada uno por separado: si uno falta, los demás siguen). */

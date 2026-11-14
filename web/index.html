@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="css/expediciones.css">
   <link rel="stylesheet" href="css/torre.css">
   <link rel="stylesheet" href="css/render3d.css">
+  <link rel="stylesheet" href="css/cadena.css">
   <script type="module" src="js/main.js"></script>
 </head>
 <body class="app">
@@ -46,6 +47,8 @@
     </div>
     <div class="wallet">
       <div id="saldo-oro" class="saldo-oro"></div>
+      <!-- Las opciones las rellena main.js desde NETWORKS: la lista de redes vive en un sitio solo. -->
+      <select id="sel-red" class="sel-red" aria-label="Cambiar de red" title="Red de prueba en la que juegas"></select>
       <span id="net-badge" class="badge">Cargando…</span>
       <span id="addr" class="addr" hidden></span>
       <button id="btn-3d" class="btn btn-icono" type="button" aria-pressed="false" aria-label="Cambiar entre 2D y 3D" title="Arena en 3D">🧊</button>
@@ -67,10 +70,11 @@
       <a class="menu-item" href="#/expediciones" data-ir="expediciones"><span class="menu-ico" aria-hidden="true">🧭</span><span class="menu-txt">Expediciones</span><span class="insignia" hidden></span></a>
       <a class="menu-item" href="#/torre" data-ir="torre"><span class="menu-ico" aria-hidden="true">🗼</span><span class="menu-txt">Torre</span><span class="insignia" hidden></span></a>
       <a class="menu-item" href="#/ranking" data-ir="ranking"><span class="menu-ico" aria-hidden="true">🏆</span><span class="menu-txt">Ranking</span><span class="insignia" hidden></span></a>
+      <a class="menu-item" href="#/cadena" data-ir="cadena"><span class="menu-ico" aria-hidden="true">🔗</span><span class="menu-txt">Cadena</span><span class="insignia" hidden></span></a>
       <div class="menu-pie"><span id="contrato-info"></span></div>
     </nav>
 
-    <main id="secciones" class="secciones">
+    <main id="secciones" class="secciones" tabindex="-1">
       <!-- ⚔️ Arena -->
       <section id="seccion-arena" class="seccion seccion-arena" data-seccion="arena" aria-labelledby="t-arena" tabindex="-1">
         <div class="seccion-head">
@@ -86,7 +90,7 @@
           <div class="fighter" id="f-jugador" data-lado="heroe">
             <div class="f-hud">
               <div class="f-name">Tu héroe</div>
-              <div class="hp" aria-label="Vida del héroe"><div class="hp-fill"></div><span class="hp-text"></span></div>
+              <div class="hp" role="progressbar" aria-label="Vida del héroe" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><div class="hp-fill"></div><span class="hp-text"></span></div>
               <div class="f-stats"></div>
               <div class="estados" role="list" aria-label="Estados del héroe"></div>
             </div>
@@ -99,7 +103,7 @@
           <div class="fighter enemy vacio" id="f-enemigo" data-lado="enemigo">
             <div class="f-hud">
               <div class="f-name">Arena vacía</div>
-              <div class="hp" aria-label="Vida del enemigo"><div class="hp-fill"></div><span class="hp-text"></span></div>
+              <div class="hp" role="progressbar" aria-label="Vida del enemigo" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="hp-fill"></div><span class="hp-text"></span></div>
               <div class="f-stats">Pulsa Explorar para encontrar un rival</div>
               <div class="estados" role="list" aria-label="Estados del enemigo"></div>
             </div>
@@ -219,6 +223,16 @@
       <section id="seccion-ranking" class="seccion" data-seccion="ranking" aria-labelledby="t-ranking" tabindex="-1" hidden>
         <div class="seccion-head"><h2 id="t-ranking">Salón de la fama</h2></div>
         <section id="ranking" class="panel bloque" aria-label="Ranking"></section>
+      </section>
+
+      <!-- 🔗 Cadena: explorador, trazabilidad del dinero y tesorería.
+           El contenido lo monta web/js/cadena/ con montarCadena(contenedor). -->
+      <section id="seccion-cadena" class="seccion" data-seccion="cadena" aria-labelledby="t-cadena" tabindex="-1" hidden>
+        <div class="seccion-head">
+          <h2 id="t-cadena">Cadena</h2>
+          <p class="seccion-nota">Todo lo que el juego hace en la red, leído de la red.</p>
+        </div>
+        <div id="cadena" class="bloque"></div>
       </section>
     </main>
   </div>

@@ -1,0 +1,611 @@
+/* Sección «Cadena» (PLAN-MAESTRO.md §7, fase E). Equipo de blockchain y economía.
+   Usa las variables de style.css (--panel, --borde, --oro…): aquí no se define ningún color
+   suelto, para que la sección siga el tema del juego si cambia. */
+
+#cadena {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ── barra superior: red, buscador y refrescar ── */
+.cad-barra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cad-barra-info,
+.cad-barra-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  align-items: center;
+}
+
+.cad-chip {
+  padding: .2rem .6rem;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .25);
+  font-size: .8rem;
+  white-space: nowrap;
+}
+
+.cad-chip-tenue {
+  color: var(--tenue);
+  border-color: var(--borde-suave);
+}
+
+.cad-buscador {
+  display: flex;
+  gap: .4rem;
+  align-items: center;
+}
+
+.cad-input {
+  padding: .45rem .6rem;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .3);
+  color: var(--texto);
+  font: inherit;
+  font-size: .9rem;
+}
+
+.cad-input:focus-visible {
+  outline: 2px solid var(--oro);
+  outline-offset: 1px;
+}
+
+.cad-input-dir {
+  min-width: min(22rem, 60vw);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .82rem;
+}
+
+/* ── pestañas ── */
+.cad-pestanas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+  border-bottom: 1px solid var(--borde-suave);
+  padding-bottom: .25rem;
+}
+
+.cad-pestana {
+  padding: .45rem .9rem;
+  border: 1px solid transparent;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: var(--tenue);
+  font: inherit;
+  font-size: .92rem;
+  cursor: pointer;
+}
+
+.cad-pestana:hover {
+  color: var(--texto);
+  background: rgba(255, 255, 255, .04);
+}
+
+.cad-pestana.activa {
+  color: var(--oro);
+  background: var(--panel);
+  border-color: var(--borde);
+  border-bottom-color: transparent;
+  font-weight: 600;
+}
+
+.cad-pestana:focus-visible {
+  outline: 2px solid var(--oro);
+  outline-offset: 2px;
+}
+
+.cad-panel {
+  padding-top: 1rem;
+}
+
+.cad-panel[hidden] {
+  display: none;
+}
+
+/* ── bloques y cabeceras ── */
+.cad-bloque {
+  display: flex;
+  flex-direction: column;
+  gap: .85rem;
+}
+
+.cad-cabecera h3 {
+  margin: 0;
+  font-family: var(--titulo);
+  font-size: 1.15rem;
+  color: var(--oro);
+}
+
+.cad-sub,
+.cad-parrafo {
+  margin: .35rem 0 0;
+  color: var(--tenue);
+  font-size: .9rem;
+  line-height: 1.5;
+}
+
+.cad-subtitulo {
+  margin: .5rem 0 0;
+  font-size: 1rem;
+  color: var(--texto);
+}
+
+.cad-subtitulo-mini {
+  margin: .6rem 0 .2rem;
+  font-size: .9rem;
+  color: var(--tenue);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.cad-mini {
+  font-size: .82rem;
+  color: var(--tenue);
+}
+
+/* ── rejilla de datos ── */
+.cad-rejilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: .6rem;
+}
+
+.cad-rejilla-estrecha {
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+}
+
+.cad-dato {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  padding: .55rem .7rem;
+  border: 1px solid var(--borde-suave);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .18);
+}
+
+.cad-etiqueta {
+  font-size: .78rem;
+  color: var(--tenue);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.cad-valor {
+  font-size: 1.02rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.cad-fuente {
+  font-size: .74rem;
+  color: var(--tenue);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ── direcciones ── */
+.cad-dir {
+  display: inline-flex;
+  gap: .35rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.cad-dir-etiqueta {
+  font-weight: 600;
+}
+
+.cad-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .88rem;
+}
+
+.cad-enlace {
+  color: var(--oro);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cad-apagado {
+  color: var(--tenue);
+}
+
+.cad-copiar {
+  padding: 0 .3rem;
+  border: 1px solid var(--borde-suave);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tenue);
+  cursor: pointer;
+  font-size: .8rem;
+  line-height: 1.5;
+}
+
+.cad-copiar:hover,
+.cad-copiar.copiado {
+  color: var(--verde);
+  border-color: var(--verde);
+}
+
+/* ── avisos ── */
+.cad-aviso {
+  margin: 0;
+  padding: .55rem .75rem;
+  border-left: 3px solid var(--borde);
+  border-radius: 0 8px 8px 0;
+  background: rgba(0, 0, 0, .2);
+  font-size: .88rem;
+  line-height: 1.5;
+  color: var(--tenue);
+}
+
+.cad-aviso-ok {
+  border-left-color: var(--verde);
+}
+
+.cad-aviso-aviso {
+  border-left-color: var(--legendario);
+  color: var(--texto);
+}
+
+.cad-cargando {
+  margin: 0;
+  padding: 1rem 0;
+  color: var(--tenue);
+  font-size: .9rem;
+}
+
+.cad-discrepancia {
+  padding: .7rem .85rem;
+  border: 1px solid var(--legendario);
+  border-radius: 10px;
+  background: rgba(245, 158, 11, .08);
+  font-size: .88rem;
+}
+
+.cad-discrepancia ul {
+  margin: .4rem 0 0;
+  padding-left: 1.1rem;
+}
+
+/* ── tablas ── */
+.cad-tabla-caja {
+  overflow-x: auto;
+  border: 1px solid var(--borde-suave);
+  border-radius: 10px;
+}
+
+.cad-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .88rem;
+}
+
+.cad-tabla th,
+.cad-tabla td {
+  padding: .45rem .65rem;
+  text-align: left;
+  border-bottom: 1px solid var(--borde-suave);
+  white-space: nowrap;
+}
+
+.cad-tabla th {
+  background: rgba(0, 0, 0, .3);
+  color: var(--tenue);
+  font-weight: 600;
+  font-size: .8rem;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.cad-tabla tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.cad-tabla tbody tr:hover {
+  background: rgba(255, 255, 255, .03);
+}
+
+.cad-fila-especial td {
+  color: var(--legendario);
+  font-style: italic;
+}
+
+.cad-fila-gas td {
+  color: var(--tenue);
+}
+
+.cad-fila-ok td:last-child {
+  color: var(--verde);
+  font-weight: 700;
+}
+
+.cad-fila-mal td {
+  color: var(--rojo);
+  font-weight: 600;
+}
+
+/* ── historial de transacciones ── */
+.cad-historial {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.cad-tx {
+  padding: .65rem .8rem;
+  border: 1px solid var(--borde-suave);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .18);
+}
+
+.cad-tx-fila {
+  display: flex;
+  gap: .75rem;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.cad-tx-titulo {
+  font-weight: 600;
+}
+
+.cad-tx-neto {
+  display: flex;
+  gap: .5rem;
+}
+
+.cad-neto {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .86rem;
+  white-space: nowrap;
+}
+
+.cad-neto.pos {
+  color: var(--verde);
+}
+
+.cad-neto.neg {
+  color: var(--rojo);
+}
+
+.cad-tx-meta {
+  display: flex;
+  gap: .9rem;
+  flex-wrap: wrap;
+  margin-top: .25rem;
+  font-size: .8rem;
+  color: var(--tenue);
+}
+
+.cad-tx-detalle {
+  margin-top: .45rem;
+  font-size: .86rem;
+}
+
+.cad-tx-detalle summary {
+  cursor: pointer;
+  color: var(--tenue);
+}
+
+.cad-tx-detalle summary:hover {
+  color: var(--texto);
+}
+
+.cad-tx-detalle ul {
+  margin: .4rem 0 0;
+  padding-left: 1.1rem;
+  line-height: 1.55;
+}
+
+.cad-tx .btn {
+  margin-top: .5rem;
+}
+
+.cad-verificacion:not(:empty) {
+  margin-top: .6rem;
+  padding-top: .6rem;
+  border-top: 1px dashed var(--borde-suave);
+}
+
+/* ── rivales ── */
+.cad-rivales {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: .7rem;
+}
+
+.cad-rival {
+  padding: .7rem .8rem;
+  border: 1px solid var(--borde-suave);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .18);
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.cad-muestra {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: .84rem;
+  color: var(--tenue);
+}
+
+/* ── desglose (quién se lleva el dinero) ── */
+.cad-desglose {
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+  padding: .8rem .9rem;
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, .22);
+}
+
+.cad-desglose.compacto {
+  padding: .6rem .7rem;
+  font-size: .92rem;
+}
+
+.cad-flujos {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  line-height: 1.5;
+  font-size: .9rem;
+}
+
+.cad-flujo.cad-quemado,
+.cad-flujo.cad-destruido {
+  color: var(--legendario);
+}
+
+.cad-flujo.cad-acunado {
+  color: var(--verde);
+}
+
+.cad-flujo.cad-gas {
+  color: var(--tenue);
+}
+
+.cad-veredicto {
+  margin: 0;
+  padding: .5rem .7rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: .9rem;
+}
+
+.cad-veredicto.ok {
+  background: rgba(74, 222, 128, .12);
+  color: var(--verde);
+}
+
+.cad-veredicto.mal {
+  background: rgba(220, 76, 62, .14);
+  color: var(--rojo);
+}
+
+.cad-fila-controles {
+  display: flex;
+  gap: .6rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.cad-label {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  font-size: .82rem;
+  color: var(--tenue);
+}
+
+.cad-salida:not(:empty) {
+  margin-top: .3rem;
+}
+
+/* ── tesorería ── */
+.cad-permiso {
+  margin: 0;
+  padding: .6rem .8rem;
+  border-radius: 10px;
+  font-size: .9rem;
+  line-height: 1.5;
+}
+
+.cad-permiso.si {
+  background: rgba(74, 222, 128, .1);
+  border: 1px solid var(--verde);
+}
+
+.cad-permiso.no {
+  background: rgba(0, 0, 0, .25);
+  border: 1px solid var(--borde-suave);
+  color: var(--tenue);
+}
+
+.cad-retirada {
+  display: flex;
+  gap: .6rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  padding: .7rem .8rem;
+  border: 1px solid var(--legendario);
+  border-radius: 10px;
+  background: rgba(245, 158, 11, .06);
+}
+
+.cad-retirada .cad-mini,
+.cad-retirada .cad-estado {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.cad-estado:not(:empty) {
+  color: var(--texto);
+  font-size: .86rem;
+}
+
+/* Acotados a #cadena: este archivo no debe tocar el estilo de otras secciones. */
+#cadena .btn-peligro {
+  border-color: var(--legendario);
+  color: var(--legendario);
+}
+
+#cadena code {
+  padding: .05em .35em;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, .35);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .88em;
+}
+
+/* ── pantallas estrechas ── */
+@media (max-width: 640px) {
+  .cad-barra {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cad-buscador {
+    flex: 1;
+  }
+
+  .cad-input-dir {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .cad-pestanas {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .cad-pestana {
+    white-space: nowrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cad-copiar {
+    transition: none;
+  }
+}

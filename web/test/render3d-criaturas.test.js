@@ -9,7 +9,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { construirEnemigo, construirHeroe, CLAVES_3D, tieneReceta, factorPresencia, PRESENCIA_MIN, PRESENCIA_MAX } from "../js/render3d/criaturas.js";
+import {
+  construirEnemigo, construirHeroe, CLAVES_3D, tieneReceta, factorPresencia,
+  PRESENCIA_MIN, PRESENCIA_MAX, ESTIRADO_MAX, cosmeticosSinForma, cobertura, porSilueta, altoReal, alturasImposibles,
+} from "../js/render3d/criaturas.js";
+import { CATALOGO, cosmetico } from "../js/economy.js";
 import { construirEscenario, animarEscenario, RADIO_ARENA } from "../js/render3d/escenario.js";
 import { Taller, liberarRama, ALTO_HEROE } from "../js/render3d/piezas.js";
 import { rareza3d } from "../js/render3d/paleta.js";
@@ -144,15 +148,50 @@ test("se puede construir TODA criatura del bestiario, no solo las que tienen rec
 });
 
 test("cada criatura mide lo que dice su ficha del bestiario", () => {
-  // `altura` del bestiario es RELATIVA: 1 = el héroe. Sin esto, la rata (0,6) era invisible.
+  // `altura` del bestiario es RELATIVA: 1 = el héroe. Sin esto, la rata era invisible.
+  const excepciones = new Set(alturasImposibles(T).map((x) => x.clave));
   for (const b of BESTIARIO) {
     const meta = metadatos3d(b.clave);
     const c = construirEnemigo(T, b.clave, OPC);
     const esperada = meta.altura * ALTO_HEROE;
-    assert.ok(Math.abs(c.alto - esperada) < 0.02,
-      `${b.clave} mide ${c.alto.toFixed(2)} y su ficha dice ${esperada.toFixed(2)}`);
+    if (!excepciones.has(b.clave)) {
+      assert.ok(Math.abs(c.alto - esperada) < 0.02,
+        `${b.clave} mide ${c.alto.toFixed(2)} y su ficha dice ${esperada.toFixed(2)}`);
+    } else {
+      assert.ok(c.alto < esperada, `${b.clave} está en la lista de excepciones pero sí llega a su altura`);
+    }
     c.taller.liberar();
   }
+});
+
+test("la altura se MIDE del modelo, no se declara a mano", () => {
+  // Regresión: la quimera declaraba medir 1,1 m midiendo 1,68, y como la altura declarada es el
+  // divisor del factor de presencia, salía escalada casi al triple y cortada por arriba.
+  for (const b of BESTIARIO) {
+    const c = construirEnemigo(T, b.clave, OPC);
+    const real = altoReal(c.raiz);
+    assert.ok(real > 0, `${b.clave} mide 0: algo no está apuntando su extensión`);
+    assert.ok(Math.abs(real - c.alto) < Math.max(0.35, c.alto * 0.25),
+      `${b.clave} dice medir ${c.alto.toFixed(2)} pero sus piezas llegan a ${real.toFixed(2)}`);
+    c.taller.liberar();
+  }
+});
+
+test("ninguna criatura se estira tanto que pierda las proporciones", () => {
+  for (const b of BESTIARIO) {
+    const c = construirEnemigo(T, b.clave, OPC);
+    assert.ok(c.raiz.scale.y <= ESTIRADO_MAX + 0.01,
+      `${b.clave} se escala ${c.raiz.scale.y.toFixed(2)}, por encima del tope ${ESTIRADO_MAX}`);
+    c.taller.liberar();
+  }
+});
+
+test("las alturas que no se pueden cumplir están localizadas y son las de siempre", () => {
+  // Son criaturas bajas y largas: estirarlas hasta la altura de su ficha las dejaría de 5 metros
+  // de largo. Está hablado con la sesión maestra; si esta lista crece, hay que volver a hablarlo.
+  const claves = alturasImposibles(T).map((x) => x.clave).sort();
+  assert.deepEqual(claves, ["basilisco", "limo"],
+    "ha cambiado la lista de criaturas cuya altura no se puede cumplir: avisar a contenido");
 });
 
 test("hay modelo para TODAS las siluetas del contrato, no solo para las que se usan hoy", () => {
@@ -168,12 +207,90 @@ test("hay modelo para TODAS las siluetas del contrato, no solo para las que se u
   }
 });
 
-test("las once criaturas con receta a mano son las que decíamos", () => {
-  assert.equal(CLAVES_3D.length, 11);
-  for (const k of CLAVES_3D) assert.ok(tieneReceta(k));
+test("todas las criaturas del bestiario tienen receta hecha a mano", () => {
+  // Antes solo las 11 originales: las 10 que amplió el equipo de contenido se construían por
+  // silueta genérica y se notaba (la quimera no tenía tres cabezas, el limo no se derretía).
+  assert.deepEqual(porSilueta(), [], "estas criaturas siguen con silueta genérica");
+  assert.equal(cobertura().length, BESTIARIO.length);
+  for (const b of BESTIARIO) assert.ok(tieneReceta(b.clave), `${b.clave} no tiene receta propia`);
   assert.ok(CLAVES_3D.includes("jefe"), "el jefe no sale del bestiario, es nuestro");
-  assert.equal(tieneReceta("quimera"), false, "la quimera se construye por silueta");
+  assert.equal(CLAVES_3D.length, BESTIARIO.length + 1);
   assert.equal(tieneReceta(undefined), false);
+});
+
+test("cada criatura nueva tiene lo que la hace reconocible", () => {
+  // Esto es lo que se puede romper sin que nadie se entere: un refactor que se lleve por delante
+  // la tercera cabeza de la quimera no falla en ningún sitio, solo queda peor.
+  const partes = (clave) => {
+    const c = construirEnemigo(T, clave, OPC);
+    const nombres = [];
+    c.raiz.traverse((n) => { if (n.name) nombres.push(n.name); });
+    const mallas = c.raiz.todos().filter((n) => n.geometry).length;
+    c.taller.liberar();
+    return { nombres, mallas, c };
+  };
+
+  // La quimera tiene TRES cabezas: león, cabra y serpiente.
+  const q = construirEnemigo(T, "quimera", OPC);
+  assert.equal(q.partes.cabezas?.length, 3, "la quimera necesita sus tres cabezas");
+  const nq = [];
+  q.raiz.traverse((n) => { if (n.name) nq.push(n.name); });
+  assert.ok(nq.includes("cabezaCabra"), "falta la cabeza de cabra");
+  assert.ok(nq.includes("cabezaSerpiente"), "falta la cabeza de serpiente");
+  q.taller.liberar();
+
+  // El enjambre de avispas son MUCHAS avispas, no una.
+  const e = construirEnemigo(T, "avispa", OPC);
+  assert.ok(e.partes.bichos?.length >= 5, "un enjambre de una sola avispa no es un enjambre");
+  e.taller.liberar();
+
+  // El limo tiene núcleo encendido y varios bultos, no un cuerpo de bicho.
+  const l = construirEnemigo(T, "limo", OPC);
+  assert.ok(l.partes.nucleo, "al limo le falta el núcleo");
+  assert.ok(l.partes.bultos?.length >= 3, "al limo le faltan bultos");
+  l.taller.liberar();
+
+  // Los tres alados tienen alas; los dos flotantes, flotan.
+  for (const k of ["murcielago", "avispa", "arpia"]) {
+    const c = construirEnemigo(T, k, OPC);
+    assert.ok(c.partes.alas?.length === 2 || c.partes.bichos, `${k} debería tener alas`);
+    c.taller.liberar();
+  }
+  for (const k of ["elemental", "liche", "espectro", "murcielago", "avispa"]) {
+    const c = construirEnemigo(T, k, OPC);
+    assert.equal(c.flota, true, `${k} no debería tocar el suelo`);
+    c.taller.liberar();
+  }
+
+  // Los que llevan arma la exponen, para que la animación de ataque la mueva.
+  for (const k of ["bandido", "caballero"]) {
+    const c = construirEnemigo(T, k, OPC);
+    assert.ok(c.partes.arma, `${k} debería llevar arma`);
+    c.taller.liberar();
+  }
+  assert.ok(partes("bandido").nombres.includes("armaIzq"), "el bandido lleva una daga en cada mano");
+});
+
+test("ninguna criatura se parece a otra en número de piezas", () => {
+  // Un indicio burdo pero útil: si dos criaturas salen con exactamente las mismas piezas, es que
+  // alguna se está construyendo con la receta de otra.
+  const porClave = new Map();
+  for (const b of BESTIARIO) {
+    const c = construirEnemigo(T, b.clave, OPC);
+    porClave.set(b.clave, c.raiz.todos().filter((n) => n.geometry).length);
+    c.taller.liberar();
+  }
+  const repes = [...porClave.values()].filter((v, i, a) => a.indexOf(v) !== i);
+  assert.ok(porClave.size - new Set(porClave.values()).size <= 6,
+    `demasiadas criaturas con el mismo número de piezas: ${repes.join(", ")}`);
+});
+
+test("sigue habiendo reserva por silueta para las criaturas que vengan", () => {
+  // Aunque ahora no se use para ninguna, es la red que hace que una criatura nueva aparezca en 3D
+  // sin que este equipo toque nada.
+  const inventada = construirEnemigo(T, "criatura-que-no-existe-aun", OPC);
+  assert.ok(inventada.raiz.todos().filter((n) => n.geometry).length >= 4);
+  inventada.taller.liberar();
 });
 
 test("una criatura inventada se construye igual, sin reventar", () => {
@@ -268,6 +385,104 @@ test("la rareza del equipo cambia el color, con la misma paleta que el 2D", () =
   assert.ok(brillo(legendario) > brillo(comun), "la espada legendaria no brilla más que la común");
   legendario.taller.liberar();
   comun.taller.liberar();
+});
+
+// ───────────────────────── Cosméticos ─────────────────────────
+
+/** Nombres de los grupos que cuelgan de un héroe construido. */
+const piezasDe = (h) => { const n = []; h.raiz.traverse((x) => { if (x.name) n.push(x.name); }); return n; };
+
+/** Todos los colores de material que usa un modelo. */
+const coloresDe = (h) => new Set(h.materiales.map((m) => m.color));
+
+test("el motor sabe dibujar TODOS los cosméticos del catálogo", () => {
+  // Si el equipo del catálogo añade uno nuevo, esta prueba falla aquí en vez de dejar al jugador
+  // con un cosmético que ha pagado y no se ve.
+  assert.deepEqual(cosmeticosSinForma(), [], "hay cosméticos del catálogo sin forma 3D");
+});
+
+test("cada cosmético usa el color que dice el catálogo, no uno inventado", () => {
+  // Lo que el jugador vio en la tienda tiene que ser lo que se le pone al héroe.
+  const hex = (s) => Number.parseInt(String(s).replace("#", ""), 16);
+  for (const c of CATALOGO) {
+    if (c.ranura === "consumible" || c.ranura === "color") continue;
+    const h = construirHeroe(T, [], { [c.ranura]: c.id }, OPC);
+    assert.ok(coloresDe(h).has(hex(c.tono)),
+      `el cosmético ${c.id} (${c.nombre}) no usa su color ${c.tono}`);
+    h.taller.liberar();
+  }
+});
+
+test("cada sombrero del catálogo tiene su propia forma", () => {
+  // Capucha del cazador, Yelmo con cuernos y Corona del campeón no se pueden dibujar igual por
+  // mucho que compartan ranura. (Antes sí pasaba: los ids 4, 5 y 6 estaban cruzados.)
+  const formas = new Map();
+  for (const id of [4, 5, 6]) {
+    const h = construirHeroe(T, [], { sombrero: id }, OPC);
+    const nombres = piezasDe(h).filter((n) => ["capucha", "yelmo", "corona"].includes(n));
+    assert.equal(nombres.length, 1, `el sombrero ${id} debería poner una pieza y pone ${nombres.length}`);
+    formas.set(id, nombres[0]);
+    h.taller.liberar();
+  }
+  assert.equal(formas.get(4), "capucha", "el id 4 es «Capucha del cazador»");
+  assert.equal(formas.get(5), "yelmo", "el id 5 es «Yelmo con cuernos»");
+  assert.equal(formas.get(6), "corona", "el id 6 es «Corona del campeón»");
+  assert.equal(new Set(formas.values()).size, 3, "los tres sombreros se ven distintos");
+});
+
+test("las «Alas de fénix» son alas, no una capa", () => {
+  // Es el cosmético más caro del catálogo (800 de oro) y comparte ranura con las capas.
+  const alas = construirHeroe(T, [], { capa: 9 }, OPC);
+  const capa = construirHeroe(T, [], { capa: 8 }, OPC);
+  assert.ok(alas.partes.alas, "el id 9 tiene que poner alas");
+  assert.equal(capa.partes.alas, undefined, "una capa normal no lleva alas");
+  assert.ok(piezasDe(alas).filter((n) => n === "ala").length === 2, "dos alas, una por lado");
+  alas.taller.liberar();
+  capa.taller.liberar();
+});
+
+test("las alas ensanchan al héroe, y el encuadre se entera", () => {
+  // Regresión vista en pantalla: con las alas puestas el héroe se salía del plano por la
+  // izquierda, porque el radio que se le daba a la cámara era el del héroe sin nada.
+  const pelado = construirHeroe(T, [], {}, OPC);
+  const conAlas = construirHeroe(T, [], { capa: 9 }, OPC);
+  assert.ok(conAlas.radio > pelado.radio * 1.5, `con alas el radio debería crecer: ${pelado.radio} → ${conAlas.radio}`);
+  pelado.taller.liberar();
+  conAlas.taller.liberar();
+});
+
+test("las dos mascotas se distinguen una de otra", () => {
+  const gato = construirHeroe(T, [], { mascota: 12 }, OPC);
+  const dragon = construirHeroe(T, [], { mascota: 13 }, OPC);
+  const mallas = (h) => { let n = 0; h.partes.mascota.traverse((x) => { if (x.geometry) n++; }); return n; };
+  assert.ok(gato.partes.mascota && dragon.partes.mascota);
+  assert.notEqual(mallas(gato), mallas(dragon), "el gato y el mini dragón no pueden ser el mismo modelo");
+  gato.taller.liberar();
+  dragon.taller.liberar();
+});
+
+test("un cosmético legendario brilla y uno común no", () => {
+  const brillo = (ap) => { const h = construirHeroe(T, [], ap, OPC); const b = h.materiales.reduce((a, m) => a + (m.emissiveIntensity ?? 0), 0); h.taller.liberar(); return b; };
+  assert.ok(brillo({ sombrero: 6 }) > brillo({ sombrero: 4 }), "la corona (legendaria) debería brillar más que la capucha (común)");
+  assert.ok(brillo({ capa: 9 }) > brillo({ capa: 7 }), "las alas de fénix deberían brillar más que la capa de viajero");
+});
+
+test("el tinte de armadura sale del catálogo", () => {
+  for (const id of [1, 2, 3]) {
+    const c = cosmetico(id);
+    const h = construirHeroe(T, [], { color: id }, OPC);
+    assert.ok(coloresDe(h).has(Number.parseInt(c.tono.replace("#", ""), 16)),
+      `el tinte ${id} (${c.nombre}) no usa su color ${c.tono}`);
+    h.taller.liberar();
+  }
+});
+
+test("la poción (consumible) no se lleva puesta", () => {
+  const h = construirHeroe(T, [], { sombrero: 14, capa: 14, aura: 14, mascota: 14 }, OPC);
+  const pelado = construirHeroe(T, [], {}, OPC);
+  assert.equal(piezasDe(h).length, piezasDe(pelado).length, "un consumible no debería añadir piezas");
+  h.taller.liberar();
+  pelado.taller.liberar();
 });
 
 test("los cosméticos se ponen y se quitan", () => {

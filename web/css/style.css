@@ -72,6 +72,23 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
 .badge-ok { color: var(--verde); border-color: rgba(74, 222, 128, .5); background: rgba(74, 222, 128, .08); }
 .badge-bad { color: #fca5a5; border-color: rgba(220, 76, 62, .6); background: rgba(220, 76, 62, .12); }
 
+/* Selector de red. Se parece a una insignia para que no grite en la cabecera: cambiar de red
+   es algo que se hace una vez, no cada partida. */
+.sel-red {
+  font: inherit; font-size: .78rem; font-weight: 600;
+  padding: 4px 8px; border-radius: 999px;
+  border: 1px solid var(--borde); background: transparent; color: var(--tenue);
+  max-width: 15ch; cursor: pointer;
+}
+.sel-red:hover { color: var(--texto); border-color: var(--oro); }
+.sel-red:focus-visible { outline: 2px solid var(--oro); outline-offset: 2px; }
+/* Las opciones se pintan con el tema del sistema, así que hay que fijar el fondo a mano. */
+.sel-red option { background: var(--panel); color: var(--texto); }
+/* Una red sin contratos puestos se marca en el propio selector. */
+.sel-red.sin-desplegar { color: #fca5a5; border-color: rgba(220, 76, 62, .6); }
+
+.seccion-nota { margin: 2px 0 0; color: var(--tenue); font-size: .9rem; }
+
 /* ── Botones ── */
 .btn {
   font: 600 .95rem var(--cuerpo); color: var(--texto); cursor: pointer;

@@ -64,6 +64,8 @@ import "./casos-navegacion.js";
 import "./casos-combate.js";
 import "./casos-contenido.js";
 import "./casos-robustez.js";
+import "./casos-3d.js";
+import "./casos-teclado.js";
 
 const salida = document.getElementById("salida");
 const informes = document.getElementById("informes");
@@ -128,27 +130,35 @@ async function correrAccesibilidad() {
 async function correrRendimiento() {
   deshabilitar(true);
   const out = {};
-  for (const perfil of ["escritorio", "movil"]) {
-    resumen.textContent = `midiendo rendimiento (${perfil})…`;
-    out[perfil] = await medirPerfil(perfil);
+  const combinaciones = [
+    ["escritorio2d", "escritorio", false], ["movil2d", "movil", false],
+    ["escritorio3d", "escritorio", true], ["movil3d", "movil", true],
+  ];
+  for (const [clave, perfil, tresD] of combinaciones) {
+    resumen.textContent = `midiendo rendimiento (${perfil}, ${tresD ? "3D" : "2D"})…`;
+    out[clave] = await medirPerfil(perfil, { tresD });
   }
   estado.rendimiento = out;
+  const c = (k, f) => { try { return f(out[k]); } catch { return null; } };
+  const fila = (nombre, f, objetivo) => [nombre, c("escritorio2d", f), c("movil2d", f), c("escritorio3d", f), c("movil3d", f), objetivo];
   const sec = el("section");
   sec.append(el("h2", null, "📈 Rendimiento"));
-  sec.append(tabla(["Medida", "Escritorio", "Móvil 375×812", "Objetivo"], [
-    ["Jugable (ms)", out.escritorio.jugableMs, out.movil.jugableMs, `≤ ${OBJETIVOS.jugableMs}`],
-    ["DOMContentLoaded (ms)", out.escritorio.domContentLoadedMs, out.movil.domContentLoadedMs, `≤ ${OBJETIVOS.domContentLoadedMs}`],
-    ["First Contentful Paint (ms)", out.escritorio.primerPintadoMs, out.movil.primerPintadoMs, "≤ 1800"],
-    ["Peso total (kB)", out.escritorio.peso.totalKb, out.movil.peso.totalKb, `≤ ${OBJETIVOS.pesoTotalKb}`],
-    ["· JavaScript (kB)", out.escritorio.peso.jsKb, out.movil.peso.jsKb, `≤ ${OBJETIVOS.pesoJsKb}`],
-    ["· CSS (kB)", out.escritorio.peso.cssKb, out.movil.peso.cssKb, "—"],
-    ["Peticiones", out.escritorio.peso.peticiones, out.movil.peso.peticiones, "—"],
-    ["fps medios en combate", out.escritorio.fps?.medio, out.movil.fps?.medio, `≥ ${OBJETIVOS.fpsMedio}`],
-    ["fps mínimos en combate", out.escritorio.fps?.minimo, out.movil.fps?.minimo, `≥ ${OBJETIVOS.fpsMinimo}`],
-    ["peor fotograma (ms)", out.escritorio.fps?.peorMs, out.movil.fps?.peorMs, "≤ 33"],
-    ["tareas largas (>50 ms)", out.escritorio.fps?.tareasLargas, out.movil.fps?.tareasLargas, "0"],
+  sec.append(tabla(["Medida", "Escritorio 2D", "Móvil 2D", "Escritorio 3D", "Móvil 3D", "Objetivo"], [
+    fila("Jugable (ms)", (o) => o.jugableMs, `≤ ${OBJETIVOS.jugableMs}`),
+    fila("· de eso, lienzo 3D listo (ms)", (o) => o.lienzo3dMs, "—"),
+    fila("DOMContentLoaded (ms)", (o) => o.domContentLoadedMs, `≤ ${OBJETIVOS.domContentLoadedMs}`),
+    fila("First Contentful Paint (ms)", (o) => o.primerPintadoMs, "≤ 1800"),
+    fila("Peso propio (kB)", (o) => o.peso.totalKb, `≤ ${OBJETIVOS.pesoTotalKb}`),
+    fila("Peso externo, three.js (kB)", (o) => o.externosKb, "—"),
+    fila("· JavaScript propio (kB)", (o) => o.peso.jsKb, `≤ ${OBJETIVOS.pesoJsKb}`),
+    fila("Peticiones", (o) => o.peso.peticiones, "—"),
+    fila("fps medios en combate", (o) => o.fps?.medio, `≥ ${OBJETIVOS.fpsMedio}`),
+    fila("fps mínimos en combate", (o) => o.fps?.minimo, `≥ ${OBJETIVOS.fpsMinimo}`),
+    fila("peor fotograma (ms)", (o) => o.fps?.peorMs, "≤ 33"),
+    fila("tareas largas (>50 ms)", (o) => o.fps?.tareasLargas, "0"),
   ]));
-  sec.append(el("h2", null, "Recursos más pesados (escritorio)"), el("pre", null, out.escritorio.masPesados.join("\n")));
+  sec.append(el("h2", null, "Recursos externos con el 3D"), el("pre", null, (out.escritorio3d?.externosDetalle ?? []).join("\n") || "ninguno"));
+  sec.append(el("h2", null, "Recursos propios más pesados"), el("pre", null, out.escritorio2d.masPesados.join("\n")));
   informes.append(sec);
   resumen.textContent = "rendimiento medido";
   deshabilitar(false);

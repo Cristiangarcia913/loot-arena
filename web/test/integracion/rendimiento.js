@@ -24,33 +24,42 @@ const PERFILES = Object.freeze({
  * Carga la página de verdad y mide. No usa dobles de red: deja que la app hable con quien hable,
  * salvo que se pase `bloquearExternos` (por defecto sí, para no depender de Render).
  */
-export async function medirCarga(perfil = "escritorio", { bloquearExternos = true, ruta = "#/arena", saltarPortada = true } = {}) {
+export async function medirCarga(perfil = "escritorio", { bloquearExternos = true, ruta = "#/arena", saltarPortada = true, tresD = false } = {}) {
   const p = PERFILES[perfil] ?? PERFILES.escritorio;
   if (saltarPortada) { try { sessionStorage.setItem("lootarena:portada", "1"); } catch { /* da igual */ } }
   try { localStorage.setItem("lootarena:tutorial", JSON.stringify({ v: 1, terminado: true, saltado: true, fecha: Date.now() })); } catch { /* da igual */ }
+  // El motor se elige al arrancar, así que la clave tiene que estar puesta ANTES de navegar.
+  try { localStorage.setItem("lootarena:3d", tresD ? "1" : "0"); } catch { /* da igual */ }
 
   const marco = document.createElement("iframe");
   marco.title = `Medición de rendimiento · ${p.nombre}`;
   marco.width = p.ancho; marco.height = p.alto;
   marco.className = "marco medir";
-  marco.style.width = `${p.ancho}px`; marco.style.height = `${p.alto}px`;
-  (document.getElementById("marcos") ?? document.body).append(marco);
+  // A LA VISTA, y no en el escondite de #marcos: Chrome no compone un lienzo WebGL que está fuera
+  // de la pantalla, así que midiendo a escondidas el 3D daba 1 fps y fotogramas de un segundo.
+  // Con el iframe encima de la página los fotogramas son los de verdad.
+  marco.style.cssText = `position:fixed; left:0; top:0; z-index:9999; border:0; background:#000; width:${p.ancho}px; height:${p.alto}px;`;
+  document.body.append(marco);
 
   const t0 = performance.now();
   marco.src = new URL(`index.html${ruta}`, BASE).href;
 
-  let jugable = null, primerPintado = null;
+  let jugable = null, primerPintado = null, lienzo3dMs = null;
   const observar = async () => {
     for (;;) {
       const w = marco.contentWindow, d = w?.document;
       if (d && primerPintado == null && d.querySelector(".topbar")) primerPintado = performance.now() - t0;
+      const l3d = d?.querySelector("#escena canvas.r3d-lienzo");
+      if (lienzo3dMs == null && l3d && l3d.width > 1) lienzo3dMs = performance.now() - t0;
       const btn = d?.getElementById("btn-explorar");
       const arena = d?.getElementById("seccion-arena");
-      if (btn && !btn.disabled && arena && !arena.hidden && d.getElementById("net-badge")?.textContent !== "Cargando…") {
+      const listo = btn && !btn.disabled && arena && !arena.hidden && d.getElementById("net-badge")?.textContent !== "Cargando…";
+      // Con el 3D, «jugable» incluye tener la escena dibujando: antes de eso la arena está vacía.
+      if (listo && (!tresD || lienzo3dMs != null)) {
         jugable = performance.now() - t0;
         return;
       }
-      if (performance.now() - t0 > 25000) return;
+      if (performance.now() - t0 > 30000) return;
       await dormir(16);
     }
   };
@@ -91,9 +100,15 @@ export async function medirCarga(perfil = "escritorio", { bloquearExternos = tru
   const suma = (lista) => lista.reduce((a, r) => a + r.bytes, 0);
   const docBytes = nav.encodedBodySize || 0;
 
+  const externos = recursos.filter((r) => r.externo);
   const medida = {
     perfil: p.nombre,
+    motor: tresD ? "3D" : "2D",
     jugableMs: jugable == null ? null : Math.round(jugable),
+    lienzo3dMs: lienzo3dMs == null ? null : Math.round(lienzo3dMs),
+    // three.js llega por `import()` desde un CDN: no pasa por fetch, pero sí por `performance`.
+    externosKb: Math.round(externos.reduce((a, r) => a + r.bytes, 0) / 102.4) / 10,
+    externosDetalle: externos.filter((r) => r.bytes > 0).map((r) => `${r.url.replace(/^https?:\/\//, "").slice(0, 60)} ${Math.round(r.bytes / 1024 * 10) / 10} kB en ${r.ms} ms`),
     domContentLoadedMs: Math.round(nav.domContentLoadedEventEnd || 0),
     loadMs: Math.round(nav.loadEventEnd || 0),
     primerPintadoMs: pintados["first-contentful-paint"] ?? (primerPintado && Math.round(primerPintado)) ?? null,
@@ -111,6 +126,27 @@ export async function medirCarga(perfil = "escritorio", { bloquearExternos = tru
     marco,
   };
   return medida;
+}
+
+/**
+ * ¿Está el navegador produciendo fotogramas de verdad?
+ *
+ * Si el panel del navegador no está a la vista, Chrome deja de componer y `requestAnimationFrame`
+ * cae a 1-2 Hz. Entonces CUALQUIER medida de fps es basura: midiendo así, el 2D daba 27 fps y el
+ * 3D 9 fps, cuando el problema era el panel, no el juego. Esto se comprueba ANTES de medir nada.
+ *
+ * @returns {Promise<{fiable:boolean, fps:number}>}
+ */
+export async function compositorVivo(win = window, ms = 700) {
+  let n = 0;
+  const t0 = win.performance.now();
+  await new Promise((fin) => {
+    const corte = setTimeout(() => fin(), ms + 2000);
+    const paso = () => { n++; if (win.performance.now() - t0 < ms) win.requestAnimationFrame(paso); else { clearTimeout(corte); fin(); } };
+    win.requestAnimationFrame(paso);
+  });
+  const fps = Math.round(n / ((win.performance.now() - t0) / 1000));
+  return { fiable: fps >= 45, fps };
 }
 
 /** Cuenta fps dentro del iframe durante `ms`, además de las tareas largas que vea el navegador. */
@@ -156,10 +192,21 @@ export async function medirFps(win, ms = 4000) {
 }
 
 /** Medida completa de un perfil: carga + fps durante un combate real. */
-export async function medirPerfil(perfil = "escritorio") {
-  const m = await medirCarga(perfil);
+export async function medirPerfil(perfil = "escritorio", opciones = {}) {
+  const m = await medirCarga(perfil, opciones);
   const w = m.marco.contentWindow, d = w.document;
   let fps = null, fpsReposo = null;
+
+  // Antes de medir nada: ¿el navegador está dibujando? Si no, se dice y no se inventa una cifra.
+  const compositor = await compositorVivo(window);
+  if (!compositor.fiable) {
+    const aviso = { error: `No se pueden medir los fps: el navegador solo produce ${compositor.fps} fotogramas por segundo porque su panel no está a la vista. Deja visible el panel del navegador y vuelve a medir.`, compositorFps: compositor.fps };
+    const parcial = { ...m, fps: aviso, fpsReposo: aviso, compositor, veredictos: veredicto({ ...m, fps: null }) };
+    delete parcial.marco;
+    m.marco.remove();
+    return parcial;
+  }
+
   try {
     fpsReposo = await medirFps(w, 1500);
     d.getElementById("btn-explorar")?.click();
@@ -172,7 +219,7 @@ export async function medirPerfil(perfil = "escritorio") {
   } catch (e) {
     fps = { error: String(e?.message ?? e) };
   }
-  const resultado = { ...m, fps, fpsReposo, veredictos: veredicto({ ...m, fps }) };
+  const resultado = { ...m, fps, fpsReposo, compositor, veredictos: veredicto({ ...m, fps }) };
   delete resultado.marco;
   m.marco.remove();
   return resultado;

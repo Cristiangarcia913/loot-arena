@@ -92,6 +92,12 @@
       </div>
 
       <div class="grupo">
+        <h3>Gesto de ataque (contrato <code>ataque3d</code>)</h3>
+        <div id="gestos" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        <label>lo hace <select id="sel-gesto-quien"><option value="enemigo">el enemigo</option><option value="heroe">el héroe</option></select></label>
+      </div>
+
+      <div class="grupo">
         <h3>Recibir golpe</h3>
         <button class="btn btn-red" id="b-g-normal" type="button">Golpe −18</button>
         <button class="btn btn-gold" id="b-g-crit" type="button">Crítico ¡42!</button>
@@ -154,6 +160,14 @@
         <button class="btn btn-gold" id="b-estres" type="button">Prueba de esfuerzo (10 s)</button>
         <button class="btn btn-gold" id="b-aparicion" type="button">Medir coste de aparición</button>
         <span class="fps" id="memoria"></span>
+      </div>
+
+      <div class="grupo">
+        <h3>Cofre del botín (fase B)</h3>
+        <button class="btn btn-ghost" id="b-cofre0" type="button">Cofre común</button>
+        <button class="btn btn-blue" id="b-cofre1" type="button">Cofre raro</button>
+        <button class="btn btn-gold" id="b-cofre2" type="button">Cofre legendario</button>
+        <label><input type="checkbox" id="chk-camara" checked> cámara con intención</label>
       </div>
 
       <div class="grupo">
@@ -223,7 +237,8 @@
 
     function montar() {
       const cal = $("#sel-calidad").value || undefined;
-      const o = { auto: false, calidad: cal, alAviso: (m) => apunte(`⚠ ${m}`) };
+      const o = { auto: false, calidad: cal, alAviso: (m) => apunte(`⚠ ${m}`),
+        camaraViva: $("#chk-camara")?.checked ?? true };
       // Con ?fx2d=1 se usa el camino de integración completo (`iniciarInterfaz`), que es el que
       // monta portada, sonido y cartas y además deja UN SOLO lienzo aunque fx.js ya estuviera.
       if (new URLSearchParams(location.search).get("fx2d") === "1") {
@@ -393,6 +408,36 @@
       const r = R3D.rendimiento();
       apunte(`Esfuerzo terminado · ahora ${r.fps} fps · peor ${r.peor} · peor fotograma ${r.peorFotogramaMs} ms`);
     };
+
+    // ── Gestos de ataque ──
+    // Un botón por cada valor de VALORES_3D.ataque, para ver la diferencia de un vistazo.
+    const { VALORES_3D } = await import("./js/combat.js");
+    for (const gesto of VALORES_3D.ataque) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn btn-ghost";
+      b.style.fontSize = ".78rem";
+      b.textContent = gesto;
+      b.onclick = async () => {
+        const quien = $("#sel-gesto-quien").value;
+        const t0 = performance.now();
+        await R3D.animarAtaque(quien, { animacion: gesto, critico: $("#chk-crit").checked, brutal: $("#chk-brutal").checked });
+        apunte(`${gesto} de ${quien} · impacto a los ${Math.round(performance.now() - t0)} ms`);
+      };
+      $("#gestos").append(b);
+    }
+
+    // ── Cofre del botín ──
+    const NOMBRE_RAREZA = ["Común", "Raro", "Legendario"];
+    for (const r of [0, 1, 2]) {
+      $(`#b-cofre${r}`).onclick = async () => {
+        const t0 = performance.now();
+        const eleccion = await R3D.revelarBotin({ tipo: "Espada", rareza: r, ataque: 5 + r * 4 });
+        apunte(`Cofre ${NOMBRE_RAREZA[r].toLowerCase()} · ${Math.round(performance.now() - t0)} ms hasta cerrar · «${eleccion}»`);
+      };
+    }
+    // La cámara con intención se puede apagar: a parte de la gente el movimiento le marea.
+    $("#chk-camara").onchange = () => { R3D.desmontar(); montar(); };
 
     // ── Combate simulado completo ──
     $("#b-parar").onclick = () => { cancelar = true; };

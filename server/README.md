@@ -37,6 +37,8 @@ npm start
 | `DEPLOY_BLOCK` | no¹ | Bloque desde el que se indexa el ranking: el del **despliegue de GameItem** (el más antiguo de los tres). |
 | `GAS_TOPE_DIARIO` | no (0.01) | ETH máximo que el grifo de gas (`POST /gas`) reparte al día entre todos los jugadores. |
 | `TEMPORADA_INICIO` | no | Inicio de la temporada 1 del pase (ISO UTC). Por defecto `2026-11-02T00:00:00Z`. Debe coincidir con `web/js/pase.js`. |
+| `ORO_ADDRESS` | no¹ | Dirección de `LootGold` (`shared/deployments.json` → `sepolia.oro`). Sin ella, `GET /tesoreria` responde 503. |
+| `RED` | no (`sepolia`) | Red en la que trabaja el servidor: `sepolia`, `base-sepolia`, `arbitrum-sepolia`, `optimism-sepolia`, `localhost`… Ver [Trabajar en otra red](#trabajar-en-otra-red). |
 | `ALMACEN` | no² | `memoria` o `upstash`. Dónde se guarda el estado del juego. Ver [Persistencia](#persistencia). |
 | `UPSTASH_REDIS_REST_URL` | no² | URL REST de la base de Upstash (`https://….upstash.io`). |
 | `UPSTASH_REDIS_REST_TOKEN` | no² | Token REST **Standard** de Upstash. **Es un secreto: nunca a git.** |
@@ -69,6 +71,77 @@ npm start
 curl -X POST localhost:3000/ganar -H "content-type: application/json" \
      -d '{"address":"0x70997970C51812dc3A010C7d01b50e0d17dc79C8","enemyLevel":2,"jefe":true}'
 ```
+
+## Trabajar en otra red
+
+Hasta la 1.4 el servidor daba Sepolia por supuesto. Desde la 1.4.1 la red es un parámetro: `RED`.
+
+```bash
+RED=sepolia          # por defecto; no hay que ponerla para que todo siga igual
+RED=base-sepolia
+RED=localhost        # nodo de Hardhat
+```
+
+Redes conocidas (`src/redes.js`): `sepolia`, `base-sepolia`, `arbitrum-sepolia`,
+`optimism-sepolia`, `localhost`. Una red que no esté en la lista **se admite igual**: solo se
+pierde la comprobación del chainId y se avisa con `⚠`.
+
+**Un servidor atiende una red a la vez**, no varias en paralelo. En el plan gratuito de Render
+hay una sola instancia y un solo juego de variables, y mezclar redes en un proceso obligaría a
+duplicar wallet, nonce y grifo de gas. Para una segunda red se levanta un **segundo servicio**
+con sus propias variables, y la web apunta a uno o a otro según la red elegida.
+
+Tres cosas que esto garantiza:
+
+1. **Nada de Sepolia a fuego.** Direcciones, bloque de despliegue y RPC ya venían de variables;
+   ahora el nombre y el chainId de la red también.
+2. **El chainId se comprueba al arrancar.** Si `RED=sepolia` pero `RPC_URL` apunta a otra red, el
+   servidor **no arranca** y dice en qué red está el nodo de verdad. Acuñar sobre las direcciones
+   de otra red sería el fallo más caro posible.
+3. **El estado nunca se mezcla entre redes.** El prefijo del almacén lleva la red dentro
+   (`loot-arena:sepolia:`, `loot-arena:base-sepolia:`), **incluso si se pone el mismo
+   `ALMACEN_PREFIJO` a mano**. Así dos despliegues pueden compartir la misma base gratuita de
+   Upstash sin pisarse el índice del ranking ni las rachas.
+
+Para desplegar en otra red hay que cambiar, en el panel: `RED`, `RPC_URL`, `CONTRACT_ADDRESS`,
+`MERCADO_ADDRESS`, `RECOMPENSAS_ADDRESS`, `ORO_ADDRESS` y `DEPLOY_BLOCK` (los de esa red en
+`shared/deployments.json`). `PRIVATE_KEY` puede ser la misma cartera si es owner allí también.
+
+## El RPC y la historia podada
+
+**Esto es lo que rompió el ranking en producción el 12-nov-2026. Conviene leerlo antes de tocar nada.**
+
+Los RPC públicos **podan** su historia: solo conservan los últimos bloques. Medido contra
+`https://ethereum-sepolia-rpc.publicnode.com` (el de `render.yaml`):
+
+| Profundidad desde la cabeza | `getLogs` |
+|---|---|
+| 200, 1 000, 5 000 bloques | siempre OK |
+| ~20 000 bloques | **a veces sí y a veces no** (es un grupo de nodos y no todos han podado lo mismo) |
+| 40 000+ bloques | siempre `{"code":4444,"message":"pruned history unavailable"}` |
+
+El tamaño del rango **no** es el problema: un `getLogs` de 50 000 bloques pegado a la cabeza
+funciona. Lo que estorba es la **antigüedad** del primer bloque pedido.
+
+`DEPLOY_BLOCK = 12072405` quedó a más de 46 000 bloques de la cabeza, así que **el servidor ya
+no puede reconstruir el índice completo desde cero con este RPC**. Qué hacer, de mejor a peor:
+
+1. **Configurar la persistencia** (`ALMACEN=upstash`, ver [Persistencia](#persistencia)). Es la
+   solución de verdad: el índice se construye una vez y después solo se leen bloques recientes,
+   que nunca están podados. **Mientras no se configure, cada arranque en frío pierde el histórico.**
+2. **Usar un RPC con historia**: el plan gratuito de Alchemy o Infura conserva Sepolia entera.
+   Basta cambiar `RPC_URL` en Render.
+3. **Subir `DEPLOY_BLOCK`** a un bloque reciente. Es gratis e inmediato, pero tira el histórico
+   anterior a ese bloque a propósito.
+
+Qué hace el servidor cuando se topa con un hueco (desde la 1.4.1): **salta hacia delante** hasta
+donde el nodo sí tiene datos, sirve el ranking parcial y lo dice con `incompleto: true` y
+`desdeBloque` en `GET /ranking`, y con `incompleto` + `bloquesSinHistoria` en `GET /health`.
+Nunca finge que el ranking está entero.
+
+> **Para la web (fase E1, pestaña «Tus transacciones»):** leer `getLogs` desde el bloque de
+> despliegue **desde el navegador** se va a topar con esta misma pared. O se usa un RPC con
+> historia, o ese historial tiene que servirlo el servidor desde su índice persistido.
 
 ## Persistencia
 
@@ -202,6 +275,22 @@ Para probar contra Upstash de verdad, rellena `.env` como indica `.env.example`.
 ```
 `saldoOperador` es el ETH de la wallet del servidor (caché de 60 s). `alertaSaldoBajo` es `true` si baja de 0,002 ETH.
 Si el RPC falla al leerlo, ambos campos van a `null` y `/health` sigue dando 200.
+
+`red` (1.4.1) es la red en la que trabaja el servidor (ver [Trabajar en otra red](#trabajar-en-otra-red)).
+
+`indexador` (1.4.1) dice cómo va el indexado del ranking. **Nació de la avería del 12-nov-2026**,
+en la que el indexado se quedó parado y desde fuera no se notaba: solo un 503 eterno.
+
+| Campo | Significado |
+|---|---|
+| `bloque` / `cabeza` / `pendientes` | hasta dónde ha indexado, dónde está la cadena y cuánto falta |
+| `listo` | si `GET /ranking` ya sirve algo (`false` = responde 503) |
+| `sincronizado` | si ha llegado a la cabeza |
+| **`atascado`** | **la señal de alarma**: `true` si lleva dos refrescos fallando o más de 5 min sin avanzar sin estar al día |
+| `segundosSinAvanzar`, `refrescosFallidos`, `ultimoError` | para saber qué le pasa sin abrir los logs |
+| `incompleto`, `bloquesSinHistoria`, `desdeBloque` | solo si el RPC no pudo servir parte de la historia |
+
+Un indexado al día que no se mueve **no** es un atasco: si está `sincronizado`, no hay nada que indexar.
 
 `almacen` (1.4) dice dónde se guarda el estado del juego, sin tener que mirar los logs de Render:
 
@@ -422,6 +511,53 @@ Reglas:
 > cada una: lo acotan el tope global y la reserva de 0,002 ETH. Vigila `/health` (`alertaSaldoBajo`) y recarga la wallet
 > del servidor con un faucet. Ver [Persistencia](#persistencia).
 
+### `GET /tesoreria` (1.4.1, fase E3)
+
+Resumen de lo que tiene el juego en la cadena, para el panel «Tesorería» de la sección Cadena.
+
+```json
+{
+  "red": "sepolia", "redNombre": "Sepolia", "chainId": 11155111, "moneda": "SepoliaETH",
+  "explorador": "https://sepolia.etherscan.io",
+  "actualizado": "2026-11-12T18:32:54.075Z",
+  "cajaEth": "0.0",
+  "operadorEth": "0.054047816139690622",
+  "oroCirculacion": "358.0",
+  "oroQuemado": null,
+  "motivoOroQuemado": "El contrato LootGold no lleva contador de quemado: …",
+  "owner": "0x9032…14C23",
+  "retirada": {
+    "funcion": "Mercado.retirarEth(uint256 cantidad)",
+    "quienPuede": "0x9032…14C23",
+    "nota": "Solo el owner del Mercado puede retirar. Cualquier otra cuenta recibe un revert."
+  },
+  "contratos": { "gameItem": "0x…", "mercado": "0x…", "oro": "0x…", "recompensas": "0x…", "operador": "0x…" }
+}
+```
+
+| Campo | De dónde sale |
+|---|---|
+| `cajaEth` | `Mercado.cajaEth()`: el ETH que el Mercado guarda de las compras |
+| `operadorEth` | saldo de la cartera con la que el servidor paga el gas |
+| `oroCirculacion` | `LootGold.totalSupply()`: el ORO que existe ahora (acuñado menos quemado) |
+| `owner` | `Mercado.owner()`: quién puede sacar el ETH de la caja |
+
+**Por qué lo sirve el servidor y no cada navegador:** son cuatro llamadas al RPC por visita.
+Con un RPC público compartido, que cada pestaña las repita agota la cuota. Aquí se leen una vez
+cada 45 s y se reparten cacheadas (`Cache-Control: public, max-age=30`). Varias visitas
+simultáneas comparten **una sola** lectura.
+
+**Si el RPC falla**, se devuelve el último dato bueno con `"obsoleto": true` y su `actualizado`,
+en vez de romper la sección. Solo si no hay nada que servir (o lo que hay pasa de 30 min) se
+responde 503 con `Retry-After: 30`. Límite: 60 peticiones/min por IP.
+
+> **`oroQuemado` va a `null` a propósito.** `LootGold` es un `ERC20Burnable` normal: `quemarDe`
+> solo hace `_burn`, que baja `totalSupply` y emite `Transfer(de, 0x0, cantidad)`. **No hay
+> contador acumulado en el contrato**, así que la única forma de saberlo sería sumar todos los
+> eventos `Transfer` al `0x0` desde el despliegue, que es justo lo que el RPC público ya no
+> sirve. Se dice en vez de inventar una cifra. Para tenerlo de verdad hace falta un
+> `totalQuemado` en el contrato (decisión del equipo de contratos).
+
 ### Torre infinita: `POST /torre` y `GET /torre/ranking` (1.3)
 
 `POST /torre` — body `{ "address": "0x...", "piso": 3, "turnos": 14 }`. Guarda el mejor piso de cada dirección.
@@ -462,6 +598,8 @@ src/
   torre.js      torre infinita: récords, ranking y rutas /torre (1.3)
   almacen.js    capa de almacenamiento intercambiable: memoria y Upstash Redis (1.4)
   persistencia.js  carga al arrancar y guardado agrupado de los registros (1.4)
+  tesoreria.js  GET /tesoreria: el dinero del juego, cacheado y tolerante a fallos (1.4.1)
+  redes.js      redes conocidas, comprobación de chainId y separación del estado por red (1.4.1)
   abis.js       ABIs mínimos human-readable de GameItem, Mercado y Recompensas (1.2)
   chain.js      ABI, extracción del tokenId del evento ItemMinted, emisor de tx con cola y nonce, minter
   queue.js      cola en serie
@@ -578,6 +716,12 @@ comprobado a través de las rutas HTTP. Persistencia del ranking: ida y vuelta d
 eventos** (con el contraejemplo de qué pasaría sin guardar los ids de log), solo se releen los bloques nuevos,
 rechazo de instantáneas de otro `DEPLOY_BLOCK`/contrato/versión, cuándo se marca para guardar, tope de tamaño,
 y `GET /ranking` respondiendo 200 nada más reiniciar en vez del 503 de "sincronizando".
+1.4.1: **regresión del 12-nov-2026** (un refresco fallido ya no deja el ranking en 503 eterno; progreso parcial
+servible; 503 solo si no se indexó nada), clasificación de errores de historia podada frente a errores pasajeros,
+salto hacia delante que mueve el *principio* del rango, huecos publicados en `/ranking` y en `/health`,
+**detección de atasco** (el índice no avanza entre dos refrescos, con bloque, error y segundos sin avanzar),
+tesorería (formato, caché, lecturas simultáneas compartidas, dato obsoleto cuando el RPC falla, recuperación,
+`oroQuemado` declarado no disponible) y redes (normalización, chainId que no cuadra, prefijos que no se mezclan).
 
 ## Despliegue
 

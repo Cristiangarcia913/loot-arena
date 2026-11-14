@@ -3,7 +3,17 @@
 
 import { esperarA, FalloPrueba, dormir } from "./arnes.js";
 
-export const SECCIONES = ["arena", "heroe", "inventario", "mercado", "misiones", "logros", "expediciones", "torre", "ranking"];
+/**
+ * Secciones por defecto. Es solo un respaldo: el juego va creciendo (en noviembre entró «cadena»),
+ * así que los casos preguntan a la página con `seccionesDe(app)` en vez de fiarse de esta lista.
+ */
+export const SECCIONES = ["arena", "heroe", "inventario", "mercado", "misiones", "logros", "expediciones", "torre", "ranking", "cadena"];
+
+/** Las secciones que el menú de la página ofrece ahora mismo, en su orden. */
+export function seccionesDe(app) {
+  const vistas = app.$$("#menu .menu-item[data-ir]").map((a) => a.dataset.ir);
+  return vistas.length ? vistas : SECCIONES;
+}
 
 export const CLAVE_PROGRESO = "lootarena:progreso:invitado";
 
@@ -89,15 +99,24 @@ export async function irASeccion(app, seccion) {
 
 /** Secciones visibles ahora mismo (debería haber exactamente una). */
 export function seccionesVisibles(app) {
-  return SECCIONES.filter((s) => app.visible(`#seccion-${s}`));
+  return seccionesDe(app).filter((s) => app.visible(`#seccion-${s}`));
 }
 
-/** Elementos que pueden recibir foco con Tab dentro de un contenedor visible. */
+/**
+ * Elementos que pueden recibir foco con Tab dentro de un contenedor visible.
+ *
+ * Ojo con los diálogos: cuando hay un `<dialog>` abierto con `showModal()`, el navegador deja
+ * inerte todo lo demás aunque siga teniendo caja y `tabIndex` 0. Mirar solo el DOM da un falso
+ * positivo de «el diálogo no atrapa el foco», así que aquí se respeta el modal.
+ */
 export function enfocables(app, raiz = null) {
   const sel = 'a[href], button, input, select, textarea, summary, dialog, [tabindex]:not([tabindex="-1"])';
+  const modal = app.$$("dialog[open]").find((d) => { try { return d.matches(":modal"); } catch { return false; } });
   return (raiz ? [...raiz.querySelectorAll(sel)] : app.$$(sel))
     .filter((e) => !e.disabled && e.tabIndex >= 0 && !e.closest("[hidden]") && e.getClientRects().length > 0
-      && app.win.getComputedStyle(e).visibility !== "hidden");
+      && app.win.getComputedStyle(e).visibility !== "hidden"
+      && !e.hasAttribute("inert") && !e.closest("[inert]")
+      && (!modal || modal.contains(e)));
 }
 
 /** Nombre accesible aproximado (lo que anunciaría un lector de pantalla). */

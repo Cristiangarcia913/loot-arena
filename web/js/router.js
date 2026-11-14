@@ -12,7 +12,7 @@
 //   alCambiar((nueva, anterior) => …);
 
 /** Secciones válidas, en el orden del menú. */
-export const SECCIONES = Object.freeze(["arena", "heroe", "inventario", "mercado", "misiones", "logros", "expediciones", "torre", "ranking"]);
+export const SECCIONES = Object.freeze(["arena", "heroe", "inventario", "mercado", "misiones", "logros", "expediciones", "torre", "ranking", "cadena"]);
 
 const K_ULTIMA = "lootarena:seccion";
 const oyentes = new Set();
@@ -116,7 +116,13 @@ function mostrar(seccion, enfocar) {
   window.dispatchEvent(new CustomEvent("lootarena:seccion", { detail: { seccion, anterior } }));
 }
 
-function enfocarSeccion(el) {
+/**
+ * Enfoca el `<h2>` de una sección (o la sección si no tiene). Exportada para que quien
+ * repinta una sección después de que el router ya enfocó (torre, expediciones, cadena: su
+ * contenido llega por red y se pinta con `replaceChildren`, que borra el nodo enfocado y el
+ * foco cae a `<body>`) pueda devolver el foco a donde el router lo habría dejado.
+ */
+export function enfocarSeccion(el) {
   const destino = el.querySelector("h2") ?? el;
   if (!destino.hasAttribute("tabindex")) destino.setAttribute("tabindex", "-1");
   destino.focus({ preventScroll: true });
@@ -137,10 +143,14 @@ export function iniciarRouter({ porDefecto = "arena" } = {}) {
     const s = deHash(location.hash);
     if (s) mostrar(s, true);
   });
-  // Atajos: Alt+1..7
+  // Atajos: Alt+1..9 y Alt+0 para la 10.ª (no hay tecla de "10": es la convención de las
+  // pestañas del navegador). Hallazgo de Calidad (#14): con 10 secciones, Alt+1..9 por sí solo
+  // deja "cadena" sin atajo.
   document.addEventListener("keydown", (ev) => {
     if (!ev.altKey || ev.ctrlKey || ev.metaKey) return;
-    const n = Number(ev.key);
+    const d = Number(ev.key);
+    if (!Number.isInteger(d) || d < 0 || d > 9) return;
+    const n = d === 0 ? 10 : d;
     if (n >= 1 && n <= SECCIONES.length) { ev.preventDefault(); irA(SECCIONES[n - 1]); }
   });
   let inicial = deHash(location.hash);

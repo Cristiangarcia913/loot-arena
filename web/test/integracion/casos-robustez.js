@@ -2,10 +2,16 @@
 // animación, recarga en combate, almacenamiento bloqueado o lleno, servidor caído y red lenta.
 
 import { caso, afirmar, igual, esperarA, dormir } from "./arnes.js";
-import { explorar, combatirHastaElFinal, cerrarResultado, vida, resultadoVisible, irASeccion, SECCIONES, semillaDerrotaSegura } from "./ayudas.js";
+import { compositorVivo } from "./rendimiento.js";
+import { explorar, combatirHastaElFinal, cerrarResultado, vida, resultadoVisible, irASeccion, SECCIONES, seccionesDe, semillaDerrotaSegura } from "./ayudas.js";
 
 caso("Robustez", "Pulsar Atacar dos veces muy rápido no gasta dos turnos", async ({ abrirApp }) => {
-  const app = await abrirApp({ movimiento: "normal" }); // con animaciones reales, que es cuando se nota
+  // Con animaciones reales es cuando se nota... pero si el panel del navegador no está a la vista
+  // el compositor se para, las animaciones no avanzan y el turno no termina nunca. En ese caso se
+  // mide con movimiento reducido: la ventana de doble clic es más corta, pero el guardia que se
+  // comprueba (S.animando en main.js) es el mismo.
+  const { fiable } = await compositorVivo(window);
+  const app = await abrirApp({ movimiento: fiable ? "normal" : "reducido" });
   await explorar(app);
   const antes = vida(app, "enemigo");
   const btn = app.$("#btn-atacar");
@@ -105,7 +111,7 @@ caso("Robustez", "Con el servidor caído la página arranca, combate y no deja e
   await explorar(app);
   await combatirHastaElFinal(app);
   await cerrarResultado(app);
-  for (const s of SECCIONES) await irASeccion(app, s);
+  for (const s of seccionesDe(app)) await irASeccion(app, s);
   app.sinErrores("con el servidor caído");
 });
 
@@ -130,9 +136,9 @@ caso("Robustez", "Pulsar todos los botones de la arena sin combate no lanza erro
 
 caso("Robustez", "Recorrer todas las secciones a toda velocidad no deja dos visibles ni errores", async ({ abrirApp }) => {
   const app = await abrirApp({ movimiento: "normal" });
-  for (let v = 0; v < 3; v++) for (const s of SECCIONES) { app.$(`.menu-item[data-ir="${s}"]`).click(); await dormir(25); }
+  for (let v = 0; v < 3; v++) for (const s of seccionesDe(app)) { app.$(`.menu-item[data-ir="${s}"]`).click(); await dormir(25); }
   await dormir(600);
-  const visibles = SECCIONES.filter((s) => app.visible(`#seccion-${s}`));
+  const visibles = seccionesDe(app).filter((s) => app.visible(`#seccion-${s}`));
   igual(visibles.length, 1, `Tras cambiar de sección muy rápido quedan ${visibles.length} secciones visibles a la vez (${visibles.join(", ")}).`);
   app.sinErrores("al cambiar de sección muy rápido");
 });

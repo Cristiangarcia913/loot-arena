@@ -1,6 +1,6 @@
 // Orquestación de Loot Arena 1.1: wallet, combate (combat/skills/progression), efectos (fx),
 // botín del servidor, inventario NFT y economía (tienda/venta/vestuario).
-import { cargarConfig, ZERO_ADDRESS } from "../config/config.js";
+import { cargarConfig, ZERO_ADDRESS, NETWORKS, redActiva, guardarRed } from "../config/config.js";
 import * as C from "./combat.js";
 import * as E from "./equipment.js";
 import * as P from "./progression.js";
@@ -87,6 +87,44 @@ function conectarBoton3D() {
   });
 }
 
+/**
+ * Selector de red de la cabecera. Igual que el botón 2D/3D, recarga al cambiar: la red se
+ * resuelve al arrancar (config, direcciones, servidor, contratos), y recargar es mucho más
+ * honesto que rehacer a mano medio estado del juego y dejarse la mitad.
+ *
+ * Si hay cartera, primero se le pide el cambio: así el jugador no aterriza en «red incorrecta».
+ * Si la rechaza, se deja el selector como estaba y no se recarga nada.
+ */
+function conectarSelectorRed() {
+  const sel = $("#sel-red");
+  if (!sel) return;
+  const actual = redActiva();
+  const desplegadas = new Set(S.cfg?.redesDesplegadas ?? []);
+  sel.replaceChildren(...Object.entries(NETWORKS).map(([clave, net]) =>
+    h("option", { value: clave, selected: clave === actual ? "" : null },
+      desplegadas.size && !desplegadas.has(clave) ? `${net.chainName} (sin desplegar)` : net.chainName)));
+  sel.value = actual;
+  sel.classList.toggle("sin-desplegar", desplegadas.size > 0 && !desplegadas.has(actual));
+
+  sel.addEventListener("change", async () => {
+    const red = sel.value;
+    if (red === actual) return;
+    if (!guardarRed(red)) { toast("Este navegador no deja recordar la red.", "error"); sel.value = actual; return; }
+    if (W.tieneMetaMask()) {
+      try {
+        await W.cambiarRed(NETWORKS[red]);
+      } catch (e) {
+        // La cartera manda: si no cambia, no cambiamos nosotros tampoco.
+        guardarRed(actual);
+        sel.value = actual;
+        toast(`No se cambió de red: ${W.mensajeError(e)}`, "error", 7000);
+        return;
+      }
+    }
+    location.reload();
+  });
+}
+
 const redCorrecta = () => S.chainId != null && S.chainId === S.cfg?.chainId;
 const contratoDesplegado = () => S.cfg && S.cfg.address.toLowerCase() !== ZERO_ADDRESS;
 const quienFx = (actor) => (actor === "jugador" ? "heroe" : "enemigo");
@@ -131,7 +169,20 @@ function renderCabecera() {
     btn.disabled = true;
   }
 
-  if (!W.tieneMetaMask()) {
+  // Orden a propósito: si la red elegida no tiene contratos, nada de la cadena funciona por
+  // mucho MetaMask que haya, así que ese aviso va primero y dice cómo salir del atasco.
+  if (S.cfg && !S.cfg.desplegada) {
+    // Sin "localhost": es la red de desarrollo y mandar ahí a un jugador no le sirve de nada.
+    const otras = (S.cfg.redesDesplegadas ?? []).filter((r) => r !== S.cfg.red && r !== "localhost");
+    banner([
+      `Loot Arena no está desplegado en ${S.cfg.net.chainName}. Puedes jugar en `,
+      h("strong", {}, "modo demo"),
+      ", pero aquí el botín no se acuña. ",
+      ...(otras.length
+        ? ["Vuelve a ", h("strong", {}, otras.map((r) => NETWORKS[r]?.chainName ?? r).join(" o ")), " con el selector de red de arriba."]
+        : []),
+    ], "aviso");
+  } else if (!W.tieneMetaMask()) {
     banner([
       "No se ha detectado MetaMask. Puedes jugar en ",
       h("strong", {}, "modo demo"),
@@ -631,7 +682,14 @@ function aplicarSnapshot(ev, c) {
 async function animarEvento(ev, c) {
   const golpe = ev.dano != null && ev.objetivo && ["ataque", "habilidad", "contraataque", "reflejo", "robo"].includes(ev.tipo);
   if (golpe && ev.actor !== "sistema" && ev.actor !== ev.objetivo) {
-    await FX.animarAtaque(quienFx(ev.actor), { critico: !!ev.critico, brutal: !!(ev.brutal || ev.definitiva) });
+    // `animacion` le dice al motor 3D qué gesto toca (morder, embestir, escupir fuego, conjurar…).
+    // El motor 2D ignora la propiedad, y el 3D sabe apañárselas sin ella: si no llega, cada
+    // criatura usa el gesto que declara su ficha del bestiario.
+    await FX.animarAtaque(quienFx(ev.actor), {
+      critico: !!ev.critico,
+      brutal: !!(ev.brutal || ev.definitiva),
+      animacion: C.animacion3d(ev.id),
+    });
     await FX.animarGolpe(quienFx(ev.objetivo), ev.dano, { critico: !!ev.critico, bloqueado: !!ev.bloqueado, esquivado: !!ev.esquivado });
   } else if (ev.dano != null && ev.objetivo) {
     await FX.animarGolpe(quienFx(ev.objetivo), ev.dano, { critico: !!ev.critico, bloqueado: !!ev.bloqueado, esquivado: !!ev.esquivado });
@@ -968,6 +1026,46 @@ async function mostrarBotin(r, eleccionPrevia) {
   if (eleccion === "otra") explorar();
 }
 
+// ───────────────────────── Sección Cadena ─────────────────────────
+
+// El contenido lo pone el equipo de blockchain en web/js/cadena/. Aquí solo se carga cuando
+// hace falta: son lecturas de la red, y no tienen por qué pasar al arrancar el juego.
+let cadenaMod = null;
+let cadenaMontada = false;
+
+/** Contexto que recibe la sección. Las funciones leen el estado vivo, no una copia de ahora. */
+const ctxCadena = () => ({
+  cfg: S.cfg,
+  ethers: () => S.ethers,
+  provider: () => S.provider,
+  cuenta: () => S.cuenta,
+  contrato: () => (S.contratoOk ? S.contrato : null),
+  redCorrecta,
+  toast,
+  // Para que «Tu cartera» pueda decir si la cadena y el juego cuadran (fase E1 del plan).
+  local: () => ({ oro: S.saldoOro ?? null, objetos: S.inventario?.length ?? null }),
+});
+
+async function montarSeccionCadena() {
+  const caja = $("#cadena");
+  if (!caja) return;
+  if (cadenaMontada) { try { cadenaMod?.refrescarCadena?.(); } catch (e) { console.warn("[cadena]", e); } return; }
+  cadenaMontada = true;
+  caja.replaceChildren(h("p", { class: "tenue" }, "Leyendo la red…"));
+  try {
+    cadenaMod = await import("./cadena/index.js");
+    await cadenaMod.montarCadena(caja, ctxCadena());
+  } catch (e) {
+    console.warn("[cadena] no se pudo montar:", e);
+    cadenaMontada = false;
+    caja.replaceChildren(
+      h("p", {}, "No se pudo abrir el explorador de la cadena."),
+      h("p", { class: "tenue" }, e?.message ?? String(e)),
+      ...(S.links?.contrato ? [h("p", {}, enlace(S.links.contrato, "Ver el contrato en el explorador público") ?? "")] : []),
+    );
+  }
+}
+
 // ───────────────────────── Arranque ─────────────────────────
 
 async function iniciar() {
@@ -980,9 +1078,21 @@ async function iniciar() {
   const empezarGuia = () => { if (TUT.iniciarTutorial({ fx: FX })) R.irA("arena"); };
   if ($("#pantalla-portada")?.hidden) empezarGuia();
   else $("#btn-entrar")?.addEventListener("click", () => setTimeout(empezarGuia, 450));
-  R.alCambiar((sec) => {
-    if (sec === "torre") cargarRankingTorre();
-    if (sec === "expediciones") renderExp();
+  R.alCambiar(async (sec) => {
+    // Hallazgo de Calidad (#11, ALTO): torre, expediciones y cadena pintan su contenido con
+    // `replaceChildren` después de que el router ya enfocó el <h2> de la sección; si ese nodo
+    // estaba dentro de lo que se repinta, el foco cae a <body> sin que nadie lo note. Solo se
+    // devuelve si de verdad se perdió (activeElement === body): si el jugador ya puso el foco
+    // en otro sitio (un botón del HUD, p. ej.) no se lo robamos.
+    const recuperarFoco = () => {
+      if (document.activeElement === document.body) {
+        const el = document.getElementById(`seccion-${sec}`);
+        if (el) R.enfocarSeccion(el);
+      }
+    };
+    if (sec === "torre") { await cargarRankingTorre(); recuperarFoco(); }
+    else if (sec === "expediciones") { renderExp(); recuperarFoco(); }
+    else if (sec === "cadena") { await montarSeccionCadena(); recuperarFoco(); }
   });
   setInterval(() => R.marcarAviso("expediciones", EXP.hayExpedicionLista(claveExp())), 30_000);
   $("#btn-explorar").addEventListener("click", explorar);
@@ -1004,12 +1114,25 @@ async function iniciar() {
     renderHeroe();
     return;
   }
+  conectarSelectorRed();
   S.links = enlacesExplorador(S.cfg.net, S.cfg.address);
   // Despierta el servidor de botín (Render free se duerme) mientras el jugador combate.
-  fetch(`${S.cfg.serverUrl}/health`, { cache: "no-store" }).catch(() => {});
+  // De paso se mira si el indexador del ranking está atascado (1.4.1 de equipo-servidor):
+  // así se nota desde el juego, sin entrar en los logs de Render. Solo avisa si hay algo mal;
+  // con todo sano no aparece nada.
+  fetch(`${S.cfg.serverUrl}/health`, { cache: "no-store" })
+    .then((r) => r.json())
+    .then((j) => {
+      if (j?.indexador?.atascado) {
+        toast("El ranking de jugadores tarda en ponerse al día (problema del servidor, no tuyo). El resto del juego funciona bien.", "info", 8000);
+      }
+    })
+    .catch(() => {});
 
   renderCabecera();
   renderHeroe();
+  // El router ya arrancó, así que si la sección recordada es Cadena su aviso de cambio ya pasó.
+  if (R.seccionActual() === "cadena") montarSeccionCadena();
   añadirLog([{ actor: "sistema", tipo: "inicio", texto: "Bienvenido a Loot Arena. Pulsa Explorar para buscar un rival. Cada 5.º combate de un nivel aparece un jefe 👑." }]);
 
   if (W.tieneMetaMask()) {

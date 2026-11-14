@@ -16,6 +16,8 @@ import { RegistroTorre } from './torre.js';
 import { EstadoBotin, RegistroPrimerBotin } from './loot.js';
 import { crearAlmacen } from './almacen.js';
 import { conectarRegistros } from './persistencia.js';
+import { comprobarChainId, prefijoDeRed } from './redes.js';
+import { Tesoreria, ABI_MERCADO_TESORERIA, ABI_ORO_TESORERIA } from './tesoreria.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(here, '../.env') }); // las variables del entorno real tienen prioridad
@@ -56,6 +58,11 @@ async function main() {
       'Revisa RPC_URL (API key de Alchemy/Infura) o arranca el nodo local con `npx hardhat node`.');
   }
 
+  // La red la manda `RED`: si el nodo está en otra, se para aquí. Acuñar sobre las
+  // direcciones de otra red sería el fallo más caro posible.
+  const errorRed = comprobarChainId(config.red, chainId);
+  if (errorRed) fatal(errorRed, 'Ajusta RED o RPC_URL para que coincidan.');
+
   const provider = new JsonRpcProvider(config.rpcUrl, Network.from(chainId), { staticNetwork: true });
   const wallet = new Wallet(config.privateKey, provider);
   const contract = new Contract(config.contractAddress, abi, wallet);
@@ -82,7 +89,10 @@ async function main() {
   // ── 1.2: ranking y recompensas (opcionales; si faltan variables, 503 en esos endpoints) ──
   for (const a of avisos) console.warn(`⚠ ${a}`);
   const faltan = (...claves) => claves.filter((k) => config[k] === null)
-    .map((k) => ({ mercadoAddress: 'MERCADO_ADDRESS', recompensasAddress: 'RECOMPENSAS_ADDRESS', deployBlock: 'DEPLOY_BLOCK' })[k]);
+    .map((k) => ({
+      mercadoAddress: 'MERCADO_ADDRESS', recompensasAddress: 'RECOMPENSAS_ADDRESS',
+      deployBlock: 'DEPLOY_BLOCK', oroAddress: 'ORO_ADDRESS',
+    })[k]);
 
   let ranking = null;
   const faltanRanking = faltan('mercadoAddress', 'recompensasAddress', 'deployBlock');
@@ -124,7 +134,12 @@ async function main() {
   // ── 1.4: persistencia. Todo lo que debe sobrevivir a un reinicio de Render se
   // guarda en la capa `almacen.js`. Si el almacén externo no responde, se sigue con
   // memoria (el servidor NO se cae) y `/health` lo publica. ──
-  const { almacen, estado: estadoAlmacen } = await crearAlmacen(process.env);
+  // El prefijo lleva SIEMPRE la red dentro: dos despliegues en redes distintas pueden
+  // compartir la misma base gratuita de Upstash sin mezclar índices ni rachas.
+  const { almacen, estado: estadoAlmacen } = await crearAlmacen({
+    ...process.env,
+    ALMACEN_PREFIJO: prefijoDeRed(process.env.ALMACEN_PREFIJO, config.red),
+  });
   if (estadoAlmacen.aviso) console.warn(`⚠ [almacen] ${estadoAlmacen.aviso}`);
 
   const registroDiario = new RegistroDiario();
@@ -148,6 +163,31 @@ async function main() {
     },
   });
 
+  // ── 1.4.1 (fase E3): GET /tesoreria. Necesita Mercado (cajaEth, owner) y ORO (totalSupply). ──
+  let tesoreria = null;
+  const faltanTesoreria = faltan('mercadoAddress', 'oroAddress');
+  if (!faltanTesoreria.length) {
+    const mercado = new Contract(config.mercadoAddress, ABI_MERCADO_TESORERIA, provider);
+    const oro = new Contract(config.oroAddress, ABI_ORO_TESORERIA, provider);
+    tesoreria = new Tesoreria({
+      red: config.red,
+      contratos: {
+        gameItem: config.contractAddress,
+        mercado: config.mercadoAddress,
+        oro: config.oroAddress,
+        recompensas: config.recompensasAddress,
+        operador: wallet.address,
+      },
+      // Las cuatro lecturas van juntas: una sola ronda al RPC por refresco de caché.
+      leer: async () => {
+        const [cajaEth, owner, oroCirculacion, operadorEth] = await Promise.all([
+          mercado.cajaEth(), mercado.owner(), oro.totalSupply(), provider.getBalance(wallet.address),
+        ]);
+        return { cajaEth, owner, oroCirculacion, operadorEth };
+      },
+    });
+  }
+
   const app = crearApp({
     mint: crearMinter(contract, { emisor }),
     ranking,
@@ -170,6 +210,9 @@ async function main() {
     registroTorre,
     estadoBotin,
     estadoAlmacen,
+    tesoreria,
+    tesoreriaNoDisponible: `Tesorería no disponible: el servidor no tiene configurado ${faltanTesoreria.join(', ')}`,
+    red: config.red,
   });
 
   // El guard va delante de la app: mientras no hay índice, GET /ranking responde 503 + Retry-After
@@ -180,13 +223,14 @@ async function main() {
 
   const server = raiz.listen(config.port, () => {
     console.log(`✓ Loot Arena server en http://localhost:${server.address().port}`);
-    console.log(`  chainId ${chainId} · contrato ${config.contractAddress}`);
+    console.log(`  red ${config.red.nombre} (${config.red.clave}) · chainId ${chainId} · contrato ${config.contractAddress}`);
     console.log(`  minter ${wallet.address} (${formatEther(saldo)} ETH) · DROP_CHANCE ${config.dropChance} · CORS ${config.allowedOrigin}`);
     const desdeRanking = ranking?.restaurado
       ? `restaurado en el bloque ${ranking.siguiente - 1}`
       : `activo desde el bloque ${config.deployBlock}`;
     console.log(`  ranking ${ranking ? desdeRanking : 'desactivado'} · recompensas ${pagarRecompensa ? 'activas' : 'desactivadas'}`);
-    console.log(`  grifo de gas activo (tope diario ${formatEther(gasTopeDiario)} ETH)`);
+    console.log(`  grifo de gas activo (tope diario ${formatEther(gasTopeDiario)} ETH)`
+      + ` · tesorería ${tesoreria ? 'activa' : `desactivada (falta ${faltanTesoreria.join(', ')})`}`);
     console.log(`  almacén ${estadoAlmacen.tipo}${estadoAlmacen.degradado ? ' (DEGRADADO: se pierde al reiniciar)' : ''}`
       + ` · restaurado: ${restaurados.length ? restaurados.join(', ') : 'nada (primer arranque)'}`);
     ranking?.iniciar(60_000);

@@ -63,6 +63,12 @@ export class Taller {
       ...(aditivo ? { blending: T.AdditiveBlending, transparent: true, depthWrite: false } : {}),
       ...(doble ? { side: T.DoubleSide } : {}),
     });
+    // Estos también van a la lista del taller. Antes no, y se notaba: al disolverse una criatura
+    // se le apagaba el cuerpo pero los ojos y el aura seguían encendidos flotando en el aire,
+    // porque la animación de muerte solo recorre `materiales`.
+    m.userData.emisionBase = null;      // no tiene emisión: la animación de destello lo salta
+    m.userData.fuerzaBase = 0;
+    this.materiales.push(m);
     return this.reg(m);
   }
 
@@ -72,9 +78,13 @@ export class Taller {
    *        manchas, los discos de sombra falsa). Si el suelo proyecta sombra, se la proyecta a sí
    *        mismo: sale un manchón negro enorme en medio de la arena.
    */
-  malla(geo, mat, casta = true) {
+  malla(geo, mat, casta = true, extension = 0) {
     const m = new this.T.Mesh(this.reg(geo), mat);
     if (this.sombras) { m.castShadow = casta; m.receiveShadow = true; }
+    // Cuánto sobresale esta pieza de su propio centro hacia arriba. Con esto se puede MEDIR la
+    // altura real de una criatura en vez de declararla a mano receta por receta, que es de donde
+    // salían los bichos escalados de más (la quimera salía al triple de tamaño).
+    m.userData.extension = extension;
     return m;
   }
 
@@ -90,19 +100,19 @@ export class Taller {
     return d;
   }
 
-  caja(w, h, d, mat) { return this.malla(new this.T.BoxGeometry(w, h, d), mat); }
+  caja(w, h, d, mat) { return this.malla(new this.T.BoxGeometry(w, h, d), mat, true, h / 2); }
   esfera(r, mat, achatado = 1) {
-    const m = this.malla(new this.T.SphereGeometry(r, this.seg, Math.max(4, this.seg >> 1)), mat);
+    const m = this.malla(new this.T.SphereGeometry(r, this.seg, Math.max(4, this.seg >> 1)), mat, true, r * achatado);
     if (achatado !== 1) m.scale.set(1, achatado, 1);
     return m;
   }
-  cilindro(rArriba, rAbajo, h, mat) { return this.malla(new this.T.CylinderGeometry(rArriba, rAbajo, h, this.seg), mat); }
-  cono(r, h, mat) { return this.malla(new this.T.ConeGeometry(r, h, this.seg), mat); }
-  capsula(r, largo, mat) { return this.malla(new this.T.CapsuleGeometry(r, largo, Math.max(2, this.seg >> 2), this.seg), mat); }
-  toro(r, grosor, mat) { return this.malla(new this.T.TorusGeometry(r, grosor, Math.max(6, this.seg >> 1), this.seg), mat); }
+  cilindro(rArriba, rAbajo, h, mat) { return this.malla(new this.T.CylinderGeometry(rArriba, rAbajo, h, this.seg), mat, true, h / 2); }
+  cono(r, h, mat) { return this.malla(new this.T.ConeGeometry(r, h, this.seg), mat, true, h / 2); }
+  capsula(r, largo, mat) { return this.malla(new this.T.CapsuleGeometry(r, largo, Math.max(2, this.seg >> 2), this.seg), mat, true, r + largo / 2); }
+  toro(r, grosor, mat) { return this.malla(new this.T.TorusGeometry(r, grosor, Math.max(6, this.seg >> 1), this.seg), mat, true, r + grosor); }
   /** Piedra irregular (icosaedro con facetas): rocas, huesos, trozos del gólem. */
-  roca(r, mat, detalle = 0) { return this.malla(new this.T.IcosahedronGeometry(r, detalle), mat); }
-  plano(w, h, mat) { return this.malla(new this.T.PlaneGeometry(w, h), mat); }
+  roca(r, mat, detalle = 0) { return this.malla(new this.T.IcosahedronGeometry(r, detalle), mat, true, r); }
+  plano(w, h, mat) { return this.malla(new this.T.PlaneGeometry(w, h), mat, true, h / 2); }
 
   /** Grupo con nombre (los nombres salen en el inspector de three.js y en las pruebas). */
   grupo(nombre = "") {

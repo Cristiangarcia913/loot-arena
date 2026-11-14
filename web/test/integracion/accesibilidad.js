@@ -3,7 +3,7 @@
 // expone `auditar(app)` para el informe detallado.
 
 import { caso, afirmar, igual, esperarA, dormir } from "./arnes.js";
-import { irASeccion, SECCIONES, enfocables, nombreAccesible, explorar, resultadoVisible, vida, combatirHastaElFinal } from "./ayudas.js";
+import { irASeccion, SECCIONES, seccionesDe, enfocables, nombreAccesible, explorar, resultadoVisible, vida, combatirHastaElFinal } from "./ayudas.js";
 
 // ───────────────────────── Contraste (WCAG 2.1) ─────────────────────────
 
@@ -78,10 +78,27 @@ export function umbralAA(cs) {
 }
 
 const VISIBLE = (el) => el.getClientRects().length > 0 && !el.closest("[hidden]");
+
+/**
+ * Congela transiciones y animaciones en la página bajo prueba.
+ *
+ * Hace falta de verdad: el iframe del arnés vive fuera de la pantalla, y Chrome no produce
+ * fotogramas para lo que no se ve, así que una `transition: color .15s` se queda a medias para
+ * siempre y `getComputedStyle` devuelve el color de PARTIDA. Sin esto, la entrada activa del menú
+ * se medía a 1,42:1 cuando en la página real es 5,11:1. Un falso positivo así quema el informe.
+ */
+export function congelarTransiciones(app) {
+  if (app.doc.getElementById("arnes-sin-transiciones")) return;
+  const s = app.doc.createElement("style");
+  s.id = "arnes-sin-transiciones";
+  s.textContent = "*, *::before, *::after { transition: none !important; animation: none !important; }";
+  app.doc.head.append(s);
+}
 const TEXTO_PROPIO = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim().length > 1);
 
 /** Revisa el contraste de todo el texto visible de la página. */
 export function revisarContraste(app) {
+  congelarTransiciones(app);
   const win = app.win;
   const fallos = [];
   for (const el of app.$$("body *")) {
@@ -131,8 +148,9 @@ function ruta(el) {
 // ───────────────────────── Auditoría completa (para el informe) ─────────────────────────
 
 export async function auditar(app) {
+  congelarTransiciones(app);
   const informe = { contraste: [], sinNombre: [], sinFocoVisible: [], imagenesSinTexto: [], vivas: [], secciones: {} };
-  for (const s of SECCIONES) {
+  for (const s of seccionesDe(app)) {
     await irASeccion(app, s);
     await dormir(150);
     informe.secciones[s] = { contraste: revisarContraste(app).length, enfocables: enfocables(app).length };
@@ -199,7 +217,7 @@ caso("Accesibilidad", "La pantalla de resultado, que dice ser modal, no deja el 
 caso("Accesibilidad", "Todo lo que recibe foco tiene nombre accesible", async ({ abrirApp }) => {
   const app = await abrirApp();
   const sin = [];
-  for (const s of SECCIONES) {
+  for (const s of seccionesDe(app)) {
     await irASeccion(app, s);
     await dormir(120);
     for (const el of enfocables(app)) if (!nombreAccesible(el)) sin.push(`${s}: <${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""} class="${el.className}">`);
@@ -273,8 +291,9 @@ caso("Accesibilidad", "Los toasts se anuncian y no tapan contenido para siempre"
 
 caso("Accesibilidad", "Contraste AA en todo el texto visible de cada sección", async ({ abrirApp }) => {
   const app = await abrirApp();
+  congelarTransiciones(app);
   const todos = [];
-  for (const s of SECCIONES) {
+  for (const s of seccionesDe(app)) {
     await irASeccion(app, s);
     await dormir(150);
     todos.push(...revisarContraste(app).map((f) => ({ ...f, seccion: s })));

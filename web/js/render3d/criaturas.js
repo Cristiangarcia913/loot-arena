@@ -10,21 +10,201 @@
 // cálculos. `partes` son los trozos con nombre que animamos (cabeza, brazo, cola, alas…).
 
 import { Taller, ALTO_HEROE } from "./piezas.js";
-import { colorEnemigo, rareza3d, HEROE, CLAVES_ENEMIGO } from "./paleta.js";
+import { colorEnemigo, rareza3d, hex, oscurecer, HEROE, CLAVES_ENEMIGO } from "./paleta.js";
+import { CATALOGO, cosmetico } from "../economy.js";
 import { metadatos3d, BESTIARIO } from "../combat.js";
 
-/** Cosméticos: tinte de armadura por id del catálogo (ids 1-3, los mismos que en sprites.js). */
-const TINTE = { 1: [0xe05555, 0x6b0f0f], 2: [0x34d399, 0x064e3b], 3: [0x5b5677, 0x0f0d1a] };
-/** Sombreros (ids 4-6): [color, tipo]. */
-const SOMBREROS = { 4: [0x3b82f6, "pico"], 5: [0xf59e0b, "corona"], 6: [0x1f2937, "cuernos"] };
-/** Capas (ids 7-9). */
-const CAPAS = { 7: 0x6b1414, 8: 0x1d4ed8, 9: 0x7e22ce };
-/** Auras (ids 10-11): anillo de luz a los pies. */
-const AURAS = { 10: 0x22d3ee, 11: 0xfbbf24 };
-/** Mascotas (ids 12-13): bichito que orbita. */
-const MASCOTAS = { 12: 0xfde047, 13: 0xf472b6 };
-
 const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
+
+// ───────────────────────── Cosméticos ─────────────────────────
+//
+// Los cosméticos son objetos ERC-1155 que el jugador compra: si equipa uno y no se distingue
+// desde la cámara de combate, no vale nada. Por eso aquí son piezas con silueta propia y
+// generosas de tamaño, no un detalle de dos píxeles.
+//
+// El color y la rareza SALEN DEL CATÁLOGO (`economy.CATALOGO`), que es de quien son los
+// cosméticos. Aquí solo se decide la FORMA de cada uno, porque un «Yelmo con cuernos» y una
+// «Corona del campeón» no se pueden dibujar igual por mucho que compartan ranura.
+
+/** Qué forma tiene cada id del catálogo. Si falta una, `cosmeticosSinForma()` lo denuncia. */
+const FORMA_COSMETICO = Object.freeze({
+  1: "tinte", 2: "tinte", 3: "tinte",
+  4: "capucha", 5: "yelmo", 6: "corona",
+  7: "capa", 8: "capa", 9: "alas",
+  10: "escarcha", 11: "llamas",
+  12: "gato", 13: "dragoncito",
+  14: null,                       // la poción es un consumible: no se lleva puesta
+});
+
+/**
+ * Cosméticos del catálogo que este motor todavía no sabe dibujar de forma reconocible.
+ * Está vacío a propósito: si el equipo del catálogo añade uno nuevo, sale aquí y hay que
+ * decidir qué forma darle en vez de dejar al jugador con un cosmético invisible.
+ * @returns {Array<{id:number, nombre:string, ranura:string}>}
+ */
+export function cosmeticosSinForma(catalogo = CATALOGO) {
+  return catalogo
+    .filter((c) => c.ranura !== "consumible" && !FORMA_COSMETICO[c.id])
+    .map((c) => ({ id: c.id, nombre: c.nombre, ranura: c.ranura }));
+}
+
+/** Datos de dibujo de un cosmético: color del catálogo, forma de aquí. */
+function datosCosmetico(id) {
+  const n = num(id);
+  if (n == null) return null;
+  const c = cosmetico(n);
+  const forma = FORMA_COSMETICO[n];
+  if (!c || !forma) return null;
+  return { forma, color: hex(c.tono), rareza: c.rareza, nombre: c.nombre };
+}
+
+/** El tinte de armadura: solo cambia colores, no añade piezas. */
+export function tinteDe(id) {
+  const d = datosCosmetico(id);
+  return d?.forma === "tinte" ? [d.color, oscurecer(d.color, 0.55)] : null;
+}
+
+/**
+ * Pone todos los cosméticos de una apariencia sobre un héroe ya construido.
+ * @param {Taller} t
+ * @param {{sombrero?:number|null, capa?:number|null, aura?:number|null, mascota?:number|null}} ap
+ * @param {{raiz:object, cuerpo:object, cabeza:object}} piezas
+ * @returns {object} las partes añadidas, con los nombres que usa la animación de reposo
+ */
+function ponerCosmeticos(t, ap, { raiz, cuerpo, cabeza }) {
+  const extras = {};
+  const brillo = (d) => (d.rareza === 2 ? { emision: d.color, fuerza: 0.75 } : d.rareza === 1 ? { emision: d.color, fuerza: 0.25 } : {});
+
+  // ── Sombrero ──
+  const s = datosCosmetico(ap?.sombrero);
+  if (s) {
+    const m = t.mat(s.color, { metal: s.forma === "corona" ? 0.95 : s.forma === "yelmo" ? 0.85 : 0.1, rugosidad: s.forma === "capucha" ? 0.95 : 0.25, ...brillo(s) });
+    if (s.forma === "capucha") {
+      // Capucha: cae por detrás y deja la cara a la vista, que si no el héroe pierde expresión.
+      const cap = t.grupo("capucha");
+      cap.add(t.en(t.esfera(0.235, m, 0.95), 0, 0.03, -0.02));
+      cap.add(t.en(t.cono(0.21, 0.34, m), 0, 0.02, -0.16, { rx: 0.9 }));       // pico caído atrás
+      cap.add(t.en(t.toro(0.2, 0.05, m), 0, -0.15, -0.02, { rx: Math.PI / 2 })); // cuello
+      cabeza.add(cap);
+      extras.sombrero = cap;
+    } else if (s.forma === "yelmo") {
+      const y = t.grupo("yelmo");
+      y.add(t.en(t.esfera(0.225, m, 0.92), 0, 0.03, 0));
+      y.add(t.en(t.caja(0.07, 0.16, 0.05, m), 0, 0.0, 0.2));                    // nasal
+      for (const lado of [-1, 1]) {
+        y.add(t.en(t.cono(0.055, 0.34, m), lado * 0.21, 0.12, -0.02, { rz: lado * 1.15, rx: -0.25 }));
+      }
+      cabeza.add(y);
+      extras.sombrero = y;
+    } else {
+      const aro = t.grupo("corona");
+      aro.add(t.en(t.cilindro(0.2, 0.2, 0.08, m), 0, 0, 0));
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        aro.add(t.en(t.cono(0.04, 0.16, m), Math.cos(a) * 0.18, 0.11, Math.sin(a) * 0.18));
+      }
+      aro.add(t.en(t.esfera(0.05, t.matLuz(0xfff3c4, { aditivo: true })), 0, 0.1, 0.18));
+      cabeza.add(t.en(aro, 0, 0.2, 0));
+      extras.sombrero = aro;
+      extras.corona = aro;
+    }
+  }
+
+  // ── Capa (o alas) ──
+  const cp = datosCosmetico(ap?.capa);
+  if (cp) {
+    if (cp.forma === "alas") {
+      // «Alas de fénix»: son ALAS, no una capa. Es el cosmético más caro del catálogo (800 de
+      // oro) y tiene que verse como lo que se compró desde la primera ojeada.
+      const alas = t.grupo("alas");
+      const pluma = t.mat(cp.color, { doble: true, rugosidad: 0.5, emision: cp.color, fuerza: 0.8 });
+      const plumaClara = t.mat(0xfde68a, { doble: true, rugosidad: 0.45, emision: 0xfbbf24, fuerza: 0.6 });
+      for (const lado of [-1, 1]) {
+        const ala = t.grupo("ala");
+        for (let i = 0; i < 4; i++) {
+          const largo = 0.78 - i * 0.12;
+          const p = t.plano(largo, 0.2, i % 2 ? plumaClara : pluma);
+          t.en(p, lado * (0.26 + largo * 0.42), 0.34 - i * 0.2, -0.06, { rz: lado * (0.5 - i * 0.16), ry: lado * 0.25 });
+          ala.add(p);
+        }
+        alas.add(ala);
+      }
+      t.en(alas, 0, 1.28, -0.16);
+      cuerpo.add(alas);
+      extras.capa = alas;
+      extras.alas = alas;
+    } else {
+      const tela = t.mat(cp.color, { doble: true, rugosidad: 0.95, ...brillo(cp) });
+      const capa = t.grupo("capa");
+      capa.add(t.en(t.plano(0.62, 1.05, tela), 0, -0.45, 0));
+      capa.add(t.en(t.toro(0.2, 0.035, t.mat(oscurecer(cp.color, 0.3), { metal: 0.6, rugosidad: 0.4 })), 0, 0.06, 0.02, { rx: Math.PI / 2 }));
+      t.en(capa, 0, 1.33, -0.21, { rx: 0.12 });
+      cuerpo.add(capa);
+      extras.capa = capa;
+    }
+  }
+
+  // ── Aura ──
+  const au = datosCosmetico(ap?.aura);
+  if (au) {
+    const aura = t.grupo("aura");
+    const luz = t.matLuz(au.color, { opacidad: 0.8, aditivo: true });
+    aura.add(t.en(t.toro(0.58, 0.04, luz), 0, 0.04, 0, { rx: Math.PI / 2 }));
+    aura.add(t.en(t.toro(0.4, 0.025, luz), 0, 0.18, 0, { rx: Math.PI / 2 }));
+    if (au.forma === "escarcha") {
+      // Cristales de hielo flotando: angulosos y fríos.
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        aura.add(t.en(t.roca(0.07, t.mat(au.color, { emision: au.color, fuerza: 0.9, rugosidad: 0.1, opacidad: 0.85 }), 0),
+          Math.cos(a) * 0.5, 0.12 + (i % 3) * 0.16, Math.sin(a) * 0.5, { esc: [0.6, 1.5, 0.6] }));
+      }
+    } else {
+      // Llamas: conos que apuntan hacia arriba, más altos cuanto más cerca del héroe.
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        aura.add(t.en(t.cono(0.08, 0.3 + (i % 3) * 0.12, t.matLuz(au.color, { aditivo: true, opacidad: 0.85 })),
+          Math.cos(a) * 0.46, 0.16, Math.sin(a) * 0.46));
+      }
+    }
+    raiz.add(aura);
+    extras.aura = aura;
+  }
+
+  // ── Mascota ──
+  const ma = datosCosmetico(ap?.mascota);
+  if (ma) {
+    const mas = t.grupo("mascota");
+    const piel = t.mat(ma.color, { rugosidad: 0.8, ...brillo(ma) });
+    const osc = t.mat(oscurecer(ma.color, 0.4), { rugosidad: 0.85 });
+    if (ma.forma === "gato") {
+      mas.add(t.en(t.capsula(0.09, 0.2, piel), 0, 0, 0, { rz: Math.PI / 2 }));
+      const cab = t.en(t.esfera(0.085, piel), 0, 0.05, 0.17);
+      mas.add(cab);
+      for (const lado of [-1, 1]) mas.add(t.en(t.cono(0.035, 0.09, piel), lado * 0.045, 0.13, 0.16));
+      for (const lado of [-1, 1]) mas.add(t.en(t.esfera(0.022, t.matLuz(0x86efac, { aditivo: true })), lado * 0.035, 0.06, 0.24));
+      const cola = t.capsula(0.02, 0.22, piel);
+      t.en(cola, 0, 0.1, -0.2, { rx: 0.7 });
+      mas.add(cola);
+      for (const z of [0.08, -0.08]) for (const lado of [-1, 1]) mas.add(t.en(t.capsula(0.022, 0.07, osc), lado * 0.06, -0.11, z));
+    } else {
+      mas.add(t.en(t.capsula(0.085, 0.16, piel), 0, 0, 0, { rx: 0.3 }));
+      mas.add(t.en(t.esfera(0.075, piel), 0, 0.08, 0.14));
+      mas.add(t.en(t.cono(0.04, 0.1, osc), 0, 0.06, 0.22, { rx: Math.PI / 2 }));
+      for (const lado of [-1, 1]) mas.add(t.en(t.cono(0.022, 0.07, osc), lado * 0.04, 0.14, 0.1, { rz: lado * 0.4 }));
+      const mAla = t.mat(oscurecer(ma.color, 0.2), { doble: true, rugosidad: 0.6, emision: ma.color, fuerza: 0.4 });
+      for (const lado of [-1, 1]) mas.add(t.en(t.plano(0.3, 0.2, mAla), lado * 0.19, 0.1, -0.03, { rz: lado * 0.35, ry: lado * 0.3 }));
+      const cola = t.capsula(0.022, 0.2, piel);
+      t.en(cola, 0, -0.02, -0.2, { rx: 0.5 });
+      mas.add(cola);
+    }
+    t.en(mas, -0.7, 1.45, 0.3);
+    raiz.add(mas);
+    extras.mascota = mas;
+  }
+
+  return extras;
+}
+
 
 // ───────────────────────── Héroe ─────────────────────────
 
@@ -46,7 +226,7 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   const pal = (tipo) => (eq[tipo] == null ? null : rareza3d(eq[tipo]));
   const esp = pal("Espada"), esc = pal("Escudo"), cas = pal("Casco"), arm = pal("Armadura"), bot = pal("Botas");
 
-  const tinte = TINTE[num(ap.color)];
+  const tinte = tinteDe(ap.color);
   const matPiel = t.mat(HEROE.piel, { rugosidad: 0.85 });
   const colTorso = tinte ? tinte[0] : arm ? arm.luz : HEROE.tunica;
   const colTorsoOsc = tinte ? tinte[1] : arm ? arm.osc : 0x5a3519;
@@ -136,56 +316,22 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   cuerpo.add(brazoIzq);
 
   // ── Cosméticos ──
-  const extras = {};
-  const somb = SOMBREROS[num(ap.sombrero)];
-  if (somb) {
-    const [col, tipo] = somb;
-    const m = t.mat(col, { metal: tipo === "corona" ? 0.9 : 0.2, rugosidad: tipo === "corona" ? 0.2 : 0.8, emision: tipo === "corona" ? col : 0, fuerza: 0.5 });
-    if (tipo === "pico") cabeza.add(t.en(t.cono(0.2, 0.42, m), 0, 0.34, 0));
-    else if (tipo === "corona") {
-      const aro = t.grupo("corona");
-      aro.add(t.en(t.cilindro(0.19, 0.19, 0.07, m), 0, 0, 0));
-      for (let i = 0; i < 5; i++) {
-        const a = (i / 5) * Math.PI * 2;
-        aro.add(t.en(t.cono(0.035, 0.11, m), Math.cos(a) * 0.17, 0.08, Math.sin(a) * 0.17));
-      }
-      cabeza.add(t.en(aro, 0, 0.19, 0));
-    } else {
-      for (const s of [-1, 1]) cabeza.add(t.en(t.cono(0.05, 0.3, m), s * 0.16, 0.16, 0, { rz: s * 0.6 }));
-    }
-  }
-  const capaCol = CAPAS[num(ap.capa)];
-  if (capaCol) {
-    const capa = t.grupo("capa");
-    capa.add(t.en(t.plano(0.56, 0.95, t.mat(capaCol, { doble: true, rugosidad: 0.95 })), 0, -0.4, 0));
-    t.en(capa, 0, 1.3, -0.2, { rx: 0.12 });
-    cuerpo.add(capa);
-    extras.capa = capa;
-  }
-  const auraCol = AURAS[num(ap.aura)];
-  if (auraCol) {
-    const aura = t.grupo("aura");
-    aura.add(t.en(t.toro(0.55, 0.035, t.matLuz(auraCol, { opacidad: 0.75, aditivo: true })), 0, 0.03, 0, { rx: Math.PI / 2 }));
-    aura.add(t.en(t.toro(0.38, 0.02, t.matLuz(auraCol, { opacidad: 0.5, aditivo: true })), 0, 0.16, 0, { rx: Math.PI / 2 }));
-    raiz.add(aura);
-    extras.aura = aura;
-  }
-  const masCol = MASCOTAS[num(ap.mascota)];
-  if (masCol) {
-    const mas = t.grupo("mascota");
-    const cuerpoM = t.esfera(0.12, t.mat(masCol, { emision: masCol, fuerza: 0.7, rugosidad: 0.4 }));
-    mas.add(t.en(cuerpoM, 0, 0, 0));
-    for (const s of [-1, 1]) mas.add(t.en(t.esfera(0.05, t.matLuz(0xffffff, { opacidad: 0.85 })), s * 0.055, 0.03, 0.1));
-    t.en(mas, -0.65, 1.45, 0.25);
-    raiz.add(mas);
-    extras.mascota = mas;
-  }
+  // Se construyen con el CATÁLOGO de economy.js: de ahí salen el color (`tono`) y la rareza, así
+  // que lo que el jugador vio al comprarlo es lo que se le pone al héroe.
+  const extras = ponerCosmeticos(t, ap, { raiz, cuerpo, cabeza });
 
   // Sombra barata: un disco oscuro a los pies (más rápido que una sombra real y siempre se ve).
   raiz.add(t.en(t.disco(0.42, t.matLuz(0x000000, { opacidad: 0.38 })), 0, 0.012, 0));
 
+  // El radio no es fijo: unas alas de fénix ensanchan al héroe casi al doble, y el encuadre de la
+  // cámara se calcula con este número. Sin esto, al equipar las alas el héroe se salía del plano.
+  const radio = 0.45
+    + (extras.alas ? 0.5 : 0)
+    + (extras.capa && !extras.alas ? 0.1 : 0)
+    + (extras.aura ? 0.15 : 0);
+
   return {
-    raiz, taller: t, alto: 1.82, radio: 0.45, flota: false,
+    raiz, taller: t, alto: 1.82, radio, flota: false,
     partes: { cuerpo, torso, cabeza, brazoDer, brazoIzq, arma, escudo, piernas, ...extras },
     materiales: t.materiales,
     colores: { base: colTorso, osc: colTorsoOsc, acento: esp ? esp.luz : HEROE.metal },
@@ -588,6 +734,462 @@ const RECETAS = {
     return { raiz, cuerpo, cuello, cabeza, alas, patas, cola, alto: 2.4, radio: 1.3 };
   },
 
+  // ── Las diez que amplió el equipo de contenido ──
+  // Antes se construían por silueta genérica: se veían, pero una quimera sin tres cabezas no es
+  // una quimera. Cada una tiene ahora lo que la hace reconocible de un vistazo.
+
+  /** Murciélago sanguino: casi todo alas, orejas enormes y colmillos. Nunca toca el suelo. */
+  murcielago(t, c) {
+    const m = t.mat(c.base, { rugosidad: 0.85, plano: true });
+    const mo = t.mat(c.osc, { rugosidad: 0.9 });
+    const mAla = t.mat(c.acento, { doble: true, rugosidad: 0.75, opacidad: 0.92 });
+    const raiz = t.grupo("murcielago");
+    const cuerpo = t.grupo("cuerpo");
+    cuerpo.add(t.en(t.capsula(0.14, 0.26, m), 0, 0, 0, { rx: 0.35 }));
+    const cabeza = t.grupo("cabeza");
+    cabeza.add(t.en(t.esfera(0.14, m), 0, 0, 0));
+    cabeza.add(t.en(t.cono(0.07, 0.13, mo), 0, -0.04, 0.14, { rx: Math.PI / 2 }));
+    // Las orejas son la mitad de la silueta de un murciélago.
+    for (const s of [-1, 1]) cabeza.add(t.en(t.cono(0.085, 0.3, mAla), s * 0.1, 0.19, -0.02, { rz: s * 0.3, rx: -0.15 }));
+    for (const s of [-1, 1]) cabeza.add(t.en(t.cono(0.022, 0.07, t.mat(0xfff5e6, { rugosidad: 0.3 })), s * 0.05, -0.1, 0.12, { rx: 2.9 }));
+    cabeza.add(ojos(t, c.acento, { r: 0.028, x: 0.055, y: 0.03, z: 0.12 }));
+    t.en(cabeza, 0, 0.26, 0.06);
+    cuerpo.add(cabeza);
+    const alas = [];
+    for (const s of [-1, 1]) {
+      const a = t.grupo("ala");
+      // Membrana en tres tramos, como los dedos de un ala de murciélago de verdad.
+      for (let i = 0; i < 3; i++) {
+        const largo = 0.5 - i * 0.07;
+        a.add(t.en(t.plano(largo, 0.26, mAla), s * (0.2 + largo * 0.45), 0.06 - i * 0.12, -0.02, { rz: s * (0.3 - i * 0.3), ry: s * 0.2 }));
+        a.add(t.en(t.capsula(0.012, largo, mo), s * (0.2 + largo * 0.45), 0.06 - i * 0.12, -0.02, { rz: s * (Math.PI / 2 + (0.3 - i * 0.3)) }));
+      }
+      t.en(a, s * 0.1, 0.08, 0);
+      alas.push(a);
+      cuerpo.add(a);
+    }
+    for (const s of [-1, 1]) cuerpo.add(t.en(t.capsula(0.025, 0.14, mo), s * 0.07, -0.24, -0.02, { rx: 0.4 }));
+    t.en(cuerpo, 0, 1.0, 0);
+    raiz.add(cuerpo);
+    raiz.add(t.en(t.disco(0.4, t.matLuz(0x000000, { opacidad: 0.22 })), 0, 0.012, 0));
+    return { raiz, cuerpo, cabeza, alas, alto: 1.25, radio: 0.75, flota: true };
+  },
+
+  /** Limo ácido: una masa gelatinosa que se derrama. Translúcido y con el núcleo encendido. */
+  limo(t, c) {
+    const gel = t.mat(c.base, { opacidad: 0.72, rugosidad: 0.15, metal: 0.05, emision: c.emision, fuerza: 0.3 });
+    const gelOsc = t.mat(c.osc, { opacidad: 0.8, rugosidad: 0.2 });
+    const raiz = t.grupo("limo");
+    const cuerpo = t.grupo("cuerpo");
+    // Cúpula achatada: lo que distingue a un limo es que NO tiene forma de bicho.
+    const masa = t.esfera(0.46, gel, 0.62);
+    cuerpo.add(t.en(masa, 0, 0, 0));
+    const bultos = [masa];
+    for (const [x, z, r] of [[0.22, 0.1, 0.2], [-0.2, -0.14, 0.17], [0.02, -0.22, 0.13]]) {
+      const b = t.esfera(r, gel, 0.7);
+      t.en(b, x, 0.1, z);
+      bultos.push(b);
+      cuerpo.add(b);
+    }
+    // Goterones por el borde: el limo siempre está a punto de caerse.
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2;
+      cuerpo.add(t.en(t.cono(0.055, 0.2, gel), Math.cos(a) * 0.4, -0.16, Math.sin(a) * 0.4, { rx: Math.PI }));
+    }
+    // Núcleo: lo que brilla dentro y le da la pinta de ácido.
+    const nucleo = t.esfera(0.17, t.matLuz(c.emision || c.acento, { aditivo: true, opacidad: 0.9 }));
+    cuerpo.add(t.en(nucleo, 0, 0.02, 0));
+    for (let i = 0; i < 5; i++) {
+      cuerpo.add(t.en(t.esfera(0.035, t.matLuz(c.acento, { aditivo: true, opacidad: 0.6 })),
+        Math.cos(i * 2.2) * 0.2, -0.04 + (i % 3) * 0.12, Math.sin(i * 2.2) * 0.2));
+    }
+    for (const s of [-1, 1]) cuerpo.add(t.en(t.esfera(0.05, gelOsc), s * 0.12, 0.14, 0.33));
+    t.en(cuerpo, 0, 0.3, 0);
+    raiz.add(cuerpo);
+    raiz.add(t.en(t.disco(0.55, t.matLuz(c.emision || 0x000000, { opacidad: 0.3 })), 0, 0.012, 0));
+    return { raiz, cuerpo, bultos, nucleo, alto: 0.6, radio: 0.6 };
+  },
+
+  /** Bandido enmascarado: capucha, pañuelo rojo tapándole la cara y una daga en cada mano. */
+  bandido(t, c) {
+    const m = t.mat(c.base, { rugosidad: 0.88 });
+    const mo = t.mat(c.osc, { rugosidad: 0.92 });
+    const rojo = t.mat(c.acento, { rugosidad: 0.8, doble: true });
+    const h = humanoide(t, { alto: 1.72, ancho: 0.46, matCuerpo: m, matOsc: mo, cabezaR: 0.19, cuello: 0.03 });
+    // Capucha + pañuelo: la cara tapada es toda su personalidad.
+    h.cabeza.add(t.en(t.esfera(0.21, mo, 0.95), 0, 0.04, -0.02));
+    h.cabeza.add(t.en(t.cono(0.19, 0.26, mo), 0, 0.04, -0.14, { rx: 1.0 }));
+    h.cabeza.add(t.en(t.caja(0.3, 0.12, 0.14, rojo), 0, -0.05, 0.08));
+    h.cabeza.add(ojos(t, 0xfef3c7, { r: 0.028, x: 0.07, y: 0.05, z: 0.17 }));
+    // Dos dagas, una por mano.
+    const armas = [];
+    for (const [brazo, nombre] of [[h.brazoDer, "arma"], [h.brazoIzq, "armaIzq"]]) {
+      const daga = t.grupo(nombre);
+      daga.add(t.en(t.caja(0.045, 0.3, 0.012, t.mat(0xc8ccd4, { metal: 0.9, rugosidad: 0.35 })), 0, 0.18, 0));
+      daga.add(t.en(t.caja(0.11, 0.03, 0.03, mo), 0, 0.03, 0));
+      daga.add(t.en(t.cilindro(0.022, 0.022, 0.09, rojo), 0, -0.03, 0));
+      t.en(daga, 0, -0.42, 0.05, { rx: -0.35 });
+      brazo.add(daga);
+      armas.push(daga);
+    }
+    // Capa corta y bolsa del botín.
+    const capa = t.en(t.plano(0.44, 0.6, mo), 0, 0.92, -0.2, { rx: 0.14 });
+    h.cuerpo.add(capa);
+    h.cuerpo.add(t.en(t.esfera(0.11, t.mat(0x6b4a2a, { rugosidad: 1 })), 0.26, 0.74, -0.1));
+    return { ...h, arma: armas[0], armaIzq: armas[1], capa, alto: 1.74, radio: 0.48 };
+  },
+
+  /** Enjambre de avispas: no es una avispa, son muchas. La nube ES la criatura. */
+  avispa(t, c) {
+    const amarillo = t.mat(c.base, { rugosidad: 0.5, emision: c.base, fuerza: 0.2 });
+    const negro = t.mat(c.osc, { rugosidad: 0.6 });
+    const mAla = t.matLuz(0xffffff, { opacidad: 0.35, doble: true });
+    const raiz = t.grupo("avispa");
+    const cuerpo = t.grupo("cuerpo");
+    const bichos = [];
+    // Siete avispas repartidas en una nube: a distancia se lee como un enjambre, no como un bicho.
+    const sitios = [[0, 0.1, 0], [0.26, 0.3, 0.1], [-0.24, 0.22, -0.08], [0.14, -0.14, -0.16],
+      [-0.18, -0.08, 0.18], [0.3, 0.02, -0.2], [-0.08, 0.38, 0.14]];
+    for (const [i, [x, y, z]] of sitios.entries()) {
+      const b = t.grupo("avispilla");
+      const esc = i === 0 ? 1 : 0.72 + (i % 3) * 0.1;
+      b.add(t.en(t.capsula(0.055, 0.1, amarillo), 0, 0, 0, { rx: 0.2 }));
+      for (const k of [-0.03, 0.03]) b.add(t.en(t.cilindro(0.057, 0.057, 0.022, negro), 0, k, 0.02, { rx: 1.57 }));
+      b.add(t.en(t.esfera(0.045, negro), 0, 0.02, 0.1));
+      for (const s of [-1, 1]) b.add(t.en(t.plano(0.14, 0.07, mAla), s * 0.08, 0.06, -0.01, { rz: s * 0.25, rx: -0.4 }));
+      t.en(b, x, y, z, { esc, ry: i * 0.9 });
+      b.userData.sitio = [x, y, z];        // su hueco en la nube: se mueve alrededor de él
+      b.userData.fase = i * 1.37;
+      bichos.push(b);
+      cuerpo.add(b);
+    }
+    t.en(cuerpo, 0, 1.05, 0);
+    raiz.add(cuerpo);
+    raiz.add(t.en(t.disco(0.45, t.matLuz(0x000000, { opacidad: 0.2 })), 0, 0.012, 0));
+    return { raiz, cuerpo, bichos, alto: 1.4, radio: 0.6, flota: true };
+  },
+
+  /** Caballero caído: armadura entera, visera con dos luces dentro y un mandoble. */
+  caballero(t, c) {
+    const acero = t.mat(c.base, { metal: 0.85, rugosidad: 0.3 });
+    const oscuro = t.mat(c.osc, { metal: 0.6, rugosidad: 0.45 });
+    const h = humanoide(t, { alto: 1.9, ancho: 0.62, matCuerpo: acero, matOsc: oscuro, cabezaR: 0.2, hombros: 1.15 });
+    // Yelmo cerrado: la rejilla y las dos luces de dentro son lo que lo hace un muerto con armadura.
+    h.cabeza.add(t.en(t.esfera(0.225, acero, 0.95), 0, 0.02, 0));
+    h.cabeza.add(t.en(t.cono(0.17, 0.2, acero), 0, -0.06, 0.1, { rx: 1.9 }));
+    for (let i = 0; i < 3; i++) h.cabeza.add(t.en(t.caja(0.02, 0.09, 0.02, oscuro), -0.05 + i * 0.05, -0.02, 0.21));
+    h.cabeza.add(ojos(t, c.emision || 0x93c5fd, { r: 0.034, x: 0.07, y: 0.01, z: 0.19 }));
+    // Hombreras y faldón de placas.
+    for (const s of [-1, 1]) h.torso.add(t.en(t.esfera(0.2, oscuro, 0.6), s * 0.38, 0.14, 0));
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI - Math.PI / 2;
+      h.cuerpo.add(t.en(t.caja(0.17, 0.26, 0.05, oscuro), Math.sin(a) * 0.26, 0.72, Math.cos(a) * 0.2, { ry: -a }));
+    }
+    // Capa hecha jirones.
+    const capa = t.grupo("capa");
+    for (let i = 0; i < 4; i++) {
+      capa.add(t.en(t.plano(0.16, 0.9 - (i % 2) * 0.22, t.mat(c.osc, { doble: true, rugosidad: 0.95 })), -0.24 + i * 0.16, -0.45, 0));
+    }
+    t.en(capa, 0, 1.5, -0.22, { rx: 0.1 });
+    h.cuerpo.add(capa);
+    // Mandoble.
+    const arma = t.grupo("arma");
+    arma.add(t.en(t.caja(0.1, 1.15, 0.025, t.mat(0xd1d5db, { metal: 0.95, rugosidad: 0.2, emision: c.emision, fuerza: 0.25 })), 0, 0.68, 0));
+    arma.add(t.en(t.cono(0.07, 0.2, t.mat(0xd1d5db, { metal: 0.95, rugosidad: 0.2 })), 0, 1.35, 0));
+    arma.add(t.en(t.caja(0.42, 0.06, 0.07, oscuro), 0, 0.1, 0));
+    arma.add(t.en(t.cilindro(0.035, 0.035, 0.2, oscuro), 0, 0, 0));
+    t.en(arma, 0, -0.5, 0.08, { rx: -0.3 });
+    h.brazoDer.add(arma);
+    return { ...h, arma, capa, alto: 1.95, radio: 0.62 };
+  },
+
+  /** Arpía de las cumbres: mujer pájaro. Alas por brazos y patas con garras. */
+  arpia(t, c) {
+    const piel = t.mat(c.base, { rugosidad: 0.85 });
+    const pluma = t.mat(c.acento, { rugosidad: 0.8, doble: true });
+    const plumaOsc = t.mat(c.osc, { rugosidad: 0.85, doble: true });
+    const raiz = t.grupo("arpia");
+    const cuerpo = t.grupo("cuerpo");
+    cuerpo.add(t.en(t.capsula(0.2, 0.34, piel), 0, 0.05, 0));
+    cuerpo.add(t.en(t.esfera(0.21, pluma, 0.65), 0, 0.2, 0));          // pechera de plumas
+    const cabeza = t.grupo("cabeza");
+    cabeza.add(t.en(t.esfera(0.17, piel), 0, 0, 0));
+    cabeza.add(t.en(t.cono(0.06, 0.18, t.mat(0xf5c542, { rugosidad: 0.4 })), 0, -0.02, 0.17, { rx: Math.PI / 2 }));  // pico
+    // Cresta de plumas: la silueta de la cabeza.
+    for (let i = 0; i < 5; i++) cabeza.add(t.en(t.cono(0.04, 0.22 - Math.abs(i - 2) * 0.05, pluma), -0.08 + i * 0.04, 0.17, -0.06, { rx: -0.5 }));
+    cabeza.add(ojos(t, 0xfbbf24, { r: 0.033, x: 0.07, y: 0.03, z: 0.14 }));
+    t.en(cabeza, 0, 0.5, 0.02);
+    cuerpo.add(cabeza);
+    // Las alas SON los brazos: por eso no hay manos.
+    const alas = [];
+    for (const s of [-1, 1]) {
+      const a = t.grupo("ala");
+      for (let i = 0; i < 5; i++) {
+        const largo = 0.72 - i * 0.1;
+        a.add(t.en(t.plano(largo, 0.17, i % 2 ? pluma : plumaOsc),
+          s * (0.22 + largo * 0.45), 0.12 - i * 0.14, -0.03, { rz: s * (0.42 - i * 0.14), ry: s * 0.22 }));
+      }
+      t.en(a, s * 0.18, 0.2, 0);
+      alas.push(a);
+      cuerpo.add(a);
+    }
+    // Patas de ave con tres garras.
+    const patas = [];
+    for (const s of [-1, 1]) {
+      const p = t.grupo("pata");
+      p.add(t.en(t.capsula(0.045, 0.26, t.mat(0xd9c38a, { rugosidad: 0.7 })), 0, -0.2, 0));
+      for (let i = 0; i < 3; i++) {
+        p.add(t.en(t.cono(0.025, 0.12, t.mat(0x3a3028, { rugosidad: 0.5 })), (i - 1) * 0.05, -0.36, 0.06, { rx: 1.9 }));
+      }
+      t.en(p, s * 0.12, 0, 0);
+      patas.push(p);
+      cuerpo.add(p);
+    }
+    const cola = t.grupo("cola");
+    for (let i = 0; i < 3; i++) cola.add(t.en(t.plano(0.12, 0.42, pluma), (i - 1) * 0.08, -0.1, 0, { rx: 0.5, rz: (i - 1) * 0.2 }));
+    t.en(cola, 0, -0.1, -0.22);
+    cuerpo.add(cola);
+    t.en(cuerpo, 0, 0.72, 0);
+    raiz.add(cuerpo);
+    raiz.add(t.en(t.disco(0.5, t.matLuz(0x000000, { opacidad: 0.32 })), 0, 0.012, 0));
+    return { raiz, cuerpo, cabeza, alas, patas, cola, alto: 1.45, radio: 0.85 };
+  },
+
+  /** Basilisco pétreo: serpiente con patas y unos ojos que no quieres mirar. */
+  basilisco(t, c) {
+    const escama = t.mat(c.base, { rugosidad: 0.65, plano: true });
+    const vientre = t.mat(c.osc, { rugosidad: 0.8 });
+    const cresta = t.mat(c.acento, { rugosidad: 0.5, emision: c.emision, fuerza: 0.5 });
+    const raiz = t.grupo("basilisco");
+    const cuerpo = t.grupo("cuerpo");
+    // Cuerpo largo y bajo, en tres tramos que se estrechan.
+    for (let i = 0; i < 3; i++) {
+      const tramo = t.capsula(0.24 - i * 0.04, 0.3, escama);
+      t.en(tramo, 0, 0, 0.25 - i * 0.34, { rz: Math.PI / 2 });
+      cuerpo.add(tramo);
+    }
+    const cabeza = t.grupo("cabeza");
+    cabeza.add(t.en(t.esfera(0.23, escama, 0.8), 0, 0, 0));
+    cabeza.add(t.en(t.cono(0.15, 0.32, vientre), 0, -0.03, 0.26, { rx: Math.PI / 2 }));
+    // La cresta y los ojos: el bicho mata con la mirada, así que los ojos mandan.
+    for (let i = 0; i < 4; i++) cabeza.add(t.en(t.cono(0.04, 0.17 - i * 0.02, cresta), 0, 0.2, 0.06 - i * 0.12, { rx: -0.3 }));
+    cabeza.add(ojos(t, c.emision || 0xbef264, { r: 0.055, x: 0.12, y: 0.07, z: 0.16 }));
+    cabeza.add(t.en(t.caja(0.02, 0.012, 0.16, t.mat(0xdc2626, { rugosidad: 0.4 })), 0, -0.1, 0.38));  // lengua
+    t.en(cabeza, 0, 0.16, 0.6);
+    cuerpo.add(cabeza);
+    // Cuatro patas cortas, muy separadas: se arrastra más que camina.
+    const patas = [];
+    for (const z of [0.3, -0.3]) {
+      for (const s of [-1, 1]) {
+        const p = t.grupo("pata");
+        p.add(t.en(t.capsula(0.06, 0.12, vientre), 0, -0.1, 0, { rz: s * 0.5 }));
+        p.add(t.en(t.caja(0.17, 0.06, 0.2, vientre), s * 0.08, -0.2, 0.03));
+        t.en(p, s * 0.22, 0, z);
+        patas.push(p);
+        cuerpo.add(p);
+      }
+    }
+    const cola = t.grupo("cola");
+    let prev = cola;
+    for (let i = 0; i < 5; i++) {
+      const seg = t.grupo(`cola${i}`);
+      seg.add(t.en(t.capsula(0.12 - i * 0.021, 0.2, escama), 0, 0, -0.1));
+      t.en(seg, 0, 0, -0.2);
+      prev.add(seg);
+      prev = seg;
+    }
+    t.en(cola, 0, 0.04, -0.62);
+    cuerpo.add(cola);
+    t.en(cuerpo, 0, 0.3, 0);
+    raiz.add(cuerpo);
+    raiz.add(t.en(t.disco(0.8, t.matLuz(0x000000, { opacidad: 0.34 })), 0, 0.012, 0));
+    return { raiz, cuerpo, cabeza, cola, patas, alto: 0.72, radio: 0.85 };
+  },
+
+  /** Elemental de fuego: no tiene cuerpo, tiene llama. Todo luz, nada de piel. */
+  elemental(t, c) {
+    const llama = t.matLuz(c.base, { aditivo: true, opacidad: 0.85 });
+    const nucleoMat = t.matLuz(c.emision || 0xfde047, { aditivo: true, opacidad: 0.95 });
+    const brasa = t.mat(c.osc, { rugosidad: 0.9, emision: c.base, fuerza: 0.5 });
+    const raiz = t.grupo("elemental");
+    const cuerpo = t.grupo("cuerpo");
+    // Cuerpo: una llama grande con lenguas alrededor, que se estrecha hacia abajo.
+    cuerpo.add(t.en(t.cono(0.34, 1.1, llama), 0, 0.1, 0));
+    const lenguas = [];
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2;
+      const l = t.en(t.cono(0.11, 0.5 + (i % 3) * 0.22, llama), Math.cos(a) * 0.24, 0.3 + (i % 2) * 0.16, Math.sin(a) * 0.24);
+      lenguas.push(l);
+      cuerpo.add(l);
+    }
+    const nucleo = t.esfera(0.19, nucleoMat);
+    cuerpo.add(t.en(nucleo, 0, 0.18, 0));
+    // Dos brazos de fuego y una «cara» de dos brasas: lo justo para que se lea como un ser.
+    const brazos = {};
+    for (const s of [-1, 1]) {
+      const b = t.grupo("brazo");
+      b.add(t.en(t.capsula(0.09, 0.3, llama), 0, -0.14, 0, { rz: s * 0.3 }));
+      b.add(t.en(t.cono(0.1, 0.24, nucleoMat), s * 0.1, -0.32, 0.02));
+      t.en(b, s * 0.33, 0.42, 0.02);
+      brazos[s < 0 ? "brazoIzq" : "brazoDer"] = b;
+      cuerpo.add(b);
+    }
+    const cabeza = t.grupo("cabeza");
+    cabeza.add(t.en(t.cono(0.17, 0.4, llama), 0, 0, 0));
+    cabeza.add(ojos(t, 0xffffff, { r: 0.04, x: 0.065, y: 0.02, z: 0.12 }));
+    for (let i = 0; i < 3; i++) cabeza.add(t.en(t.esfera(0.03, t.matLuz(0xfff3c4, { aditivo: true })), (i - 1) * 0.1, 0.26 + (i % 2) * 0.1, 0));
+    t.en(cabeza, 0, 0.72, 0);
+    cuerpo.add(cabeza);
+    for (let i = 0; i < 4; i++) cuerpo.add(t.en(t.roca(0.05, brasa, 0), Math.cos(i * 1.7) * 0.3, -0.3 + (i % 2) * 0.1, Math.sin(i * 1.7) * 0.3));
+    t.en(cuerpo, 0, 0.95, 0);
+    raiz.add(cuerpo);
+    raiz.add(t.en(t.disco(0.62, t.matLuz(c.base, { opacidad: 0.45 })), 0, 0.012, 0));
+    return { raiz, cuerpo, cabeza, nucleo, lenguas, ...brazos, alto: 1.7, radio: 0.62, flota: true };
+  },
+
+  /** Liche de la torre: calavera con corona, túnica hueca y un orbe de conjuro. Flota. */
+  liche(t, c) {
+    const tela = t.mat(c.base, { rugosidad: 0.9, doble: true });
+    const telaOsc = t.mat(c.osc, { rugosidad: 0.95, doble: true });
+    const hueso = t.mat(0xe9e4d8, { rugosidad: 0.7, plano: true });
+    const verde = t.mat(c.acento, { emision: c.emision || 0x4ade80, fuerza: 0.9, rugosidad: 0.3 });
+    const raiz = t.grupo("liche");
+    const cuerpo = t.grupo("cuerpo");
+    // Túnica hueca: no tiene piernas, se deshace en jirones.
+    cuerpo.add(t.en(t.cono(0.42, 1.15, tela), 0, 0, 0));
+    const jirones = [];
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const j = t.en(t.cono(0.08, 0.4, telaOsc), Math.cos(a) * 0.28, -0.66, Math.sin(a) * 0.28, { rx: Math.PI });
+      jirones.push(j);
+      cuerpo.add(j);
+    }
+    // Calavera con corona: el rey muerto.
+    const cabeza = t.grupo("cabeza");
+    cabeza.add(t.en(t.esfera(0.18, hueso), 0, 0, 0));
+    cabeza.add(t.en(t.caja(0.16, 0.07, 0.13, hueso), 0, -0.14, 0.03));
+    cabeza.add(ojos(t, c.emision || 0x4ade80, { r: 0.042, x: 0.07, y: 0.02, z: 0.14 }));
+    const corona = t.grupo("corona");
+    corona.add(t.en(t.cilindro(0.19, 0.19, 0.06, verde), 0, 0, 0));
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      corona.add(t.en(t.cono(0.035, 0.13, verde), Math.cos(a) * 0.17, 0.09, Math.sin(a) * 0.17));
+    }
+    cabeza.add(t.en(corona, 0, 0.17, 0));
+    t.en(cabeza, 0, 0.66, 0);
+    cuerpo.add(cabeza);
+    // Manos de hueso saliendo de las mangas.
+    const brazos = {};
+    for (const s of [-1, 1]) {
+      const b = t.grupo("brazo");
+      b.add(t.en(t.capsula(0.08, 0.34, tela), 0, -0.18, 0));
+      b.add(t.en(t.esfera(0.06, hueso), 0, -0.38, 0.02));
+      for (let i = 0; i < 3; i++) b.add(t.en(t.capsula(0.014, 0.07, hueso), (i - 1) * 0.035, -0.46, 0.03));
+      t.en(b, s * 0.36, 0.44, 0.04, { rz: -s * 0.3 });
+      brazos[s < 0 ? "brazoIzq" : "brazoDer"] = b;
+      cuerpo.add(b);
+    }
+    // El orbe: flota solo delante de la mano, que es lo que hace de él un conjurador.
+    const orbe = t.esfera(0.14, t.matLuz(c.emision || 0x4ade80, { aditivo: true, opacidad: 0.9 }));
+    const grupoOrbe = t.grupo("orbe");
+    grupoOrbe.add(t.en(orbe, 0, 0, 0));
+    grupoOrbe.add(t.en(t.toro(0.21, 0.018, verde), 0, 0, 0, { rx: 1.1 }));
+    grupoOrbe.add(t.en(t.toro(0.24, 0.014, verde), 0, 0, 0, { rx: -0.6, ry: 0.8 }));
+    t.en(grupoOrbe, 0.52, 0.3, 0.3);
+    cuerpo.add(grupoOrbe);
+    t.en(cuerpo, 0, 1.05, 0);
+    raiz.add(cuerpo);
+    return { raiz, cuerpo, cabeza, jirones, orbe: grupoOrbe, corona, ...brazos, alto: 1.85, radio: 0.6, flota: true };
+  },
+
+  /** Quimera de tres cabezas: león, cabra y serpiente en el mismo cuerpo. */
+  quimera(t, c) {
+    const pelo = t.mat(c.base, { rugosidad: 0.9, plano: true });
+    const peloOsc = t.mat(c.osc, { rugosidad: 0.92, plano: true });
+    const cuerno = t.mat(0xe9e4d8, { rugosidad: 0.5 });
+    const raiz = t.grupo("quimera");
+    const cuerpo = t.grupo("cuerpo");
+    const tronco = t.capsula(0.34, 0.6, pelo);
+    t.en(tronco, 0, 0, 0, { rz: Math.PI / 2 });
+    cuerpo.add(tronco);
+    cuerpo.add(t.en(t.esfera(0.3, pelo, 0.9), 0, 0.04, 0.3));
+
+    // LAS TRES CABEZAS. Sin esto no es una quimera, y era justo lo que le faltaba.
+    const cabezas = [];
+    // 1) León, al centro y adelante: la cabeza principal.
+    const leon = t.grupo("cabeza");
+    leon.add(t.en(t.esfera(0.21, pelo), 0, 0, 0));
+    leon.add(t.en(t.cono(0.12, 0.2, peloOsc), 0, -0.04, 0.2, { rx: Math.PI / 2 }));
+    // Melena: solo por detrás y por arriba. Rodeando la cabeza entera tapaba a las otras dos.
+    for (let i = 0; i < 7; i++) {
+      const a = Math.PI * (0.15 + (i / 6) * 0.7);
+      leon.add(t.en(t.cono(0.06, 0.17, peloOsc), Math.cos(a) * 0.19, Math.sin(a) * 0.19, -0.14, { rx: -0.7 }));
+    }
+    leon.add(ojos(t, 0xfbbf24, { r: 0.034, x: 0.08, y: 0.05, z: 0.18 }));
+    t.en(leon, 0, 0.42, 0.52);
+    cabezas.push(leon);
+    cuerpo.add(leon);
+    // 2) Cabra, a la izquierda: cuernos curvados hacia atrás.
+    const cabra = t.grupo("cabezaCabra");
+    cabra.add(t.en(t.esfera(0.15, peloOsc, 1.2), 0, 0, 0));
+    cabra.add(t.en(t.cono(0.08, 0.2, peloOsc), 0, -0.1, 0.15, { rx: 1.3 }));
+    for (const s of [-1, 1]) {
+      cabra.add(t.en(t.cono(0.045, 0.3, cuerno), s * 0.1, 0.16, -0.04, { rz: s * 0.5, rx: -0.9 }));
+    }
+    cabra.add(ojos(t, 0xfef08a, { r: 0.026, x: 0.065, y: 0.02, z: 0.12 }));
+    t.en(cabra, -0.36, 0.56, 0.42, { ry: -0.75, esc: 1.1 });
+    cabezas.push(cabra);
+    cuerpo.add(cabra);
+    // 3) Serpiente, a la derecha y sobre un cuello largo.
+    const serp = t.grupo("cabezaSerpiente");
+    let prev = serp;
+    for (let i = 0; i < 3; i++) {
+      const seg = t.grupo(`cuello${i}`);
+      seg.add(t.en(t.capsula(0.09 - i * 0.012, 0.16, t.mat(c.acento, { rugosidad: 0.6, plano: true })), 0, 0.1, 0));
+      t.en(seg, 0, i ? 0.15 : 0, i ? 0.09 : 0, { rx: i ? -0.55 : -0.85 });
+      prev.add(seg);
+      prev = seg;
+    }
+    const cabezaSerp = t.grupo("cabezaS");
+    cabezaSerp.add(t.en(t.esfera(0.12, t.mat(c.acento, { rugosidad: 0.5 }), 0.8), 0, 0, 0));
+    cabezaSerp.add(t.en(t.cono(0.08, 0.16, peloOsc), 0, -0.02, 0.13, { rx: Math.PI / 2 }));
+    cabezaSerp.add(ojos(t, 0xef4444, { r: 0.026, x: 0.055, y: 0.03, z: 0.1 }));
+    cabezaSerp.add(t.en(t.caja(0.015, 0.01, 0.1, t.mat(0xdc2626, { rugosidad: 0.4 })), 0, -0.05, 0.22));
+    t.en(cabezaSerp, 0, 0.2, 0.08);
+    prev.add(cabezaSerp);
+    t.en(serp, 0.34, 0.4, 0.34, { ry: 0.55 });
+    cabezas.push(serp);
+    cuerpo.add(serp);
+
+    const patas = [];
+    for (const z of [0.26, -0.3]) {
+      for (const s of [-1, 1]) {
+        const p = t.grupo("pata");
+        p.add(t.en(t.capsula(0.1, 0.42, pelo), 0, -0.28, 0));
+        p.add(t.en(t.caja(0.22, 0.09, 0.28, peloOsc), 0, -0.56, 0.04));
+        t.en(p, s * 0.26, 0, z);
+        patas.push(p);
+        cuerpo.add(p);
+      }
+    }
+    const cola = t.grupo("cola");
+    prev = cola;
+    for (let i = 0; i < 4; i++) {
+      const seg = t.grupo(`cola${i}`);
+      seg.add(t.en(t.capsula(0.07 - i * 0.012, 0.18, peloOsc), 0, 0, -0.09));
+      t.en(seg, 0, 0, -0.18);
+      prev.add(seg);
+      prev = seg;
+    }
+    t.en(cola, 0, 0.1, -0.56);
+    cuerpo.add(cola);
+
+    t.en(cuerpo, 0, 0.78, 0);
+    raiz.add(cuerpo);
+    raiz.add(t.en(t.disco(0.85, t.matLuz(0x000000, { opacidad: 0.38 })), 0, 0.012, 0));
+    return { raiz, cuerpo, cabeza: leon, cabezas, patas, cola, alto: 1.3, radio: 0.9 };
+  },
+
   /** El jefe: un caudillo acorazado, el único que no sale del bestiario. */
   jefe(t, c) {
     const m = t.mat(c.base, { metal: 0.8, rugosidad: 0.3 }), mo = t.mat(c.osc, { metal: 0.6, rugosidad: 0.4 });
@@ -733,8 +1335,18 @@ const SILUETA_RESERVA = "bipedo";
  */
 export const PRESENCIA_MIN = 0.95;
 
-/** Tope del agrandado: una rata agrandada 2,2 veces parecía una vaca al lado del héroe. */
+/** Tope del agrandado cuando una criatura no trae altura en su ficha. */
 export const PRESENCIA_MAX = 1.6;
+
+/**
+ * Tope de estirado cuando la altura SÍ viene del bestiario.
+ *
+ * Está en 2 por medición, no a ojo: con 1,6 también se recortaba al dragón (necesita 1,70) y a la
+ * quimera (1,93), que son grandes pero no desproporcionados. Con 2 solo saltan los dos casos de
+ * verdad: el limo (2,36) y el basilisco (2,90), que son bajos y largos y, estirados hasta la
+ * altura de su ficha, medirían varios metros de largo.
+ */
+export const ESTIRADO_MAX = 2;
 
 /** Factor de presencia de una criatura de altura `alto` (1 si ya es lo bastante grande). */
 export const factorPresencia = (alto) => (alto > 0 && alto < PRESENCIA_MIN ? Math.min(PRESENCIA_MAX, PRESENCIA_MIN / alto) : 1);
@@ -766,13 +1378,19 @@ export function construirEnemigo(T, clave, o = {}) {
   const receta = RECETAS[k] ?? SILUETAS[meta?.silueta] ?? SILUETAS[SILUETA_RESERVA];
   const col = colorEnemigo(k);
   const t = new Taller(T, o);
-  const { raiz, alto, radio, flota = false, ...partes } = receta(t, col);
+  const { raiz, alto: altoDeclarado, radio, flota = false, ...partes } = receta(t, col);
   raiz.name = `enemigo-${k || "generico"}`;
+  // La altura se MIDE, no se cree: ver `altoReal`. Lo declarado por la receta queda de reserva
+  // por si el modelo sale vacío (una criatura desconocida, por ejemplo).
+  const alto = altoReal(raiz) || altoDeclarado;
 
   // La altura la manda el bestiario y es RELATIVA (1 = el héroe), así que se escala el modelo
   // hasta medir lo que dice su ficha. Sin esto, una rata de 0,6 construida a tamaño real es un
   // punto en el suelo y un dragón de 2,6 no se distingue de un orco.
-  const presencia = meta?.altura > 0 ? (meta.altura * ALTO_HEROE) / alto : factorPresencia(alto);
+  // La altura la manda el bestiario, pero con tope: estirar un modelo más de esto le rompe las
+  // proporciones, porque crece igual de ancho y de largo. Ver `alturasImposibles()`.
+  const pedida = meta?.altura > 0 ? (meta.altura * ALTO_HEROE) / alto : factorPresencia(alto);
+  const presencia = Math.min(pedida, meta?.altura > 0 ? ESTIRADO_MAX : PRESENCIA_MAX);
   if (presencia !== 1) {
     raiz.scale.setScalar(presencia);
     // La sombra de debajo se agranda con el modelo, y en una criatura de 3 metros se convertía en
@@ -808,6 +1426,30 @@ export function construirEnemigo(T, clave, o = {}) {
 }
 
 /**
+ * Mide la altura REAL de un modelo, recorriendo sus piezas y teniendo en cuenta cuánto sobresale
+ * cada una de su centro (`userData.extension`) y las escalas de sus padres.
+ *
+ * Esto existe porque declarar la altura a mano en cada receta sale mal: la quimera decía medir
+ * 1,1 m midiendo 1,45, y como la altura declarada es el divisor del factor de presencia, salía
+ * escalada casi al triple y cortada por arriba. Medirlo quita de en medio una familia entera de
+ * errores míos, y además una receta nueva no tiene que acertar ningún número.
+ *
+ * @param {object} raiz
+ * @returns {number} metros desde el suelo hasta lo más alto
+ */
+export function altoReal(raiz) {
+  let maximo = 0;
+  const recorrer = (n, y, esc) => {
+    const yy = y + n.position.y * esc;
+    const e = (n.userData?.extension ?? 0) * esc * (n.scale?.y ?? 1);
+    if (n.geometry) maximo = Math.max(maximo, yy + e);
+    for (const c of n.children ?? []) recorrer(c, yy, esc * (n.scale?.y ?? 1));
+  };
+  recorrer(raiz, 0, 1);
+  return maximo;
+}
+
+/**
  * Corrige el disco de sombra falsa de una criatura agrandada: crece mucho menos que el cuerpo y
  * se aclara, para que no quede un manchón negro en el suelo.
  */
@@ -822,5 +1464,41 @@ function ajustarSombra(raiz, presencia) {
   });
 }
 
-/** Las claves del bestiario de combat.js para las que hay receta (comprobación de cobertura). */
-export const cobertura = () => CLAVES_ENEMIGO.filter((k) => tieneReceta(k));
+/**
+ * Claves del BESTIARIO para las que hay receta hecha a mano (las demás se construyen por silueta).
+ * Se mide contra `combat.js`, no contra `CLAVES_ENEMIGO` de sprites.js: esa lista es la del motor
+ * 2D y se quedó en las 11 criaturas originales, así que daba una cobertura falsa.
+ */
+export const cobertura = () => BESTIARIO.filter((b) => tieneReceta(b.clave)).map((b) => b.clave);
+
+/**
+ * Criaturas cuya `altura` del bestiario NO se puede cumplir sin romperles las proporciones.
+ *
+ * Pasa con las criaturas bajas y largas. El contrato dice que `altura` es relativa al héroe
+ * (1 = lo que mide el héroe), y escalar un modelo para que su punto más alto llegue ahí lo estira
+ * también a lo ancho y a lo largo: un basilisco de 2,16 m de alto mide 5 m de largo y no cabe en
+ * la arena. Aquí se recorta al tope y se deja constancia, en vez de reinterpretar por mi cuenta lo
+ * que quiso decir el equipo de contenido.
+ *
+ * @returns {Array<{clave:string, pedida:number, aplicada:number}>} vacío si todo cuadra
+ */
+export function alturasImposibles(T, o = { segmentos: 10, sombras: false }) {
+  const fuera = [];
+  for (const b of BESTIARIO) {
+    const meta = metadatos3d(b.clave);
+    if (!(meta?.altura > 0)) continue;
+    const receta = RECETAS[b.clave] ?? SILUETAS[meta.silueta] ?? SILUETAS[SILUETA_RESERVA];
+    const t = new Taller(T, o);
+    const { raiz, alto: declarado } = receta(t, colorEnemigo(b.clave));
+    const medido = altoReal(raiz) || declarado;
+    const pedida = (meta.altura * ALTO_HEROE) / medido;
+    if (pedida > ESTIRADO_MAX + 0.01) {
+      fuera.push({ clave: b.clave, pedida: Math.round(pedida * 100) / 100, aplicada: ESTIRADO_MAX });
+    }
+    t.liberar();
+  }
+  return fuera;
+}
+
+/** Criaturas del bestiario que todavía se construyen por silueta genérica. */
+export const porSilueta = () => BESTIARIO.filter((b) => !tieneReceta(b.clave)).map((b) => b.clave);

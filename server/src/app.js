@@ -6,6 +6,7 @@ import { isAddress, getAddress, ZeroAddress, formatEther, parseEther } from 'eth
 import { tirarLoot, tirarPrimerBotin, EstadoBotin, RegistroPrimerBotin } from './loot.js';
 import { crearRouterGas, RegistroGas } from './gas.js';
 import { crearRouterTorre, RegistroTorre } from './torre.js';
+import { crearRouterTesoreria } from './tesoreria.js';
 import { RateLimiter } from './rateLimit.js';
 import { mensajeError } from './chain.js';
 import { origenCors } from './config.js';
@@ -84,6 +85,8 @@ export function crearApp({
   gasNoDisponible = 'El grifo de gas no está disponible en este servidor',
   registroTorre = new RegistroTorre({ now }),
   estadoAlmacen = null,
+  tesoreria = null, tesoreriaNoDisponible,
+  red = null,
 }) {
   const app = express();
   app.set('trust proxy', trustProxy);
@@ -111,8 +114,12 @@ export function crearApp({
 
   app.get('/health', async (_req, res) => {
     const base = { ok: true, contract: contractAddress, chainId: Number(chainId) };
+    if (red) base.red = red.clave;
     // Qué almacén se está usando y si hubo que degradar a memoria (1.4).
     if (estadoAlmacen) base.almacen = estadoAlmacen.resumen();
+    // Cómo va el indexado del ranking (1.4.1): un indexado parado tiene que verse desde
+    // fuera, sin entrar en los logs de Render. `atascado: true` es la señal de alarma.
+    if (ranking) base.indexador = ranking.estado();
     if (!obtenerSaldo) return res.json(base);
     try {
       const wei = await saldoOperador();
@@ -303,6 +310,8 @@ export function crearApp({
     registro: registroGas, now, logger, noDisponible: gasNoDisponible,
   }));
   app.use(crearRouterTorre({ validarDireccion, now, registro: registroTorre }));
+  // ── 1.4.1 (fase E3): resumen del dinero del juego, cacheado ──
+  app.use(crearRouterTesoreria({ tesoreria, now, ...(tesoreriaNoDisponible ? { noDisponible: tesoreriaNoDisponible } : {}) }));
 
   app.use((_req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 

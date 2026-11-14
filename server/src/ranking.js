@@ -41,6 +41,24 @@ export const MAX_JUGADORES_INSTANTANEA = 50_000;
  */
 export const BLOQUES_POR_GUARDADO = 500;
 
+/** Sin avanzar durante este tiempo y sin estar sincronizado, `/health` marca `atascado`. */
+export const UMBRAL_ATASCO_MS = 5 * 60 * 1000;
+
+/**
+ * ¿El nodo dice que ya no guarda la historia de esos bloques?
+ *
+ * Los RPC públicos *podan*: solo conservan los últimos N bloques (publicnode ronda los 20 000).
+ * Cuando el bloque de despliegue queda por detrás de ese horizonte, `getLogs` falla para siempre
+ * por mucho que se reintente, así que hay que tratarlo distinto de un error pasajero: ante esto
+ * NO sirve trocear el rango (trocear mueve el final, y el problema es el principio).
+ */
+export function esHistoriaPodada(err) {
+  const codigo = err?.error?.code ?? err?.info?.error?.code ?? err?.code;
+  if (codigo === 4444) return true;
+  const texto = String(err?.error?.message ?? err?.info?.error?.message ?? err?.shortMessage ?? err?.message ?? '');
+  return /pruned|history unavailable|missing trie node|state unavailable|block not found|older than|not available on this node/i.test(texto);
+}
+
 const ifaceGameItem = new Interface(ABI_GAMEITEM_EVENTOS);
 const ifaceMercado = new Interface(ABI_MERCADO_EVENTOS);
 const ifaceRecompensas = new Interface(ABI_RECOMPENSAS);
@@ -73,6 +91,7 @@ export class IndexadorRanking {
     now = Date.now, logger = console,
     alCambiar = null, bloquesPorGuardado = BLOQUES_POR_GUARDADO,
     maxBytes = MAX_BYTES_INSTANTANEA, maxJugadores = MAX_JUGADORES_INSTANTANEA,
+    maxFallosHistoria = 2, umbralAtascoMs = UMBRAL_ATASCO_MS,
   }) {
     this.provider = provider;
     this.dir = {
@@ -112,6 +131,19 @@ export class IndexadorRanking {
     this.maxJugadores = maxJugadores;
     this.ultimoGuardado = deployBlock;   // `siguiente` de la última vez que se marcó
     this.restaurado = false;             // true si el índice viene de una instantánea
+
+    // ── Vigilancia: que un indexado parado NUNCA pase desapercibido ──
+    this.maxFallosHistoria = maxFallosHistoria;
+    this.umbralAtascoMs = umbralAtascoMs;
+    /** Tramos que el nodo no pudo servir por haber podado su historia: [{desde, hasta}]. */
+    this.huecos = [];
+    this.bloquesSinHistoria = 0;
+    this.primerBloqueIndexado = null;    // primer bloque realmente leído (≠ deployBlock si hubo hueco)
+    this.ultimoAvance = null;            // ms de la última vez que `siguiente` creció
+    this.ultimoAvanceBloque = deployBlock;
+    this.refrescosFallidos = 0;          // refrescos seguidos que han terminado lanzando
+    this.ultimaCabeza = null;            // última cabeza que dijo el nodo
+    this.intentos = 0;                   // refrescos arrancados
   }
 
   /**
@@ -133,6 +165,8 @@ export class IndexadorRanking {
       siguiente: this.siguiente,
       actualizado: this.actualizado,
       descartados: this.descartados,
+      huecos: this.huecos.map(({ desde, hasta }) => [desde, hasta]),
+      primerBloqueIndexado: this.primerBloqueIndexado,
       jugadores: [...this.jugadores].map(([a, j]) => [a, j.objetos, j.legendarios, j.oroVentas.toString(), j.rachaDiaria]),
       recompensados: [...this.recompensados].map(([a, motivos]) => [a, [...motivos]]),
       vistos: [...this.vistos],
@@ -197,8 +231,20 @@ export class IndexadorRanking {
       this.vistos.set(clave, bloque);
     }
 
+    this.huecos = [];
+    this.bloquesSinHistoria = 0;
+    for (const fila of Array.isArray(datos.huecos) ? datos.huecos : []) {
+      if (!Array.isArray(fila) || fila.length < 2) continue;
+      const [d, h] = fila;
+      if (!Number.isInteger(d) || !Number.isInteger(h) || h < d) continue;
+      this.huecos.push({ desde: d, hasta: h });
+      this.bloquesSinHistoria += h - d + 1;
+    }
+    this.primerBloqueIndexado = Number.isInteger(datos.primerBloqueIndexado) ? datos.primerBloqueIndexado : null;
+
     this.siguiente = datos.siguiente;
     this.ultimoGuardado = datos.siguiente;
+    this.ultimoAvanceBloque = datos.siguiente;
     this.descartados = Number.isInteger(datos.descartados) ? datos.descartados : 0;
     // `actualizado` es la verdad: cuándo se refrescó por última vez. Al restaurarlo,
     // `listo()` ya es true y GET /ranking sirve el índice guardado en vez de dar 503.
@@ -241,9 +287,21 @@ export class IndexadorRanking {
   }
 
   async _refrescar() {
-    const cabeza = Number(await this.provider.getBlockNumber());
+    this.intentos++;
+    let cabeza;
+    try {
+      cabeza = Number(await this.provider.getBlockNumber());
+    } catch (err) {
+      this.ultimoError = err?.shortMessage ?? err?.message ?? String(err);
+      this.refrescosFallidos++;
+      throw err;
+    }
     const hasta = cabeza - this.margen;
-    if (!Number.isFinite(hasta)) throw new Error(`getBlockNumber devolvió un valor inválido (${cabeza})`);
+    if (!Number.isFinite(hasta)) {
+      this.refrescosFallidos++;
+      throw new Error(`getBlockNumber devolvió un valor inválido (${cabeza})`);
+    }
+    this.ultimaCabeza = cabeza;
     if (hasta < this.siguiente - 1) {
       // Nodo desfasado: dice que la cabeza está por detrás de lo que ya indexamos. No tocamos nada.
       this.logger.warn?.(`[ranking] cabeza ${cabeza} por detrás de lo indexado (${this.siguiente - 1}); se ignora`);
@@ -252,7 +310,8 @@ export class IndexadorRanking {
 
     let desde = Math.max(this.deployBlock, this.siguiente - this.solape);
     let tramos = 0;
-    let fallos = 0;
+    let fallos = 0;          // errores pasajeros seguidos sobre el MISMO tramo
+    let fallosHistoria = 0;  // veces seguidas que el nodo dice no tener la historia de `desde`
     let nuevos = 0;
     while (desde <= hasta && tramos < this.maxTramosPorRefresco) {
       const fin = Math.min(hasta, desde + this.tramo - 1);
@@ -265,13 +324,36 @@ export class IndexadorRanking {
           toBlock: fin,
         });
       } catch (err) {
-        fallos++;
         const msg = err?.shortMessage ?? err?.message ?? String(err);
+
+        // ── Historia podada: el nodo ya no guarda esos bloques ──
+        // Trocear NO sirve: mueve `fin`, y lo que estorba es `desde`. Hay que SALTAR hacia
+        // delante hasta donde el nodo sí tenga historia. Se reintenta un par de veces porque
+        // los RPC públicos son un grupo de nodos y no todos han podado lo mismo.
+        if (esHistoriaPodada(err)) {
+          fallosHistoria++;
+          if (fallosHistoria < this.maxFallosHistoria) {
+            if (this.pausaMs > 0) await new Promise((ok) => setTimeout(ok, this.pausaMs));
+            continue;
+          }
+          const salto = Math.max(this.tramoMin, Math.floor((hasta - desde) / 2));
+          const nuevoDesde = Math.min(hasta + 1, desde + salto);
+          this._anotarHueco(desde, nuevoDesde - 1, msg);
+          this.siguiente = Math.max(this.siguiente, nuevoDesde);
+          desde = nuevoDesde;
+          tramos++;
+          fallos = 0;
+          fallosHistoria = 0;
+          continue;
+        }
+
+        // ── Error pasajero (rango grande, timeout, límite): trocear y reintentar ──
+        fallos++;
         if (fallos >= this.maxFallos) {
           this.ultimoError = msg;
-          this._ordenar();
-          // El progreso de los tramos ya completados no se tira: se guarda igual.
-          this._marcar(nuevos);
+          // El progreso ya hecho es válido y SE SIRVE: antes se quedaba en 503 para siempre.
+          this._cerrarRefresco(hasta, nuevos, { completo: false });
+          this.refrescosFallidos++;
           throw new Error(`getLogs falló ${fallos} veces (bloques ${desde}-${fin}): ${msg}`);
         }
         this.tramo = Math.max(this.tramoMin, Math.floor((fin - desde + 1) / 2));
@@ -280,20 +362,86 @@ export class IndexadorRanking {
       }
       if (!Array.isArray(logs)) logs = [];
       for (const log of logs) if (this._procesar(log, desde, fin)) nuevos++;
+      if (this.primerBloqueIndexado === null) this.primerBloqueIndexado = desde;
       this.siguiente = Math.max(this.siguiente, fin + 1);
       desde = fin + 1;
       tramos++;
       fallos = 0;
+      fallosHistoria = 0;
       this.tramo = Math.min(this.tramoMax, this.tramo * 2); // tras un fallo, vuelve a crecer hacia el tope
     }
 
-    this.sincronizado = this.siguiente > hasta;
+    this._cerrarRefresco(hasta, nuevos, { completo: true });
+    this.refrescosFallidos = 0;
+    this.ultimoError = null;
+    return { nuevos, hasta: this.siguiente - 1, desfasado: false, huecos: this.huecos.length };
+  }
+
+  /**
+   * Apunta un tramo que el nodo no pudo servir por haber podado su historia.
+   * El ranking queda incompleto a partir de ahí, y se dice en `/ranking` y en `/health`
+   * en vez de fingir que está entero.
+   */
+  _anotarHueco(desde, hasta, motivo) {
+    if (hasta < desde) return;
+    this.huecos.push({ desde, hasta });
+    this.bloquesSinHistoria += hasta - desde + 1;
+    this.logger.warn?.(
+      `[ranking] el nodo no tiene la historia de los bloques ${desde}-${hasta} (${motivo}); `
+      + 'se salta y el ranking queda incompleto. Ver README §El RPC y la historia podada.',
+    );
+  }
+
+  /**
+   * Cierra un refresco, completo o a medias. La clave del arreglo de la 1.4.1: `actualizado`
+   * se pone también cuando el refresco acaba mal, siempre que el índice haya avanzado algo.
+   * Antes solo se ponía al llegar hasta la cabeza, así que un único refresco fallido dejaba
+   * `GET /ranking` en 503 PARA SIEMPRE, con datos perfectamente servibles dentro.
+   */
+  _cerrarRefresco(hasta, nuevos, { completo }) {
+    const avanzo = this.siguiente > this.ultimoAvanceBloque;
+    if (avanzo) {
+      this.ultimoAvance = this.now();
+      this.ultimoAvanceBloque = this.siguiente;
+    }
+    this.sincronizado = completo && this.siguiente > hasta;
     this._podarVistos();
     this._ordenar();
-    this.actualizado = this.now();
-    this.ultimoError = null;
+    // Servible en cuanto hay algo indexado, aunque el refresco se haya cortado.
+    if (completo || avanzo || this.primerBloqueIndexado !== null) this.actualizado = this.now();
     this._marcar(nuevos);
-    return { nuevos, hasta: this.siguiente - 1, desfasado: false };
+  }
+
+  /**
+   * Cómo va el indexado, para `GET /health`. Que un indexado parado se vea desde fuera
+   * sin tener que entrar en los logs de Render.
+   */
+  estado() {
+    const ahora = this.now();
+    const sinAvanzarMs = this.ultimoAvance === null ? null : ahora - this.ultimoAvance;
+    const atascado = !this.sincronizado && (
+      this.refrescosFallidos >= 2
+      || (this.ultimoAvance !== null && sinAvanzarMs > this.umbralAtascoMs)
+      || (this.ultimoAvance === null && this.actualizado === null && this.intentos > 0)
+    );
+    const e = {
+      bloque: this.siguiente - 1,
+      cabeza: this.ultimaCabeza,
+      pendientes: this.ultimaCabeza === null ? null : Math.max(0, this.ultimaCabeza - this.margen - (this.siguiente - 1)),
+      listo: this.listo(),
+      sincronizado: this.sincronizado,
+      atascado,
+    };
+    if (sinAvanzarMs !== null) e.segundosSinAvanzar = Math.round(sinAvanzarMs / 1000);
+    if (this.refrescosFallidos) e.refrescosFallidos = this.refrescosFallidos;
+    if (this.ultimoError) e.ultimoError = this.ultimoError;
+    if (this.huecos.length) {
+      e.incompleto = true;
+      e.bloquesSinHistoria = this.bloquesSinHistoria;
+      e.desdeBloque = this.primerBloqueIndexado;
+      e.motivoIncompleto = 'El RPC ha podado la historia de esos bloques; ver README §El RPC y la historia podada';
+    }
+    return e;
   }
 
   /** Aplica un log. Devuelve true si era nuevo y válido. */
@@ -384,12 +532,19 @@ export class IndexadorRanking {
     return { estado: 'sincronizando', bloqueActual: this.siguiente - 1 };
   }
 
+  /** Campos extra cuando el RPC no pudo servir parte de la historia. */
+  _avisoIncompleto() {
+    if (!this.huecos.length) return {};
+    return { incompleto: true, desdeBloque: this.primerBloqueIndexado, bloquesSinHistoria: this.bloquesSinHistoria };
+  }
+
   /** Top `TOP` por categoría. */
   ranking(top = TOP) {
     return {
       actualizado: this.actualizado === null ? null : new Date(this.actualizado).toISOString(),
       bloque: this.siguiente - 1,
       sincronizado: this.sincronizado,
+      ...this._avisoIncompleto(),
       categorias: Object.fromEntries(CATEGORIAS.map((c) => [
         c, this.ordenados[c].slice(0, top).map(({ address, valor }) => ({ address, valor })),
       ])),
@@ -405,6 +560,7 @@ export class IndexadorRanking {
       actualizado: this.actualizado === null ? null : new Date(this.actualizado).toISOString(),
       bloque: this.siguiente - 1,
       sincronizado: this.sincronizado,
+      ...this._avisoIncompleto(),
       posiciones: Object.fromEntries(CATEGORIAS.map((c) => {
         const i = this.ordenados[c].findIndex((x) => x.address === a);
         return [c, { posicion: i === -1 ? null : i + 1, valor: this._valor(j, c), participantes: this.ordenados[c].length }];

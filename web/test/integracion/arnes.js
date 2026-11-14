@@ -119,6 +119,9 @@ function contenedorMarcos() {
  * @param {"sonda"|"real"} [opc.modo="sonda"] «sonda» = document.write con los oyentes puestos antes
  *        (caza los errores de arranque). «real» = navegación de verdad con `src`: hace falta para
  *        probar el botón Atrás y las marcas de `performance`, pero los oyentes llegan después de cargar.
+ * @param {(w:Window) => void} [opc.antesDeCargar] se llama con la ventana del iframe justo antes de
+ *        escribir el HTML: sirve para falsear capacidades del navegador (quitar WebGL, por ejemplo)
+ * @param {Record<string,string>} [opc.semilla]    claves de localStorage escritas antes de cargar
  * @param {boolean} [opc.visible=false]            muestra el iframe (útil para depurar a ojo)
  * @param {{ancho:number, alto:number}} [opc.vista] tamaño del iframe
  */
@@ -166,6 +169,8 @@ export async function abrirApp(opc = {}) {
 
   const w = marco.contentWindow;
   instalarSondas(w, o, errores, peticiones);
+  // Gancho para falsear cosas del navegador antes de que la página se evalúe (p. ej. quitar WebGL).
+  if (typeof o.antesDeCargar === "function") o.antesDeCargar(w);
 
   // El hash debe estar puesto antes de que el router se evalúe.
   if (o.ruta) w.location.hash = o.ruta;

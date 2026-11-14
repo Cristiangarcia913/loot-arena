@@ -37,6 +37,13 @@ services:
         value: "0x67436408fe590dA830E783dc20345CccBCDbEE56"
       - key: DEPLOY_BLOCK
         value: "12072405"
+      # 1.4.1 (fase E3): dirección de LootGold, para GET /tesoreria.
+      - key: ORO_ADDRESS
+        value: "0xb95150f40e6e9C5095558cC01A1b9CfffA89e166"
+      # 1.4.1 (fase E4): red de trabajo. El servidor comprueba al arrancar que RPC_URL
+      # está de verdad en esta red, y separa el estado guardado por red.
+      - key: RED
+        value: sepolia
       # 1.4: persistencia. El plan gratuito de Render NO permite discos persistentes y
       # duerme el servicio, así que el estado del juego se guarda en Upstash Redis
       # (plan gratuito permanente, sin tarjeta). Ver README §Persistencia.

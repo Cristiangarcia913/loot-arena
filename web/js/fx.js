@@ -777,6 +777,16 @@ export function actualizarVida(quien, vida, vidaMax) {
   if (fill) { fill.style.width = `${pct}%`; fill.classList.toggle("baja", pct <= 30); }
   const t = f.querySelector(".hp-text");
   if (t) t.textContent = `${Math.max(0, vida)} / ${vidaMax}`;
+  // Hallazgo de Calidad (#10, ALTO): la vida es LA información del combate, y sin esto quien
+  // no ve la pantalla solo la tiene releyendo el HUD a mano. `aria-valuetext` da el número
+  // real en vez de un porcentaje abstracto. Sin aria-live a propósito: en combate rápido
+  // anunciar cada golpe sería ruido; la crónica del combate ya narra cada turno por su cuenta.
+  const barra = f.querySelector(".hp");
+  if (barra) {
+    barra.setAttribute("aria-valuemax", String(Math.max(0, vidaMax || 0)));
+    barra.setAttribute("aria-valuenow", String(Math.max(0, vida || 0)));
+    barra.setAttribute("aria-valuetext", `${Math.max(0, vida)} de ${vidaMax} puntos de vida`);
+  }
 }
 
 /**
