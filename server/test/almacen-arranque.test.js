@@ -118,8 +118,10 @@ describe('GET /health informa del almacén', () => {
     assert.equal(json.ok, true);
     assert.equal(json.almacen.tipo, 'memoria');
     assert.equal(json.almacen.degradado, true);
-    assert.match(json.almacen.aviso, /no está accesible/);
+    assert.match(json.almacen.aviso, /No se pudo conectar con el almacén persistente/);
     assert.match(json.almacen.aviso, /se perderá al reiniciar/);
+    // `/health` es público: ni el host de Upstash ni el token salen de aquí.
+    assert.ok(!JSON.stringify(json).includes('upstash.io'), JSON.stringify(json));
   });
 
   test('ARRANQUE DEGRADADO: faltan las variables → el servidor arranca y lo dice', async () => {
@@ -269,7 +271,8 @@ describe('El almacén se cae estando el servidor en marcha', () => {
     const { json } = await pedir(srv.url, '/health');
     assert.equal(json.ok, true);
     assert.equal(json.almacen.escriturasFallidas, 1);
-    assert.match(json.almacen.ultimoError, /ECONNRESET|no está accesible/);
+    assert.match(json.almacen.ultimoError, /almacén persistente/);
+    assert.ok(!json.almacen.ultimoError.includes('upstash.io'), 'sin host en /health');
 
     enPie = true; // vuelve: el cambio pendiente se escribe y el error se limpia
     srv.registros.torre.registrar(JUGADOR, 2, 3);

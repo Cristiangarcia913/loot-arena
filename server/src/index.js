@@ -140,7 +140,8 @@ async function main() {
     ...process.env,
     ALMACEN_PREFIJO: prefijoDeRed(process.env.ALMACEN_PREFIJO, config.red),
   });
-  if (estadoAlmacen.aviso) console.warn(`⚠ [almacen] ${estadoAlmacen.aviso}`);
+  // En el log va el detalle completo (es privado); en `/health`, solo `aviso`.
+  if (estadoAlmacen.aviso) console.warn(`⚠ [almacen] ${estadoAlmacen.detalle}`);
 
   const registroDiario = new RegistroDiario();
   const registroPrimerBotin = new RegistroPrimerBotin();

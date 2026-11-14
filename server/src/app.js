@@ -114,7 +114,10 @@ export function crearApp({
 
   app.get('/health', async (_req, res) => {
     const base = { ok: true, contract: contractAddress, chainId: Number(chainId) };
+    // `red` es siempre una cadena simple (la web puede leerla); si la configuración de
+    // red tuvo algún problema, se publica aparte en `redAviso`.
     if (red) base.red = red.clave;
+    if (red?.aviso) base.redAviso = red.aviso;
     // Qué almacén se está usando y si hubo que degradar a memoria (1.4).
     if (estadoAlmacen) base.almacen = estadoAlmacen.resumen();
     // Cómo va el indexado del ranking (1.4.1): un indexado parado tiene que verse desde

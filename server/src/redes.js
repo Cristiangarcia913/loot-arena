@@ -35,18 +35,71 @@ export const REDES = Object.freeze({
 
 export const RED_POR_DEFECTO = 'sepolia';
 
+/**
+ * Nombre de la variable de entorno que elige la red.
+ *
+ * NO se llama `RED` a secas, y la razón es una avería real del 14-nov-2026: `RED` es el
+ * nombre que usan incontables scripts de shell para el código ANSI del color rojo
+ * (`RED='\033[0;31m'`). El entorno de Render lo tenía exportado, el servidor lo leyó como
+ * nombre de red y acabó con `red = "\u001b[31m"`, lo que además **desactivó en silencio la
+ * comprobación de chainId** y guardó el estado en claves basura. Un nombre de tres letras
+ * tan común no es un buen nombre de variable.
+ */
+export const VAR_RED = 'RED_BLOCKCHAIN';
+/** Nombre antiguo, que se sigue aceptando si trae un valor con pinta de red. */
+export const VAR_RED_ANTIGUA = 'RED';
+
+/**
+ * Forma válida de un nombre de red: letras, números y guiones. Cualquier otra cosa
+ * (códigos de escape, espacios raros, caracteres de control) NO es una red, y tratarla
+ * como "una red desconocida más" es justo lo que hizo daño.
+ */
+export const FORMA_RED = /^[a-z0-9][a-z0-9-]*$/;
+
 /** Nombre de red → clave normalizada (minúsculas, espacios y guiones bajos a guiones). */
 export function normalizarRed(valor) {
   return String(valor ?? '').trim().toLowerCase().replace(/[\s_]+/g, '-');
 }
 
+/** ¿Tiene pinta de nombre de red? (para decidir si fiarse del `RED` antiguo). */
+export function pareceRed(valor) {
+  return FORMA_RED.test(normalizarRed(valor));
+}
+
 /**
- * Datos de la red pedida. Una red desconocida no es un error: se devuelve con
- * `conocida: false` y `chainId: null`, y entonces no se puede comprobar el nodo.
- * @returns {{ clave: string, nombre: string, chainId: number | null, moneda: string, explorador: string | null, conocida: boolean }}
+ * Elige la red a partir del entorno: `RED_BLOCKCHAIN` y, si no está, el antiguo `RED`
+ * **solo cuando su valor tiene pinta de red** (así un `RED` con el color de la terminal
+ * se ignora en vez de colarse).
+ */
+export function redDelEntorno(env = process.env, limpiar = (v) => String(v ?? '').trim()) {
+  const nuevo = limpiar(env[VAR_RED]);
+  if (nuevo) return { valor: nuevo, variable: VAR_RED };
+  const antiguo = limpiar(env[VAR_RED_ANTIGUA]);
+  if (!antiguo) return { valor: '', variable: null };
+  if (pareceRed(antiguo)) return { valor: antiguo, variable: VAR_RED_ANTIGUA };
+  // Valor imposible en `RED`: casi seguro el color de la terminal, no una red.
+  return { valor: '', variable: VAR_RED_ANTIGUA, ignorado: antiguo };
+}
+
+/**
+ * Datos de la red pedida.
+ *
+ * - Nombre vacío → la red por defecto.
+ * - Nombre con forma válida pero desconocido → se acepta (red privada), `conocida: false`,
+ *   y entonces no se puede comprobar el chainId del nodo.
+ * - Nombre con forma IMPOSIBLE → **no se acepta**: se vuelve a la red por defecto y se
+ *   marca `invalido`, para que se vea y para no perder la comprobación del chainId.
+ *
+ * @returns {{ clave: string, nombre: string, chainId: number | null, moneda: string,
+ *   explorador: string | null, conocida: boolean, invalido?: string }}
  */
 export function resolverRed(valor) {
-  const clave = normalizarRed(valor) || RED_POR_DEFECTO;
+  const bruto = normalizarRed(valor);
+  if (bruto && !FORMA_RED.test(bruto)) {
+    // `JSON.stringify` escapa los caracteres de control, así que el aviso no "pinta" el log.
+    return { clave: RED_POR_DEFECTO, ...REDES[RED_POR_DEFECTO], conocida: true, invalido: JSON.stringify(bruto) };
+  }
+  const clave = bruto || RED_POR_DEFECTO;
   const info = REDES[clave];
   if (!info) {
     return { clave, nombre: clave, chainId: null, moneda: 'ETH', explorador: null, conocida: false };
@@ -75,5 +128,7 @@ export function comprobarChainId(red, chainIdDelNodo) {
 export function prefijoDeRed(prefijoBase, red) {
   const base = String(prefijoBase ?? '').trim() || 'loot-arena:';
   const conDosPuntos = base.endsWith(':') ? base : `${base}:`;
+  // `red.clave` ya viene validada por `resolverRed`: nunca mete caracteres raros en
+  // las claves del almacén (en producción llegó a quedar "loot-arena:\u001b[31m:").
   return `${conDosPuntos}${red.clave}:`;
 }

@@ -42,7 +42,10 @@ services:
         value: "0xb95150f40e6e9C5095558cC01A1b9CfffA89e166"
       # 1.4.1 (fase E4): red de trabajo. El servidor comprueba al arrancar que RPC_URL
       # está de verdad en esta red, y separa el estado guardado por red.
-      - key: RED
+      # NO se llama "RED": ese nombre lo usan muchos scripts de shell para el código de
+      # color rojo y el entorno de Render lo tenía exportado (avería del 14-nov-2026).
+      # Si quedó una variable RED en el panel del servicio, hay que BORRARLA a mano.
+      - key: RED_BLOCKCHAIN
         value: sepolia
       # 1.4: persistencia. El plan gratuito de Render NO permite discos persistentes y
       # duerme el servicio, así que el estado del juego se guarda en Upstash Redis

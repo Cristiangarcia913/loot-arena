@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cargarConfig, origenCors } from '../src/config.js';
+import { cargarConfig, origenCors, limpiarValor } from '../src/config.js';
 
 const BASE = {
   RPC_URL: 'http://127.0.0.1:8545',
@@ -37,6 +37,41 @@ test('ALLOWED_ORIGIN admite lista separada por comas', () => {
   assert.equal(origenCors('*'), '*');
   assert.equal(origenCors('https://a.com/'), 'https://a.com');
   assert.deepEqual(origenCors('https://a.com, https://b.com'), ['https://a.com', 'https://b.com']);
+});
+
+// 14-nov-2026: el usuario pegó una variable con las comillas dobles incluidas en el panel
+// de Render y el servidor la tomó al pie de la letra. Es un error de dedo muy fácil.
+test('limpiarValor: recorta comillas que rodean el valor, además de los espacios', () => {
+  assert.equal(limpiarValor('"https://x.upstash.io"'), 'https://x.upstash.io');
+  assert.equal(limpiarValor("'https://x.upstash.io'"), 'https://x.upstash.io');
+  assert.equal(limpiarValor('  "  https://x.upstash.io  "  '), 'https://x.upstash.io');
+  assert.equal(limpiarValor('  sin comillas  '), 'sin comillas');
+  // Una comilla suelta NO se toca: eso es otro problema y debe dar la cara.
+  assert.equal(limpiarValor('https://x.upstash.io"'), 'https://x.upstash.io"');
+  assert.equal(limpiarValor('"https://x.upstash.io'), '"https://x.upstash.io');
+  // Casos límite: no debe tragarse caracteres de un valor legítimo.
+  assert.equal(limpiarValor('"'), '"');
+  assert.equal(limpiarValor(''), '');
+  assert.equal(limpiarValor(undefined), '');
+  assert.equal(limpiarValor(null), '');
+  assert.equal(limpiarValor('""'), '');
+});
+
+test('una configuración entera pegada con comillas arranca igual', () => {
+  const { config, errores } = cargarConfig({
+    RPC_URL: '"http://127.0.0.1:8545"',
+    PRIVATE_KEY: `"0x${'1'.repeat(64)}"`,
+    CONTRACT_ADDRESS: '"0x5FbDB2315678afecb367f032d93F642f64180aa3"',
+    RED: '"localhost"',
+    PORT: '"3100"',
+    DROP_CHANCE: '"0.5"',
+  });
+  assert.deepEqual(errores, [], `no debería haber errores: ${errores.join(' | ')}`);
+  assert.equal(config.rpcUrl, 'http://127.0.0.1:8545');
+  assert.equal(config.contractAddress, '0x5FbDB2315678afecb367f032d93F642f64180aa3');
+  assert.equal(config.red.clave, 'localhost');
+  assert.equal(config.port, 3100);
+  assert.equal(config.dropChance, 0.5);
 });
 
 test('1.2: MERCADO_ADDRESS, RECOMPENSAS_ADDRESS y DEPLOY_BLOCK son opcionales (avisos, no errores)', () => {

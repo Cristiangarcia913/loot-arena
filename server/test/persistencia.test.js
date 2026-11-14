@@ -294,7 +294,9 @@ describe('Persistidor', () => {
     assert.equal(p.guardados, 0);
     assert.equal(p.sucio, true, 'sigue pendiente para reintentarlo');
     assert.equal(estado.resumen().escriturasFallidas, 1);
-    assert.match(estado.resumen().ultimoError, /se cayó Upstash/);
+    // En /health va el mensaje público; el detalle completo queda para el log.
+    assert.match(estado.resumen().ultimoError, /almacén persistente/);
+    assert.match(estado.ultimoErrorDetalle, /se cayó Upstash/);
   });
 
   test('tras un fallo, el siguiente intento vuelve a escribir y limpia el error', async () => {

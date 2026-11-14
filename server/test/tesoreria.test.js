@@ -5,7 +5,10 @@ import assert from 'node:assert/strict';
 import { parseEther, parseUnits } from 'ethers';
 import { crearApp } from '../src/app.js';
 import { Tesoreria, MOTIVO_SIN_QUEMADO } from '../src/tesoreria.js';
-import { resolverRed, comprobarChainId, prefijoDeRed, normalizarRed, REDES } from '../src/redes.js';
+import {
+  resolverRed, comprobarChainId, prefijoDeRed, normalizarRed, REDES,
+  redDelEntorno, pareceRed, VAR_RED, VAR_RED_ANTIGUA, RED_POR_DEFECTO,
+} from '../src/redes.js';
 import { cargarConfig } from '../src/config.js';
 import { levantar, loggerMudo } from './helpers.js';
 
@@ -90,6 +93,118 @@ describe('redes.js: la red es un parámetro, no Sepolia a fuego', () => {
   test('todas las redes conocidas tienen chainId distinto', () => {
     const ids = Object.values(REDES).map((r) => r.chainId);
     assert.equal(new Set(ids).size, ids.length);
+  });
+});
+
+// ─── REGRESIÓN 14-nov-2026: `RED` choca con el color de la terminal ──────────
+//
+// `RED='\033[0;31m'` es el nombre que usan incontables scripts de shell para el rojo
+// ANSI. Render lo tenía exportado, el servidor lo leyó como nombre de red y acabó con
+// `"red":"\u001b[31m"` en /health. No era solo feo: dejó `conocida: false`, lo que
+// DESACTIVÓ la comprobación de chainId, y metió el escape en las claves del almacén.
+describe('REGRESIÓN: un valor imposible en RED no puede colarse como red', () => {
+  const ANSI = '\u001b[31m';
+
+  test('un código ANSI no se acepta como red: se cae a la de por defecto', () => {
+    const r = resolverRed(ANSI);
+    assert.equal(r.clave, RED_POR_DEFECTO);
+    assert.equal(r.conocida, true, 'y vuelve a ser una red conocida…');
+    assert.equal(r.chainId, 11155111, '…con su chainId');
+    assert.ok(r.invalido, 'dejando constancia de lo que se rechazó');
+  });
+
+  test('y así la comprobación de chainId VUELVE a funcionar (era el peligro real)', () => {
+    const r = resolverRed(ANSI);
+    const msg = comprobarChainId(r, 84532);
+    assert.ok(msg, 'antes devolvía null y pasaba cualquier red');
+    assert.match(msg, /esperaba chainId 11155111/);
+  });
+
+  test('y el prefijo del almacén queda limpio, sin escapes', () => {
+    const p = prefijoDeRed('loot-arena:', resolverRed(ANSI));
+    assert.equal(p, 'loot-arena:sepolia:');
+    assert.ok(!p.includes('\u001b'), 'en producción llegó a quedar "loot-arena:\\u001b[31m:"');
+  });
+
+  test('el aviso escapa el valor, para no "pintar" el log', () => {
+    const { avisos } = cargarConfig({
+      RPC_URL: 'http://127.0.0.1:8545',
+      PRIVATE_KEY: `0x${'1'.repeat(64)}`,
+      CONTRACT_ADDRESS: CONTRATO,
+      RED: ANSI,
+    });
+    const aviso = avisos.find((a) => a.includes(VAR_RED_ANTIGUA));
+    assert.ok(aviso, `falta el aviso: ${avisos.join(' | ')}`);
+    assert.ok(!aviso.includes('\u001b'), 'el escape va escapado, no en crudo');
+    assert.match(aviso, /color de la terminal/);
+    assert.match(aviso, new RegExp(VAR_RED));
+  });
+
+  test('otros valores imposibles también se rechazan', () => {
+    for (const v of [ANSI, '\u001b[0m', 'red\u0007', 'con espacio!', '#sepolia', '-empieza-mal', '\t\u001b[32m']) {
+      const r = resolverRed(v);
+      assert.equal(r.clave, RED_POR_DEFECTO, `debería rechazar ${JSON.stringify(v)}`);
+      assert.ok(r.invalido);
+    }
+  });
+
+  test('una red privada con nombre razonable SÍ se sigue aceptando', () => {
+    const r = resolverRed('mi-red-2');
+    assert.equal(r.clave, 'mi-red-2');
+    assert.equal(r.conocida, false);
+    assert.equal(r.invalido, undefined);
+  });
+});
+
+describe('redDelEntorno: RED_BLOCKCHAIN manda, RED solo si tiene sentido', () => {
+  const ANSI = '\u001b[31m';
+
+  test('usa RED_BLOCKCHAIN cuando está', () => {
+    const r = redDelEntorno({ RED_BLOCKCHAIN: 'base-sepolia', RED: ANSI });
+    assert.equal(r.valor, 'base-sepolia');
+    assert.equal(r.variable, VAR_RED);
+  });
+
+  test('acepta el RED antiguo si trae algo con pinta de red (no se rompe a nadie)', () => {
+    const r = redDelEntorno({ RED: 'sepolia' });
+    assert.equal(r.valor, 'sepolia');
+    assert.equal(r.variable, VAR_RED_ANTIGUA);
+  });
+
+  test('IGNORA el RED antiguo si trae un color de terminal', () => {
+    const r = redDelEntorno({ RED: ANSI });
+    assert.equal(r.valor, '', 'no se usa');
+    assert.equal(r.ignorado, ANSI, 'pero se deja constancia para avisar');
+  });
+
+  test('pareceRed distingue un nombre de un escape', () => {
+    assert.equal(pareceRed('sepolia'), true);
+    assert.equal(pareceRed('base-sepolia'), true);
+    assert.equal(pareceRed(ANSI), false);
+    assert.equal(pareceRed(''), false);
+  });
+
+  test('con el RED antiguo bien puesto, avisa de que está en desuso', () => {
+    const { config, avisos } = cargarConfig({
+      RPC_URL: 'http://127.0.0.1:8545',
+      PRIVATE_KEY: `0x${'1'.repeat(64)}`,
+      CONTRACT_ADDRESS: CONTRATO,
+      RED: 'localhost',
+    });
+    assert.equal(config.red.clave, 'localhost', 'sigue funcionando');
+    assert.ok(avisos.some((a) => a.includes('desuso')), avisos.join(' | '));
+  });
+
+  test('RED_BLOCKCHAIN bien puesta no genera ningún aviso de red', () => {
+    const { config, avisos } = cargarConfig({
+      RPC_URL: 'http://127.0.0.1:8545',
+      PRIVATE_KEY: `0x${'1'.repeat(64)}`,
+      CONTRACT_ADDRESS: CONTRATO,
+      RED_BLOCKCHAIN: 'base-sepolia',
+    });
+    assert.equal(config.red.clave, 'base-sepolia');
+    assert.equal(config.red.aviso, undefined);
+    assert.ok(!avisos.some((a) => a.includes('red')), avisos.join(' | '));
   });
 });
 
@@ -302,7 +417,76 @@ describe('GET /tesoreria', () => {
   test('/health dice en qué red está el servidor', async () => {
     const srv = await montar();
     try {
-      assert.equal((await pedir(srv.url, '/health')).json.red, 'sepolia');
+      const { json } = await pedir(srv.url, '/health');
+      assert.equal(json.red, 'sepolia');
+      assert.equal(typeof json.red, 'string', 'la web puede leerlo como texto');
+      assert.equal(json.redAviso, undefined, 'sin problemas, sin aviso');
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  // El bug del 14-nov-2026 asomaba por DOS sitios: /health y los cinco campos de red de
+  // /tesoreria. Son el mismo objeto `config.red`, pero antes solo había test del primero,
+  // así que el segundo se encontró en producción. Queda cubierto.
+  test('los cinco campos de red de /tesoreria aguantan un RED imposible', async () => {
+    const { config } = cargarConfig({
+      RPC_URL: 'http://127.0.0.1:8545',
+      PRIVATE_KEY: `0x${'1'.repeat(64)}`,
+      CONTRACT_ADDRESS: CONTRATO,
+      RED: '\u001b[31m',
+    });
+    const srv = await montar({
+      red: config.red,
+      tesoreria: new Tesoreria({
+        leer: async () => CRUDO, logger: loggerMudo, red: config.red,
+        contratos: { mercado: MERCADO, oro: ORO },
+      }),
+    });
+    try {
+      const { json } = await pedir(srv.url, '/tesoreria');
+      // Antes salían: red y redNombre con el escape, chainId null, explorador null.
+      assert.equal(json.red, 'sepolia');
+      assert.equal(json.redNombre, 'Sepolia');
+      assert.equal(json.chainId, 11155111, 'era null');
+      assert.equal(json.moneda, 'SepoliaETH');
+      assert.equal(json.explorador, 'https://sepolia.etherscan.io', 'era null');
+      assert.ok(!JSON.stringify(json).includes('\u001b'), 'ningún campo lleva escapes');
+      // Y lo que ya iba bien sigue bien.
+      assert.equal(json.cajaEth, '1.25');
+      assert.equal(json.owner, DUENO);
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  test('ningún campo derivado de la red se queda en null con una red conocida', async () => {
+    const srv = await montar();
+    try {
+      const { json } = await pedir(srv.url, '/tesoreria');
+      for (const campo of ['red', 'redNombre', 'chainId', 'moneda', 'explorador']) {
+        assert.notEqual(json[campo], null, `${campo} no debería ser null`);
+      }
+    } finally {
+      await srv.cerrar();
+    }
+  });
+
+  test('un problema con la red se VE en /health, no solo en los logs', async () => {
+    // La configuración que había en producción el 14-nov-2026.
+    const { config } = cargarConfig({
+      RPC_URL: 'http://127.0.0.1:8545',
+      PRIVATE_KEY: `0x${'1'.repeat(64)}`,
+      CONTRACT_ADDRESS: CONTRATO,
+      RED: '\u001b[31m',
+    });
+    const srv = await montar({ red: config.red });
+    try {
+      const { json } = await pedir(srv.url, '/health');
+      assert.equal(json.red, 'sepolia', 'ya no publica el escape ANSI');
+      assert.ok(!JSON.stringify(json).includes('\u001b'), 'ni en ningún otro campo');
+      assert.ok(json.redAviso, 'y dice que algo no cuadraba con la configuración de red');
+      assert.match(json.redAviso, /color de la terminal/);
     } finally {
       await srv.cerrar();
     }

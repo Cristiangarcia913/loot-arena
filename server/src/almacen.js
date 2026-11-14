@@ -28,8 +28,30 @@ export const TIMEOUT_MS = 5000;
 /** Tipos admitidos en la variable `ALMACEN`. */
 export const TIPOS = Object.freeze(['memoria', 'upstash']);
 
-const texto = (v) => (typeof v === 'string' ? v.trim() : '');
+import { limpiarValor } from './config.js';
+
+const texto = (v) => limpiarValor(v);
 const mensaje = (err) => err?.shortMessage ?? err?.message ?? String(err);
+
+/**
+ * Mensaje apto para `GET /health`, que es PÚBLICO.
+ *
+ * El error crudo de `fetch` suele llevar dentro la URL completa de Upstash (por ejemplo
+ * "Failed to parse URL from https://…upstash.io" o un ECONNREFUSED con el host), y ese
+ * endpoint no tiene por qué andar por ahí. Sin el token no da acceso a nada, pero no hay
+ * razón para enseñarlo. Así que fuera: a `/health` va la CATEGORÍA del fallo, que es lo
+ * que hace falta para arreglarlo, y el detalle completo se queda en los logs del servidor.
+ */
+export function mensajePublico(err) {
+  return err?.publico ?? 'No se pudo operar con el almacén persistente';
+}
+
+/** Marca un error con su mensaje público y conserva el detalle para los logs. */
+function conPublico(detalle, publico) {
+  const err = new Error(detalle);
+  err.publico = publico;
+  return err;
+}
 
 // ─── Memoria ──────────────────────────────────────────────────────────────────
 
@@ -114,10 +136,14 @@ export class AlmacenUpstash {
     try {
       resp = await this.fetchImpl(`${this.url}${ruta}`, opciones);
     } catch (err) {
-      const causa = err?.name === 'TimeoutError' || err?.name === 'AbortError'
-        ? `no respondió en ${this.timeoutMs} ms`
-        : mensaje(err);
-      throw new Error(`Upstash no está accesible (${causa})`);
+      const porTiempo = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+      // El detalle (con la URL dentro) va al log; a /health solo la categoría.
+      throw conPublico(
+        `Upstash no está accesible (${porTiempo ? `no respondió en ${this.timeoutMs} ms` : mensaje(err)})`,
+        porTiempo
+          ? `El almacén persistente no respondió en ${this.timeoutMs} ms`
+          : 'No se pudo conectar con el almacén persistente',
+      );
     }
 
     let json = null;
@@ -125,11 +151,16 @@ export class AlmacenUpstash {
 
     if (!resp.ok) {
       const detalle = json?.error ?? `HTTP ${resp.status}`;
-      // 401 es el fallo típico: token mal copiado. Se nombra para que se arregle rápido.
-      if (resp.status === 401) throw new Error(`Upstash rechazó el token (${detalle})`);
-      throw new Error(`Upstash devolvió un error (${detalle})`);
+      // 401 es el fallo típico: token mal copiado. Se nombra para que se arregle rápido
+      // (decirlo no filtra nada: es el diagnóstico, no el valor del token).
+      if (resp.status === 401) {
+        throw conPublico(`Upstash rechazó el token (${detalle})`, 'El almacén persistente rechazó el token');
+      }
+      throw conPublico(`Upstash devolvió un error (${detalle})`, 'El almacén persistente devolvió un error');
     }
-    if (json?.error) throw new Error(`Upstash devolvió un error (${json.error})`);
+    if (json?.error) {
+      throw conPublico(`Upstash devolvió un error (${json.error})`, 'El almacén persistente devolvió un error');
+    }
     return json?.result ?? null;
   }
 
@@ -141,7 +172,9 @@ export class AlmacenUpstash {
       return JSON.parse(crudo);
     } catch {
       // Un valor que no es JSON no debe tumbar el arranque: se trata como "no hay nada".
-      throw new Error(`El valor guardado en "${clave}" no es JSON válido`);
+      // El nombre de la clave es nuestro, no un secreto: puede ir en claro.
+      const m = `El valor guardado en "${clave}" no es JSON válido`;
+      throw conPublico(m, m);
     }
   }
 
@@ -159,7 +192,12 @@ export class AlmacenUpstash {
   /** Comprobación de arranque: ¿contesta y acepta el token? */
   async comprobar() {
     const r = await this.#pedir('/ping');
-    if (r !== 'PONG') throw new Error(`Upstash respondió algo inesperado a PING (${JSON.stringify(r)})`);
+    if (r !== 'PONG') {
+      throw conPublico(
+        `Upstash respondió algo inesperado a PING (${JSON.stringify(r)})`,
+        'El almacén persistente respondió algo inesperado',
+      );
+    }
   }
 }
 
@@ -173,12 +211,16 @@ export class EstadoAlmacen {
   /**
    * @param {{ tipo: string, deseado?: string, aviso?: string | null }} opts
    */
-  constructor({ tipo, deseado = tipo, aviso = null }) {
+  constructor({ tipo, deseado = tipo, aviso = null, detalle = null }) {
     this.tipo = tipo;
     this.deseado = deseado;
+    /** Texto PÚBLICO: sale en `GET /health`. Sin URL, sin host, sin token. */
     this.aviso = aviso;
+    /** Texto completo, solo para los logs del servidor (privados). */
+    this.detalle = detalle ?? aviso;
     this.degradado = tipo !== deseado;
     this.ultimoError = null;
+    this.ultimoErrorDetalle = null;
     this.escriturasOk = 0;
     this.escriturasFallidas = 0;
   }
@@ -186,11 +228,13 @@ export class EstadoAlmacen {
   anotarOk() {
     this.escriturasOk += 1;
     this.ultimoError = null;
+    this.ultimoErrorDetalle = null;
   }
 
   anotarError(err) {
     this.escriturasFallidas += 1;
-    this.ultimoError = mensaje(err);
+    this.ultimoError = mensajePublico(err);
+    this.ultimoErrorDetalle = mensaje(err);
   }
 
   /** Resumen para el JSON de `/health`. */
@@ -227,37 +271,42 @@ export async function crearAlmacen(env = process.env, opts = {}) {
   const pedido = texto(env.ALMACEN).toLowerCase();
   const deseado = pedido || (url && token ? 'upstash' : 'memoria');
 
-  const aMemoria = (aviso) => ({
+  const aMemoria = (aviso, detalle = null) => ({
     almacen: new AlmacenMemoria(),
-    estado: new EstadoAlmacen({ tipo: 'memoria', deseado, aviso }),
+    estado: new EstadoAlmacen({ tipo: 'memoria', deseado, aviso, detalle }),
   });
+  const colaAviso = 'se usa memoria y el estado se perderá al reiniciar.';
 
   if (deseado === 'memoria') {
     return { almacen: new AlmacenMemoria(), estado: new EstadoAlmacen({ tipo: 'memoria' }) };
   }
 
   if (!TIPOS.includes(deseado)) {
-    return aMemoria(`ALMACEN="${pedido}" no es un tipo conocido (${TIPOS.join(', ')}); se usa memoria y el estado se perderá al reiniciar.`);
+    return aMemoria(`ALMACEN="${pedido}" no es un tipo conocido (${TIPOS.join(', ')}); ${colaAviso}`);
   }
 
   // deseado === 'upstash'
   const faltan = [!url && 'UPSTASH_REDIS_REST_URL', !token && 'UPSTASH_REDIS_REST_TOKEN'].filter(Boolean);
   if (faltan.length) {
-    return aMemoria(`ALMACEN=upstash pero falta ${faltan.join(' y ')}; se usa memoria y el estado se perderá al reiniciar.`);
+    return aMemoria(`ALMACEN=upstash pero falta ${faltan.join(' y ')}; ${colaAviso}`);
   }
 
   let almacen;
   try {
     almacen = new AlmacenUpstash({ url, token, prefijo, fetchImpl, timeoutMs });
   } catch (err) {
-    return aMemoria(`No se pudo configurar Upstash (${mensaje(err)}); se usa memoria y el estado se perderá al reiniciar.`);
+    return aMemoria(
+      `No se pudo configurar el almacén persistente; ${colaAviso}`,
+      `No se pudo configurar Upstash (${mensaje(err)}); ${colaAviso}`,
+    );
   }
 
   if (comprobar) {
     try {
       await almacen.comprobar();
     } catch (err) {
-      return aMemoria(`${mensaje(err)}; se usa memoria y el estado se perderá al reiniciar.`);
+      // En `/health` solo la categoría del fallo; la URL completa se queda en los logs.
+      return aMemoria(`${mensajePublico(err)}; ${colaAviso}`, `${mensaje(err)}; ${colaAviso}`);
     }
   }
 

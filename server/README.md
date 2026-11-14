@@ -23,6 +23,11 @@ npm start
 
 ### Variables de entorno
 
+> **Las comillas sobran, pero no estorban.** Al pegar valores en el panel de Render es fácil
+> incluir las comillas del ejemplo (`"https://…"`). El servidor recorta los espacios **y las
+> comillas que rodean el valor**, simples o dobles, en todas las variables. Una comilla suelta
+> (`"https://…` sin cerrar) **no** se toca a propósito: eso es otro problema y debe dar la cara.
+
 | Variable | Obligatoria | Descripción |
 |---|---|---|
 | `RPC_URL` | sí | `https://eth-sepolia.g.alchemy.com/v2/<key>`, `https://sepolia.infura.io/v3/<key>` o `http://127.0.0.1:8545` |
@@ -38,7 +43,7 @@ npm start
 | `GAS_TOPE_DIARIO` | no (0.01) | ETH máximo que el grifo de gas (`POST /gas`) reparte al día entre todos los jugadores. |
 | `TEMPORADA_INICIO` | no | Inicio de la temporada 1 del pase (ISO UTC). Por defecto `2026-11-02T00:00:00Z`. Debe coincidir con `web/js/pase.js`. |
 | `ORO_ADDRESS` | no¹ | Dirección de `LootGold` (`shared/deployments.json` → `sepolia.oro`). Sin ella, `GET /tesoreria` responde 503. |
-| `RED` | no (`sepolia`) | Red en la que trabaja el servidor: `sepolia`, `base-sepolia`, `arbitrum-sepolia`, `optimism-sepolia`, `localhost`… Ver [Trabajar en otra red](#trabajar-en-otra-red). |
+| `RED_BLOCKCHAIN` | no (`sepolia`) | Red en la que trabaja el servidor: `sepolia`, `base-sepolia`, `arbitrum-sepolia`, `optimism-sepolia`, `localhost`… **No se llama `RED`**, y hay un motivo: ver [Trabajar en otra red](#trabajar-en-otra-red). |
 | `ALMACEN` | no² | `memoria` o `upstash`. Dónde se guarda el estado del juego. Ver [Persistencia](#persistencia). |
 | `UPSTASH_REDIS_REST_URL` | no² | URL REST de la base de Upstash (`https://….upstash.io`). |
 | `UPSTASH_REDIS_REST_TOKEN` | no² | Token REST **Standard** de Upstash. **Es un secreto: nunca a git.** |
@@ -74,13 +79,31 @@ curl -X POST localhost:3000/ganar -H "content-type: application/json" \
 
 ## Trabajar en otra red
 
-Hasta la 1.4 el servidor daba Sepolia por supuesto. Desde la 1.4.1 la red es un parámetro: `RED`.
+Hasta la 1.4 el servidor daba Sepolia por supuesto. Desde la 1.4.1 la red es un parámetro:
+`RED_BLOCKCHAIN`.
 
 ```bash
-RED=sepolia          # por defecto; no hay que ponerla para que todo siga igual
-RED=base-sepolia
-RED=localhost        # nodo de Hardhat
+RED_BLOCKCHAIN=sepolia          # por defecto; no hay que ponerla para que todo siga igual
+RED_BLOCKCHAIN=base-sepolia
+RED_BLOCKCHAIN=localhost        # nodo de Hardhat
 ```
+
+> **Por qué no se llama `RED`.** Al principio sí. El 14-nov-2026 `GET /health` empezó a
+> devolver `"red":"\u001b[31m"`: `RED` es el nombre que usan incontables scripts de shell para
+> el **código ANSI del color rojo** (`RED='\033[0;31m'`), el entorno de Render lo tenía
+> exportado y el servidor lo leyó como nombre de red. No fue solo feo:
+> - la red quedó como «desconocida», lo que **desactivó en silencio la comprobación del
+>   chainId** — justo la protección que impide acuñar sobre la red equivocada;
+> - el prefijo del almacén quedó en `loot-arena:\u001b[31m:`, así que el índice y las rachas
+>   se guardaron en claves basura.
+>
+> Arreglado en tres frentes: la variable se llama `RED_BLOCKCHAIN`; un valor que no tiene forma
+> de nombre de red (solo `a-z`, `0-9` y guiones) **se rechaza** y se vuelve a la red por defecto
+> en vez de aceptarse como «una red desconocida más»; y el problema se publica en `/health`
+> como `redAviso`, porque los logs de Render no los lee nadie.
+>
+> `RED` se sigue aceptando por compatibilidad **solo si su valor tiene pinta de red** (avisando
+> de que está en desuso). Si trae un código de color, se ignora y se dice.
 
 Redes conocidas (`src/redes.js`): `sepolia`, `base-sepolia`, `arbitrum-sepolia`,
 `optimism-sepolia`, `localhost`. Una red que no esté en la lista **se admite igual**: solo se
@@ -95,7 +118,7 @@ Tres cosas que esto garantiza:
 
 1. **Nada de Sepolia a fuego.** Direcciones, bloque de despliegue y RPC ya venían de variables;
    ahora el nombre y el chainId de la red también.
-2. **El chainId se comprueba al arrancar.** Si `RED=sepolia` pero `RPC_URL` apunta a otra red, el
+2. **El chainId se comprueba al arrancar.** Si `RED_BLOCKCHAIN=sepolia` pero `RPC_URL` apunta a otra red, el
    servidor **no arranca** y dice en qué red está el nodo de verdad. Acuñar sobre las direcciones
    de otra red sería el fallo más caro posible.
 3. **El estado nunca se mezcla entre redes.** El prefijo del almacén lleva la red dentro
@@ -103,7 +126,7 @@ Tres cosas que esto garantiza:
    `ALMACEN_PREFIJO` a mano**. Así dos despliegues pueden compartir la misma base gratuita de
    Upstash sin pisarse el índice del ranking ni las rachas.
 
-Para desplegar en otra red hay que cambiar, en el panel: `RED`, `RPC_URL`, `CONTRACT_ADDRESS`,
+Para desplegar en otra red hay que cambiar, en el panel: `RED_BLOCKCHAIN`, `RPC_URL`, `CONTRACT_ADDRESS`,
 `MERCADO_ADDRESS`, `RECOMPENSAS_ADDRESS`, `ORO_ADDRESS` y `DEPLOY_BLOCK` (los de esa red en
 `shared/deployments.json`). `PRIVATE_KEY` puede ser la misma cartera si es owner allí también.
 
@@ -262,6 +285,7 @@ Si sale `"degradado": true`, el campo `aviso` dice exactamente qué falta.
 | `ALMACEN` con un valor inventado | Usa memoria | `degradado: true` y la lista de tipos válidos |
 | Upstash se cae con el servidor en marcha | Las rutas siguen dando 200; el cambio queda pendiente y se reintenta | `escriturasFallidas` y `ultimoError` (se limpian al primer éxito) |
 | Datos corruptos en una clave | Ignora esa clave y arranca con el registro vacío | `⚠` en los logs |
+| Variables pegadas con comillas | Las recorta y conecta igual (14-nov-2026: antes se quedaba en memoria) | nada: funciona |
 
 En desarrollo local no hace falta tocar nada: sin variables se usa memoria.
 Para probar contra Upstash de verdad, rellena `.env` como indica `.env.example`.
@@ -302,7 +326,11 @@ Un indexado al día que no se mueve **no** es un atasco: si está `sincronizado`
 | `aviso` | Solo si `degradado`: por qué (falta una variable, token rechazado, no responde…). |
 | `escriturasFallidas`, `ultimoError` | Solo si alguna escritura ha fallado. `ultimoError` se borra en cuanto una va bien. |
 
-El token nunca aparece en la respuesta.
+**`/health` es público, así que `aviso` y `ultimoError` solo llevan la *categoría* del fallo**
+("No se pudo conectar con el almacén persistente", "El almacén persistente rechazó el token"),
+nunca la URL, el host ni el token. El error crudo de `fetch` sí los lleva dentro (por ejemplo
+`Failed to parse URL from https://…upstash.io`), y ese detalle completo se queda en los **logs
+del servidor**, que son privados. Hay tests que comprueban que nada de eso se escapa por `/health`.
 
 ### `POST /ganar`
 Body: `{ "address": "0x...", "enemyLevel": 1, "jefe": false }`
@@ -722,6 +750,9 @@ salto hacia delante que mueve el *principio* del rango, huecos publicados en `/r
 **detección de atasco** (el índice no avanza entre dos refrescos, con bloque, error y segundos sin avanzar),
 tesorería (formato, caché, lecturas simultáneas compartidas, dato obsoleto cuando el RPC falla, recuperación,
 `oroQuemado` declarado no disponible) y redes (normalización, chainId que no cuadra, prefijos que no se mezclan).
+Además: variables pegadas con comillas (simples, dobles, con espacios, una suelta que NO se recorta, y una
+configuración entera entrecomillada que arranca igual) y que `/health` no filtre **nunca** la URL, el host ni el
+token de Upstash por ninguna de las cinco vías de fallo, con el detalle completo guardado aparte para los logs.
 
 ## Despliegue
 

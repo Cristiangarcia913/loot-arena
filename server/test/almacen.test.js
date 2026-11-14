@@ -3,7 +3,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  AlmacenMemoria, AlmacenUpstash, EstadoAlmacen, crearAlmacen, PREFIJO_POR_DEFECTO,
+  AlmacenMemoria, AlmacenUpstash, EstadoAlmacen, crearAlmacen, PREFIJO_POR_DEFECTO, mensajePublico,
 } from '../src/almacen.js';
 
 /** Respuesta JSON falsa con el formato de Upstash. */
@@ -140,6 +140,20 @@ describe('AlmacenUpstash: forma de las peticiones', () => {
     await assert.rejects(() => a.leer('k'), /no está accesible/);
   });
 
+  test('cada error lleva un mensaje público aparte del detalle', async () => {
+    const casos = [
+      [async () => { throw new Error('getaddrinfo ENOTFOUND ejemplo.upstash.io'); }, /No se pudo conectar con el almacén persistente/],
+      [fetchUpstashFalso({ token: 'otro' }), /rechazó el token/],
+      [async () => respuesta({ error: 'ERR algo' }, 500), /devolvió un error/],
+    ];
+    for (const [fetchImpl, patron] of casos) {
+      const a = new AlmacenUpstash({ url: 'https://ejemplo.upstash.io', token: 'tok', fetchImpl });
+      const err = await a.leer('k').then(() => null, (e) => e);
+      assert.ok(err, 'debería fallar');
+      assert.match(mensajePublico(err), patron);
+    }
+  });
+
   test('timeout: se nombra el tiempo de espera', async () => {
     const a = new AlmacenUpstash({
       url: 'https://ejemplo.upstash.io', token: 'tok', timeoutMs: 20,
@@ -219,12 +233,38 @@ describe('EstadoAlmacen', () => {
 
   test('cuenta escrituras fallidas y recuerda el último error hasta que va bien', () => {
     const e = new EstadoAlmacen({ tipo: 'upstash' });
-    e.anotarError(new Error('se cayó'));
+    e.anotarError(Object.assign(new Error('se cayó'), { publico: 'se cayó' }));
     assert.equal(e.resumen().escriturasFallidas, 1);
     assert.equal(e.resumen().ultimoError, 'se cayó');
     e.anotarOk();
     assert.equal(e.resumen().ultimoError, undefined);
     assert.equal(e.escriturasOk, 1);
+  });
+
+  test('el error de /health es el público; el detalle se guarda aparte para los logs', () => {
+    const e = new EstadoAlmacen({ tipo: 'upstash' });
+    e.anotarError(Object.assign(
+      new Error('getaddrinfo ENOTFOUND mi-base-1234.upstash.io'),
+      { publico: 'No se pudo conectar con el almacén persistente' },
+    ));
+    assert.equal(e.resumen().ultimoError, 'No se pudo conectar con el almacén persistente');
+    assert.ok(!e.resumen().ultimoError.includes('upstash.io'), 'el host NO sale en /health');
+    assert.match(e.ultimoErrorDetalle, /mi-base-1234\.upstash\.io/, 'pero sí en el detalle del log');
+  });
+
+  test('un error sin mensaje público cae en uno genérico, nunca en el crudo', () => {
+    const e = new EstadoAlmacen({ tipo: 'upstash' });
+    e.anotarError(new Error('Failed to parse URL from https://secreto.upstash.io'));
+    assert.ok(!e.resumen().ultimoError.includes('upstash.io'));
+    assert.match(e.resumen().ultimoError, /almacén persistente/);
+  });
+
+  test('aviso y detalle se distinguen; sin detalle, detalle = aviso', () => {
+    const con = new EstadoAlmacen({ tipo: 'memoria', deseado: 'upstash', aviso: 'corto', detalle: 'largo con host' });
+    assert.equal(con.resumen().aviso, 'corto');
+    assert.equal(con.detalle, 'largo con host');
+    const sin = new EstadoAlmacen({ tipo: 'memoria', deseado: 'upstash', aviso: 'solo esto' });
+    assert.equal(sin.detalle, 'solo esto');
   });
 });
 
@@ -307,10 +347,41 @@ describe('crearAlmacen', () => {
     );
     assert.ok(almacen instanceof AlmacenMemoria);
     assert.equal(estado.degradado, true);
-    assert.match(estado.aviso, /no está accesible/);
+    assert.match(estado.aviso, /No se pudo conectar con el almacén persistente/);
+    assert.match(estado.aviso, /se perderá al reiniciar/);
     // Y el almacén de respaldo funciona igual.
     await almacen.escribir('k', 1);
     assert.equal(await almacen.leer('k'), 1);
+  });
+
+  // ── Lo que pasó el 14-nov-2026: comillas pegadas en el panel de Render ──
+  test('comillas alrededor de la URL y del token: se recortan, no rompen nada', async () => {
+    const fetchFalso = fetchUpstashFalso({ token: 'tok' });
+    const { almacen, estado } = await crearAlmacen({
+      ALMACEN: 'upstash',
+      UPSTASH_REDIS_REST_URL: '"https://ejemplo.upstash.io"',
+      UPSTASH_REDIS_REST_TOKEN: '"tok"',
+    }, { fetchImpl: fetchFalso });
+    assert.equal(estado.tipo, 'upstash', 'antes se quedaba en memoria degradada');
+    assert.equal(estado.degradado, false);
+    assert.equal(almacen.url, 'https://ejemplo.upstash.io');
+    assert.equal(almacen.token, 'tok');
+  });
+
+  test('vale con comillas simples, y con espacios por fuera', async () => {
+    const { almacen, estado } = await crearAlmacen({
+      ALMACEN: "  'upstash'  ",
+      UPSTASH_REDIS_REST_URL: "  'https://ejemplo.upstash.io'  ",
+      UPSTASH_REDIS_REST_TOKEN: " 'tok' ",
+      ALMACEN_PREFIJO: '"mio:"',
+    }, { fetchImpl: fetchUpstashFalso({ token: 'tok' }) });
+    assert.equal(estado.tipo, 'upstash');
+    assert.equal(almacen.claveReal('gas'), 'mio:gas');
+  });
+
+  test('una comilla suelta NO se recorta: eso es otro problema y debe notarse', async () => {
+    const a = new AlmacenUpstash({ url: 'https://ejemplo.upstash.io"', token: 'tok', fetchImpl: fetchUpstashFalso() });
+    assert.equal(a.url, 'https://ejemplo.upstash.io"');
   });
 
   test('token mal copiado → memoria degradada con aviso sobre el token', async () => {
@@ -320,6 +391,32 @@ describe('crearAlmacen', () => {
     );
     assert.equal(estado.tipo, 'memoria');
     assert.match(estado.aviso, /rechazó el token/);
+    assert.ok(!estado.aviso.includes('malo'), 'el valor del token NUNCA sale en el aviso');
+  });
+
+  test('el aviso público no lleva ni la URL ni el token, pase lo que pase', async () => {
+    const URL_SECRETA = 'https://mi-base-privada-9f3a.upstash.io';
+    const TOKEN = 'AX1sASQgN2Y0token-secreto';
+    const fallos = [
+      async () => { throw new Error(`getaddrinfo ENOTFOUND mi-base-privada-9f3a.upstash.io`); },
+      async () => { throw new TypeError(`Failed to parse URL from ${URL_SECRETA}`); },
+      async () => respuesta({ error: 'WRONGPASS invalid password' }, 401),
+      async () => respuesta({ error: 'ERR interno' }, 500),
+      async () => respuesta({ result: 'algo-raro' }),
+    ];
+    for (const fetchImpl of fallos) {
+      const { estado } = await crearAlmacen(
+        { ALMACEN: 'upstash', UPSTASH_REDIS_REST_URL: URL_SECRETA, UPSTASH_REDIS_REST_TOKEN: TOKEN },
+        { fetchImpl },
+      );
+      assert.equal(estado.degradado, true);
+      assert.ok(!estado.aviso.includes('upstash.io'), `se filtra el host: ${estado.aviso}`);
+      assert.ok(!estado.aviso.includes(TOKEN), `se filtra el token: ${estado.aviso}`);
+      assert.ok(!estado.aviso.includes('mi-base-privada'), `se filtra el nombre: ${estado.aviso}`);
+      assert.match(estado.aviso, /almacén persistente|no es un tipo conocido|falta UPSTASH/);
+      // El detalle para el log sí puede ser completo: los logs de Render son privados.
+      assert.ok(estado.detalle.length > 0);
+    }
   });
 
   test('ALMACEN con un valor inventado → memoria degradada y lista de tipos válidos', async () => {

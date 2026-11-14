@@ -1,6 +1,23 @@
 // Lectura y validación de la configuración (SPEC.md §2). Función pura sobre `env`.
 import { isAddress, getAddress, ZeroAddress, parseEther } from 'ethers';
-import { resolverRed } from './redes.js';
+import { resolverRed, redDelEntorno, VAR_RED, VAR_RED_ANTIGUA } from './redes.js';
+
+/**
+ * Limpia el valor de una variable de entorno: espacios y, además, **las comillas que
+ * rodean el valor**.
+ *
+ * Pegar `"https://…"` con las comillas incluidas en el panel de Render es un error de
+ * dedo muy fácil (pasó el 14-nov-2026 con `UPSTASH_REDIS_REST_URL`, y el servidor se
+ * quedó en modo memoria sin explicar bien por qué). Defenderlo es gratis.
+ * Solo se quitan si son un par: `"x"` y `'x'` sí, `"x` o `x"` no (eso es otro problema).
+ */
+export function limpiarValor(valor) {
+  const t = String(valor ?? '').trim();
+  if (t.length >= 2 && ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))) {
+    return t.slice(1, -1).trim();
+  }
+  return t;
+}
 
 /**
  * @param {Record<string, string | undefined>} env
@@ -10,7 +27,7 @@ import { resolverRed } from './redes.js';
 export function cargarConfig(env = process.env) {
   const errores = [];
   const avisos = [];
-  const limpio = (k) => (env[k] ?? '').trim();
+  const limpio = (k) => limpiarValor(env[k]);
 
   const rpcUrl = limpio('RPC_URL');
   if (!rpcUrl) errores.push('Falta RPC_URL (URL del nodo Sepolia de Alchemy/Infura o http://127.0.0.1:8545).');
@@ -75,10 +92,28 @@ export function cargarConfig(env = process.env) {
   }
 
   // ── 1.4.1 (fase E4): la red es un parámetro, no Sepolia a fuego ──
-  const red = resolverRed(limpio('RED'));
-  if (!red.conocida) {
-    avisos.push(`RED="${red.clave}" no está en la lista de redes conocidas: se usa igual, `
-      + 'pero no se puede comprobar que RPC_URL apunte a la red correcta.');
+  const pedida = redDelEntorno(env, limpiarValor);
+  const red = resolverRed(pedida.valor);
+  let avisoRed = null;
+  if (pedida.ignorado !== undefined) {
+    // El caso del 14-nov-2026: `RED` traía el color de la terminal, no una red.
+    avisoRed = `Se ignora ${VAR_RED_ANTIGUA}=${JSON.stringify(pedida.ignorado)}: no tiene forma de nombre de red `
+      + `(¿es el código de color de la terminal?). Usa ${VAR_RED}. Se usa la red ${red.clave}.`;
+  } else if (red.invalido) {
+    avisoRed = `${pedida.variable ?? VAR_RED}=${red.invalido} no tiene forma de nombre de red `
+      + `(solo letras, números y guiones): se usa la red ${red.clave}.`;
+  } else if (!red.conocida) {
+    avisoRed = `${VAR_RED}="${red.clave}" no está en la lista de redes conocidas: se usa igual, `
+      + 'pero no se puede comprobar que RPC_URL apunte a la red correcta.';
+  } else if (pedida.variable === VAR_RED_ANTIGUA) {
+    avisoRed = `${VAR_RED_ANTIGUA} está en desuso porque choca con la variable de color de muchos `
+      + `scripts de shell: renómbrala a ${VAR_RED}.`;
+  }
+  // El aviso viaja con la red para que `/health` lo publique: la lección de las dos
+  // últimas averías es que los logs de Render no los lee nadie.
+  if (avisoRed) {
+    avisos.push(avisoRed);
+    red.aviso = avisoRed;
   }
 
   return {
