@@ -152,6 +152,18 @@ export function crearExpediciones({ storage, reloj = () => Date.now() } = {}) {
   return { estadoExpedicion, enviar, recoger, tiempoRestante, cancelar, botinPendiente, resolverBotin, hayExpedicionLista };
 }
 
+/**
+ * Bono de «Duplicar botín» (anuncio recompensado) sobre lo que devolvió `recoger`: otra vez la misma
+ * XP y pociones (total ×2) y un objeto extra garantizado (tirada de jefe: siempre suelta) del nivel de la expedición.
+ * @param {{ok:true, duracion:object, xp:number, pociones:number}} r
+ * @returns {{xp:number, pociones:number, botin:{nivel:number, jefe:true}}}
+ */
+export function bonoDuplicado(r) {
+  if (!r?.ok || !r.duracion) throw new Error("bonoDuplicado: resultado de expedición no válido");
+  const nivel = Math.max(1, Math.min(10, Number(r.duracion.nivelBotin) || 1));
+  return { xp: Math.max(0, r.xp | 0), pociones: Math.max(0, r.pociones | 0), botin: { nivel, jefe: true } };
+}
+
 // Funciones listas para usar con localStorage y Date.now.
 const DEF = crearExpediciones();
 export const { estadoExpedicion, enviar, recoger, tiempoRestante, cancelar, botinPendiente, resolverBotin, hayExpedicionLista } = DEF;
@@ -199,7 +211,7 @@ function tarjetaDuracion(dur, onEnviar, ocupado) {
  *   - `onLista`: se llama una vez cuando la cuenta atrás llega a 0 (para refrescar estado y aviso del menú).
  * @returns {{destruir(): void}}
  */
-export function renderExpediciones(contenedor, { estado, onEnviar, onRecoger, resultado = null, reloj = () => Date.now(), onLista } = {}) {
+export function renderExpediciones(contenedor, { estado, onEnviar, onRecoger, resultado = null, reloj = () => Date.now(), onLista, onDuplicar = null } = {}) {
   contenedor._expediciones?.destruir();
   contenedor.replaceChildren();
   contenedor.classList.add("exp");
@@ -217,7 +229,11 @@ export function renderExpediciones(contenedor, { estado, onEnviar, onRecoger, re
       el("div", { class: "exp-res-lista" },
         el("span", { class: "exp-res-item" }, `✨ +${resultado.xp} XP`),
         resultado.pociones > 0 && el("span", { class: "exp-res-item" }, `🧪 +${resultado.pociones} poción(es)`),
-        el("span", { class: `exp-res-item${b ? " exp-res-botin" : ""}` }, b ? `🎁 Botín de nivel ${b.nivel}${b.jefe ? " (jefe)" : ""}` : "Sin botín esta vez"))));
+        el("span", { class: `exp-res-item${b ? " exp-res-botin" : ""}` }, b ? `🎁 Botín de nivel ${b.nivel}${b.jefe ? " (jefe)" : ""}` : "Sin botín esta vez"),
+        resultado.duplicado && el("span", { class: "exp-res-item exp-res-botin" }, `📺 Bono: +${resultado.duplicado.xp} XP${resultado.duplicado.pociones ? `, +${resultado.duplicado.pociones} poción(es)` : ""} y 🎁 objeto extra`)),
+      !resultado.duplicado && onDuplicar && el("button", {
+        type: "button", class: "btn btn-small btn-gold exp-duplicar", onclick: (ev) => { ev.currentTarget.disabled = true; onDuplicar(); },
+      }, "📺 Duplicar Botín (XP y pociones ×2 y +1 Objeto)")));
   }
 
   if (e.estado === "en_curso" || e.estado === "lista") {
@@ -250,7 +266,7 @@ export function renderExpediciones(contenedor, { estado, onEnviar, onRecoger, re
           avisado = true;
           parar();
           // Re-pinta en estado "lista" (con animación de regreso) y avisa al integrador.
-          renderExpediciones(contenedor, { estado: { ...e, estado: "lista", restanteMs: 0, progreso: 1 }, onEnviar, onRecoger, reloj, onLista });
+          renderExpediciones(contenedor, { estado: { ...e, estado: "lista", restanteMs: 0, progreso: 1 }, onEnviar, onRecoger, reloj, onLista, onDuplicar });
           onLista?.();
         }
       };

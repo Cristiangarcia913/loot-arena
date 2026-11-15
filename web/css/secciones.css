@@ -208,3 +208,7 @@
 .inv-set-bonos { margin: 4px 0 0; padding-left: 1rem; font-size: .74rem; color: var(--tenue); }
 .inv-set-bonos li.on { color: var(--texto); }
 .inv-set-bonos li.on::marker { content: "✔ "; color: var(--set); }
+
+/* Mercado: cabecera del catálogo con el botón de renovar (anuncio recompensado) */
+.merc-cat-cabecera { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.merc-cat-cabecera .merc-sub { margin-bottom: 0; }

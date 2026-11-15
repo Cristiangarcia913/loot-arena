@@ -143,7 +143,7 @@ function pintarVender(panel, inventario, saldos, onVender) {
 }
 
 /** Panel «Comprar»: saldo, cofre y catálogo de cosméticos. */
-function pintarComprar(panel, catalogo, saldos, { onComprar, onAbrirCofre }) {
+function pintarComprar(panel, catalogo, saldos, { onComprar, onAbrirCofre, onRenovarCatalogo }) {
   const oro = saldos?.oro == null ? null : Number(saldos.oro);
   const sinOro = (precio) => oro != null && oro < precio;
   const cosmeticos = (catalogo ?? CATALOGO).filter((c) => c.ranura !== "consumible");
@@ -182,7 +182,12 @@ function pintarComprar(panel, catalogo, saldos, { onComprar, onAbrirCofre }) {
     h("p", { class: "merc-ayuda" },
       oro == null ? "Compra cosméticos para tu héroe con ORO." : `Tienes ${fmtOro(oro)} ORO para gastar.`),
     h("div", { class: "merc-bloque" }, cofre),
-    h("h3", { class: "sub merc-sub" }, "Catálogo"),
+    h("div", { class: "merc-cat-cabecera" },
+      h("h3", { class: "sub merc-sub" }, "Catálogo"),
+      onRenovarCatalogo ? h("button", {
+        type: "button", class: "btn btn-small merc-renovar", id: "merc-btn-renovar",
+        onclick: (ev) => { ev.currentTarget.disabled = true; onRenovarCatalogo(); },
+      }, "📺 Cambiar catálogo de objetos") : null),
     h("div", { class: "merc-catalogo" }, ...tarjetas),
     cosmeticos.length ? null : h("p", { class: "merc-vacio" }, "No hay cosméticos a la venta."),
   );
@@ -205,6 +210,7 @@ export function renderMercado(contenedor, o = {}) {
   pintarComprar(panelComprar, o.catalogo ?? CATALOGO, o.saldos ?? {}, {
     onComprar: o.onComprar,
     onAbrirCofre: o.onAbrirCofre,
+    onRenovarCatalogo: o.onRenovarCatalogo,
   });
   // Conserva la pestaña activa al re-renderizar (p. ej. tras comprar), salvo que se pida otra.
   const comprarActiva = dentro(contenedor, "merc-tab-comprar")?.getAttribute("aria-selected") === "true";

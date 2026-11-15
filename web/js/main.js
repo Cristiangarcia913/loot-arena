@@ -21,6 +21,8 @@ import * as TUT from "./tutorial.js";
 import * as EXP from "./expediciones.js";
 import * as TORRE from "./torre.js";
 import { reclamarBotin } from "./api.js";
+import { mostrarAnuncioRecompensado } from "./anuncios.js";
+import { catalogoRotativo, semillaDelDia } from "./economy.js";
 import * as BL from "./botin-local.js";
 import { crearContrato, hayCodigo, leerInventario, transferir, enlacesExplorador } from "./chain.js";
 import { $, h, enlace, acortar, toast, esperar } from "./ui.js";
@@ -48,6 +50,8 @@ const S = {
   torreUltimo: null, // resultado de la última subida
   torreUltimoPiso: null, // resultado del último piso superado
   torreRanking: null, // pociones ganadas en misiones/pase para la próxima expedición
+  torreRevivir: null, // { torre, combate } tras caer, si aún se puede revivir con anuncio
+  expResultado: null, // último resultado de recoger una expedición (para «Duplicar botín»)
   transfiriendo: new Set(),
   links: { tx: () => null, token: () => null },
 };
@@ -503,6 +507,38 @@ function renderMercadoSec() {
     onVender: (items) => T.venderObjetos(items, "mercado"),
     onComprar: (c) => T.comprarCosmetico(c.id),
     onAbrirCofre: () => T.abrirCofreCosmetico(),
+    catalogo: catalogoRotativo(semillaMercado()),
+    onRenovarCatalogo: renovarCatalogoConAnuncio,
+  });
+}
+
+// Catálogo rotativo: cambia solo cada día, o al ver un anuncio (semilla nueva guardada hasta mañana).
+const CLAVE_CATALOGO = "lootarena:mercado:catalogo";
+function semillaMercado() {
+  const hoy = semillaDelDia();
+  try {
+    const g = JSON.parse(leer(CLAVE_CATALOGO) ?? "null");
+    if (g && g.dia === hoy && Number.isFinite(g.semilla)) return g.semilla;
+  } catch { /* dato corrupto: catálogo del día */ }
+  return hoy;
+}
+
+function renovarCatalogoConAnuncio() {
+  mostrarAnuncioRecompensado("renovar_tienda", () => {
+    const actual = new Set(catalogoRotativo(semillaMercado()).map((c) => c.id));
+    // Busca una semilla que cambie al menos la mitad del catálogo.
+    let semilla = 0;
+    for (let i = 0; i < 20; i++) {
+      semilla = Math.floor(Math.random() * 2 ** 31);
+      const nuevos = catalogoRotativo(semilla).filter((c) => !actual.has(c.id)).length;
+      if (nuevos * 2 >= actual.size) break;
+    }
+    guardar(CLAVE_CATALOGO, JSON.stringify({ dia: semillaDelDia(), semilla }));
+    toast("🛒 ¡Catálogo renovado!", "ok", 3000);
+    renderMercadoSec();
+  }, (motivo) => {
+    if (motivo !== "ocupado") toast("Anuncio no completado: el catálogo sigue igual.", "info");
+    renderMercadoSec();
   });
 }
 
@@ -888,6 +924,7 @@ function renderTorreSec() {
     estado: S.torre ?? S.torreUltimo, ranking: S.torreRanking, cuenta: S.cuenta,
     record: TORRE.cargarRecord(globalThis.localStorage, S.cuenta), ultimo: S.torreUltimoPiso,
     onEmpezar: empezarTorre, onSiguientePiso: siguientePisoTorre,
+    onRevivir: S.torreRevivir ? revivirTorreConAnuncio : null,
   });
 }
 
@@ -901,6 +938,7 @@ async function cargarRankingTorre() {
 function empezarTorre() {
   if (enCurso() || S.animando) return toast("Termina primero el combate actual.", "info");
   S.torre = TORRE.nuevaTorre(statsHeroe());
+  S.torreRevivir = null;
   S.torreUltimo = null;
   S.torreUltimoPiso = null;
   lanzarPisoTorre();
@@ -945,17 +983,39 @@ async function terminarPisoTorre(fin) {
     renderTorreSec();
     return;
   }
+  // Revivir con anuncio: solo al ser derrotado (no al huir) y una vez por subida.
+  S.torreRevivir = fin === "derrota" && TORRE.puedeRevivir(S.torre) ? { torre: S.torre, combate: c } : null;
   const res = TORRE.trasDerrota(S.torre, c, { storage: globalThis.localStorage, address: S.cuenta });
   S.torre = null;
   S.torreUltimo = res;
   S.torreUltimoPiso = null;
   resultado(h("div", { class: "res res-derrota" },
     h("strong", {}, `🗼 Fin de la subida: ${res.pisosSuperados} piso${res.pisosSuperados === 1 ? "" : "s"}. `),
-    res.nuevoRecord ? "¡Nuevo récord personal!" : `Tu récord: ${res.record}.`));
+    res.nuevoRecord ? "¡Nuevo récord personal!" : `Tu récord: ${res.record}.`,
+    S.torreRevivir && h("button", { class: "btn btn-small btn-gold", type: "button", onclick: (ev) => { ev.currentTarget.disabled = true; revivirTorreConAnuncio(); } },
+      "📺 Ver anuncio para revivir con 50% de vida y continuar")));
   await FX.mostrarResultado({ tipo: fin === "derrota" ? "derrota" : "huida", ...c.resumen, enemigo: `Torre · piso ${res.piso}` });
   renderTorreSec();
   R.irA("torre");
   cargarRankingTorre();
+}
+
+/** Anuncio recompensado → la misma subida sigue en el mismo piso con el 50 % de la vida. */
+function revivirTorreConAnuncio() {
+  if (!S.torreRevivir) return;
+  mostrarAnuncioRecompensado("revivir_torre", () => {
+    const pend = S.torreRevivir;
+    if (!pend || S.torre || enCurso() || S.animando) return toast("No se puede revivir ahora mismo.", "info");
+    S.torreRevivir = null;
+    S.torre = TORRE.revivirTorre(pend.torre, pend.combate);
+    S.torreUltimo = null;
+    S.torreUltimoPiso = null;
+    toast("💖 ¡Has revivido! Sigues en la torre.", "ok", 3500);
+    lanzarPisoTorre();
+  }, (motivo) => {
+    if (motivo !== "ocupado") toast("Anuncio no completado: no hay recompensa.", "info");
+    renderTorreSec();
+  });
 }
 
 // ───────────────────────── Expediciones ─────────────────────────
@@ -976,6 +1036,7 @@ function renderExp(resultadoExp = null) {
     },
     onRecoger: recogerExp,
     onLista: () => { R.marcarAviso("expediciones", true); renderExp(); },
+    onDuplicar: resultadoExp?.ok && !resultadoExp.duplicado ? () => duplicarBotinExp(resultadoExp) : null,
   });
 }
 
@@ -985,11 +1046,20 @@ async function recogerExp() {
   R.marcarAviso("expediciones", false);
   aplicarRecompensa({ tipo: "xp", xp: r.xp, fuente: "expedicion" });
   if (r.pociones) aplicarRecompensa({ tipo: "pociones", cantidad: r.pociones });
+  S.expResultado = r;
   renderExp(r);
-  if (!r.botin) return;
+  if (r.botin) await reclamarBotinExp(r.botin, { pendiente: true });
+}
+
+/**
+ * Reclama un botín de expedición (local en demo, POST /ganar con wallet).
+ * `pendiente`: es el botín guardado como pendiente en storage (se resuelve al reclamarlo).
+ */
+async function reclamarBotinExp(botin, { pendiente = false } = {}) {
+  const resolver = () => { if (pendiente) EXP.resolverBotin(claveExp()); };
   if (enModoDemo()) {
-    EXP.resolverBotin(claveExp());
-    const item = tirarBotinDemo(r.botin);
+    resolver();
+    const item = tirarBotinDemo(botin);
     if (!item) return;
     ENG.registrarEvento({ tipo: "botin", item });
     await FX.revelarBotin(item);
@@ -997,17 +1067,34 @@ async function recogerExp() {
     return;
   }
   if (!S.cuenta || !redCorrecta()) return toast("Conecta tu wallet para recibir el botín de la expedición.", "info", 6000);
-  const b = await reclamarBotin(S.cfg.serverUrl, S.cuenta, r.botin.nivel, { jefe: !!r.botin.jefe });
+  const b = await reclamarBotin(S.cfg.serverUrl, S.cuenta, botin.nivel, { jefe: !!botin.jefe });
   if (b.tipo === "drop") {
-    EXP.resolverBotin(claveExp());
+    resolver();
     ENG.registrarEvento({ tipo: "botin", item: b.item });
     await FX.revelarBotin(b.item);
     await cargarInventario();
   } else if (b.tipo === "sin_drop") {
-    EXP.resolverBotin(claveExp());
+    resolver();
   } else {
-    toast(`El botín de la expedición queda pendiente: ${b.mensaje}`, "info", 6000);
+    toast(`${pendiente ? "El botín de la expedición queda pendiente" : "No se pudo entregar el objeto extra"}: ${b.mensaje}`, "info", 6000);
   }
+}
+
+/** Anuncio recompensado → otra vez la XP y pociones de la expedición (×2) y un objeto extra. */
+function duplicarBotinExp(r) {
+  if (!r?.ok || r.duplicado || S.expResultado !== r) return;
+  mostrarAnuncioRecompensado("botin_expedicion", async () => {
+    if (r.duplicado) return;
+    const bono = EXP.bonoDuplicado(r);
+    r.duplicado = bono;
+    if (bono.xp) aplicarRecompensa({ tipo: "xp", xp: bono.xp, fuente: "expedicion" });
+    if (bono.pociones) aplicarRecompensa({ tipo: "pociones", cantidad: bono.pociones });
+    renderExp(r);
+    await reclamarBotinExp(bono.botin);
+  }, (motivo) => {
+    if (motivo !== "ocupado") toast("Anuncio no completado: el botín no se duplica.", "info");
+    renderExp(r);
+  });
 }
 
 /**

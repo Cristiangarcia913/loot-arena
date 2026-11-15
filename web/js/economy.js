@@ -103,6 +103,50 @@ export function tirarCofre(rng = Math.random) {
   return lista[Math.min(lista.length - 1, Math.floor(rng() * lista.length))];
 }
 
+// ───────────────────────── Catálogo rotativo del Mercado ─────────────────────────
+
+/** Cosméticos que se ofrecen a la vez en el Mercado. */
+export const TAM_CATALOGO_ROTATIVO = 6;
+
+/** Semilla del catálogo de hoy (cambia cada día UTC). */
+export const semillaDelDia = (ahora = Date.now()) => Math.floor(ahora / 86_400_000);
+
+/** PRNG mulberry32: misma semilla → mismo catálogo. */
+function prng(semilla) {
+  let a = (Math.floor(Number(semilla) || 0) >>> 0) || 0x9e3779b9;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Selección de `n` cosméticos (sin consumibles) a partir de una semilla, con al menos uno raro o mejor
+ * si el catálogo lo permite. Conserva el orden del catálogo. Determinista.
+ * @param {number} semilla
+ * @param {{catalogo?: ReadonlyArray<object>, n?: number}} [o]
+ */
+export function catalogoRotativo(semilla, { catalogo = CATALOGO, n = TAM_CATALOGO_ROTATIVO } = {}) {
+  const pool = catalogo.filter((x) => x.ranura !== "consumible");
+  if (pool.length <= n) return [...pool];
+  const rng = prng(semilla);
+  const barajado = [...pool];
+  for (let i = barajado.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [barajado[i], barajado[j]] = [barajado[j], barajado[i]];
+  }
+  const elegidos = barajado.slice(0, n);
+  if (!elegidos.some((x) => x.rareza > 0)) {
+    const raro = barajado.slice(n).find((x) => x.rareza > 0);
+    if (raro) elegidos[elegidos.length - 1] = raro;
+  }
+  const ids = new Set(elegidos.map((x) => x.id));
+  return pool.filter((x) => ids.has(x.id));
+}
+
 // ───────────────────────── Precio de venta ─────────────────────────
 
 /**

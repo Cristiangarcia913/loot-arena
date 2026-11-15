@@ -230,6 +230,27 @@ export function trasDerrota(torre, combate = null, { storage = null, address = n
   };
 }
 
+/** Fracción de la vida máxima con la que se revive tras ver un anuncio. */
+export const VIDA_REVIVIR = 0.5;
+
+/** true si esta subida aún puede revivir con un anuncio (una vez por subida). */
+export function puedeRevivir(torre) {
+  return torre?.estado === "en_curso" && !torre.revivido;
+}
+
+/**
+ * Revive tras caer (anuncio recompensado): misma subida y mismo piso, con el 50 % de la vida máxima,
+ * las pociones que quedaban y `revivido: true` para no repetirlo. No muta.
+ * @param {Torre} torre torre tal como estaba al empezar el piso perdido
+ * @param {object} [combate] combate perdido (para pociones y turnos gastados)
+ * @returns {Torre}
+ */
+export function revivirTorre(torre, combate = null) {
+  if (!puedeRevivir(torre)) throw new Error("revivirTorre: esta subida ya no puede revivir");
+  const t = absorberCombate(torre, combate);
+  return { ...t, estado: "en_curso", vida: Math.max(1, Math.round(t.vidaMax * VIDA_REVIVIR)), revivido: true };
+}
+
 // ───────────────────────── Récord personal ─────────────────────────
 
 /** Clave de storage del récord (por dirección en minúsculas, o "invitado"). */
@@ -366,12 +387,13 @@ function htmlVida(vida, vidaMax) {
  * @param {HTMLElement} contenedor
  * @param {{estado?: Torre|Resultado|null, ranking?: Array|null|{error:string}, cuenta?: string|null,
  *          record?: number, ultimo?: {superado:number, xp:number, botin:object|null, curacion:number}|null,
- *          onEmpezar?: () => void, onSiguientePiso?: () => void}} opciones
+ *          onEmpezar?: () => void, onSiguientePiso?: () => void, onRevivir?: () => void}} opciones
+ *   `onRevivir`: si se da y la subida ha terminado, muestra el botón de revivir con anuncio.
  *   `estado`: null (sin subida), la torre en curso (entre pisos) o el resultado de `trasDerrota`.
  *   `ranking`: lista de `pedirRankingTorre`, null mientras carga o `{error}`.
  *   `record`: récord personal (por defecto el del resultado o 0). `ultimo`: lo devuelto por `trasVictoria`.
  */
-export function renderTorre(contenedor, { estado = null, ranking = null, cuenta = null, record = null, ultimo = null, onEmpezar = null, onSiguientePiso = null } = {}) {
+export function renderTorre(contenedor, { estado = null, ranking = null, cuenta = null, record = null, ultimo = null, onEmpezar = null, onSiguientePiso = null, onRevivir = null } = {}) {
   if (!contenedor) return;
   const rec = record ?? estado?.record ?? 0;
   let cuerpo;
@@ -405,7 +427,9 @@ export function renderTorre(contenedor, { estado = null, ranking = null, cuenta 
           <li>🏆 Récord: ${rec}</li>
         </ul>
       </div>
-      <button type="button" class="btn btn-gold torre-btn" data-accion="empezar">🗼 Volver a subir</button>`;
+      ${onRevivir ? `<button type="button" class="btn btn-gold torre-btn torre-revivir" data-accion="revivir">📺 Ver anuncio para revivir con ${Math.round(VIDA_REVIVIR * 100)}% de vida y continuar</button>
+      <p class="torre-tenue">Solo una vez por subida: vuelves al piso ${estado.piso} con lo que te quedaba de pociones.</p>` : ""}
+      <button type="button" class="btn ${onRevivir ? "" : "btn-gold "}torre-btn" data-accion="empezar">🗼 Volver a subir</button>`;
   } else {
     cuerpo = `<p>Sube piso a piso sin recuperar la vida del todo: cada piso es más duro, cada ${TORRE.cadaJefe} hay un jefe con botín.</p>
       <ul class="torre-datos"><li>🏆 Tu récord: ${rec} ${rec === 1 ? "piso" : "pisos"}</li><li>🧪 ${TORRE.pociones} pociones para toda la subida</li></ul>
@@ -418,4 +442,5 @@ export function renderTorre(contenedor, { estado = null, ranking = null, cuenta 
     </div>`;
   contenedor.querySelector('[data-accion="empezar"]')?.addEventListener("click", () => onEmpezar?.());
   contenedor.querySelector('[data-accion="siguiente"]')?.addEventListener("click", () => onSiguientePiso?.());
+  contenedor.querySelector('[data-accion="revivir"]')?.addEventListener("click", (ev) => { ev.currentTarget.disabled = true; onRevivir?.(); });
 }

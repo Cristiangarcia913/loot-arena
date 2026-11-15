@@ -38,3 +38,6 @@
 .torre-pisos { font-weight: 700; white-space: nowrap; }
 .torre-yo { background: rgba(232, 183, 90, .16) !important; outline: 1px solid var(--oro); }
 .torre-yo .torre-dir, .torre-yo .torre-pos { color: var(--oro); font-weight: 700; }
+
+/* Anuncio recompensado: revivir */
+.torre-revivir { margin-bottom: 4px; }
