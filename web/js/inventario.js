@@ -87,11 +87,14 @@ function tarjeta(it, equipado, { onEquipar, onTransferir }) {
         "aria-pressed": equipado ? "true" : "false",
         onclick: () => onEquipar?.(it, !equipado),
       }, equipado ? "Desequipar" : "Equipar"),
-      h("button", {
-        type: "button",
-        class: "btn btn-small btn-ghost",
-        onclick: () => onTransferir?.(it),
-      }, "Transferir")));
+      // Los objetos del modo demo (botin-local.js) no son NFT: no se pueden transferir.
+      it.local
+        ? h("span", { class: "tenue", title: "Guardado solo en este navegador" }, "💾 Local")
+        : h("button", {
+          type: "button",
+          class: "btn btn-small btn-ghost",
+          onclick: () => onTransferir?.(it),
+        }, "Transferir")));
 }
 
 /**

@@ -21,6 +21,7 @@ import * as TUT from "./tutorial.js";
 import * as EXP from "./expediciones.js";
 import * as TORRE from "./torre.js";
 import { reclamarBotin } from "./api.js";
+import * as BL from "./botin-local.js";
 import { crearContrato, hayCodigo, leerInventario, transferir, enlacesExplorador } from "./chain.js";
 import { $, h, enlace, acortar, toast, esperar } from "./ui.js";
 import { leer, guardar } from "./storage.js";
@@ -406,12 +407,25 @@ function jugarDesafio(desafio, ayuda) {
 
 // ───────────────────────── Equipo e inventario ─────────────────────────
 
+// Modo demo = sin wallet conectada. El botín y el equipo viven entonces en localStorage
+// (botin-local.js); al conectar la wallet se vuelve al inventario NFT de la cadena.
+const enModoDemo = () => !S.cuenta;
+const claveEquipoActual = () => (enModoDemo() ? BL.CLAVE_EQUIPO_LOCAL : E.claveEquipo(S.cuenta, S.chainId));
+const leerBotinLocal = () => BL.parsearEstado(leer(BL.CLAVE_BOTIN_LOCAL));
+
 function cargarEquipo() {
-  S.equipo = S.cuenta ? E.parsearEquipo(leer(E.claveEquipo(S.cuenta, S.chainId))) : {};
+  S.equipo = E.parsearEquipo(leer(claveEquipoActual()));
 }
 
 function guardarEquipo() {
-  if (S.cuenta) guardar(E.claveEquipo(S.cuenta, S.chainId), JSON.stringify(S.equipo));
+  guardar(claveEquipoActual(), JSON.stringify(S.equipo));
+}
+
+/** Tira el botín local del modo demo, lo guarda y devuelve el objeto (o null si no cae nada). */
+function tirarBotinDemo(enemigo) {
+  const { estado, item } = BL.tirarBotinLocal(leerBotinLocal(), enemigo ?? {}, Math.random, { equipados: Object.values(S.equipo) });
+  if (item) guardar(BL.CLAVE_BOTIN_LOCAL, BL.serializarEstado(estado));
+  return item;
 }
 
 const equipados = () => E.itemsEquipados(S.equipo, S.inventario);
@@ -423,6 +437,19 @@ async function cargarInventario() {
   const id = ++cargaInvId;
   const estado = $("#inv-estado");
   $("#btn-refrescar").disabled = !S.contratoOk;
+
+  if (enModoDemo()) {
+    S.inventario = leerBotinLocal().items;
+    const saneado = E.sanearEquipo(S.equipo, S.inventario);
+    if (JSON.stringify(saneado) !== JSON.stringify(S.equipo)) { S.equipo = saneado; guardarEquipo(); }
+    const n = S.inventario.length;
+    estado.textContent = (n
+      ? `Modo demo: ${n} objeto${n === 1 ? "" : "s"} guardado${n === 1 ? "" : "s"} en este navegador. Equípalos para mejorar a tu héroe.`
+      : "Modo demo: gana combates y el botín se guardará en este navegador.") +
+      (W.tieneMetaMask() ? " Conecta tu wallet para conseguir objetos NFT." : " Instala MetaMask para conseguir objetos NFT.");
+    alCambiarInventario();
+    return;
+  }
 
   let motivo = null;
   if (!W.tieneMetaMask()) motivo = "Instala MetaMask para ver tus objetos NFT.";
@@ -471,7 +498,7 @@ function renderMercadoSec() {
   const sec = $("#seccion-mercado");
   if (!sec) return;
   MERC.renderMercado(sec, {
-    inventario: inventarioConEquipo().filter((it) => !it.equipado),
+    inventario: inventarioConEquipo().filter((it) => !it.equipado && !it.local),
     saldos: { oro: S.saldoOro ?? 0, cajaEth: undefined, restanteHoyEth: undefined },
     onVender: (items) => T.venderObjetos(items, "mercado"),
     onComprar: (c) => T.comprarCosmetico(c.id),
@@ -480,7 +507,7 @@ function renderMercadoSec() {
 }
 
 function alCambiarInventario() {
-  T.actualizarInventario(inventarioConEquipo());
+  T.actualizarInventario(inventarioConEquipo().filter((it) => !it.local));
   renderMercadoSec();
   ENG.registrarEvento({ tipo: "inventario", items: S.inventario });
   FX.actualizarHeroe(equipados());
@@ -560,6 +587,7 @@ function renderHeroe() {
 let itemATransferir = null;
 
 function abrirTransferencia(item) {
+  if (item.local) return toast("Los objetos del modo demo solo existen en este navegador: no se pueden transferir.", "info");
   if (!S.contratoOk) return toast("Conecta la wallet a la red correcta para transferir.", "error");
   itemATransferir = item;
   $("#tr-item").replaceChildren(tarjetaItem(item, { acciones: false }));
@@ -959,6 +987,15 @@ async function recogerExp() {
   if (r.pociones) aplicarRecompensa({ tipo: "pociones", cantidad: r.pociones });
   renderExp(r);
   if (!r.botin) return;
+  if (enModoDemo()) {
+    EXP.resolverBotin(claveExp());
+    const item = tirarBotinDemo(r.botin);
+    if (!item) return;
+    ENG.registrarEvento({ tipo: "botin", item });
+    await FX.revelarBotin(item);
+    await cargarInventario();
+    return;
+  }
   if (!S.cuenta || !redCorrecta()) return toast("Conecta tu wallet para recibir el botín de la expedición.", "info", 6000);
   const b = await reclamarBotin(S.cfg.serverUrl, S.cuenta, r.botin.nivel, { jefe: !!r.botin.jefe });
   if (b.tipo === "drop") {
@@ -973,9 +1010,16 @@ async function recogerExp() {
   }
 }
 
-/** Pide el botín al servidor. Devuelve {tipo, ...} de api.js o {tipo:"demo"} sin wallet. */
+/**
+ * Pide el botín al servidor. Devuelve {tipo, ...} de api.js; sin wallet tira el botín local
+ * ({tipo:"demo_drop", item} o {tipo:"demo"} si no cae nada).
+ */
 async function pedirBotin(enemigo) {
-  if (!S.cuenta || !redCorrecta()) return { tipo: "demo" };
+  if (enModoDemo()) {
+    const item = tirarBotinDemo(enemigo);
+    return item ? { tipo: "demo_drop", item } : { tipo: "demo" };
+  }
+  if (!redCorrecta()) return { tipo: "demo" };
   S.reclamando = true;
   resultado(h("div", { class: "res res-espera" }, h("span", { class: "spinner" }), enemigo.jefe ? "👑 ¡Jefe derrotado! Forjando su botín en la blockchain…" : "🏆 ¡Victoria! Consultando al servidor si cae botín…"));
   try {
@@ -986,7 +1030,7 @@ async function pedirBotin(enemigo) {
 }
 
 async function mostrarBotin(r, eleccionPrevia) {
-  if (r.tipo !== "drop") TUT.avanzarTutorial("botin");
+  if (r.tipo !== "drop" && r.tipo !== "demo_drop") TUT.avanzarTutorial("botin");
   const enemigo = S.combate?.enemigo;
   const reintentar = h("button", { class: "btn btn-small btn-gold", type: "button", onclick: async () => mostrarBotin(await pedirBotin(enemigo), "continuar") }, "Reintentar");
   let eleccion = eleccionPrevia;
@@ -1006,6 +1050,17 @@ async function mostrarBotin(r, eleccionPrevia) {
       }
       break;
     }
+    case "demo_drop":
+      resultado(h("div", { class: "res res-drop" },
+        h("div", {}, h("strong", {}, "🎁 ¡Botín! "), `«${r.item.nombre}», ${E.rareza(r.item.rareza).nombre.toLowerCase()}. Guardado en este navegador (modo demo): equípalo en tu inventario.`),
+        h("div", { class: "tenue" }, W.tieneMetaMask()
+          ? ["Conecta tu wallet en Sepolia para que el botín sea un NFT de verdad. ", h("button", { class: "btn btn-small btn-gold", type: "button", onclick: () => conectar() }, "🦊 Conectar")]
+          : ["Instala ", enlace("https://metamask.io/download/", "MetaMask"), " para que el botín sea un NFT que puedas vender por ORO."])));
+      ENG.registrarEvento({ tipo: "botin", item: r.item });
+      eleccion = await FX.revelarBotin(r.item);
+      TUT.avanzarTutorial("botin");
+      await cargarInventario();
+      break;
     case "sin_drop":
       resultado(h("div", { class: "res res-nada" }, h("strong", {}, "🏆 ¡Victoria! "), "Esta vez el enemigo no llevaba nada de valor. ¡Sigue explorando!"));
       break;
