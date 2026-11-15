@@ -13,6 +13,7 @@
 //
 // Todo el texto entra con textContent (los nombres vienen de la cadena).
 import { TIPOS, RAREZAS, rareza, emojiTipo } from "./equipment.js";
+import { conjunto, conjuntoDe, contarConjuntos, textoProgreso, PIEZAS_BONO, PIEZAS_EFECTO } from "./conjuntos.js";
 import { iconoObjeto } from "./sprites.js";
 import { h } from "./dom-secciones.js";
 
@@ -46,6 +47,35 @@ export function filtrarOrdenar(items, { tipo = "", rareza: rar = "", orden = "re
     .sort(cmp);
 }
 
+/**
+ * Texto del tooltip de un conjunto: progreso y bonos (marcando los activos). Función pura.
+ * @param {string} id id del conjunto
+ * @param {number} piezas piezas equipadas de ese conjunto
+ */
+export function tooltipConjunto(id, piezas) {
+  const c = conjunto(id);
+  if (!c) return "";
+  const marca = (n) => (piezas >= n ? "✔" : "✖");
+  return [
+    `${c.nombre} (${Math.min(piezas, PIEZAS_EFECTO)}/${PIEZAS_EFECTO})`,
+    `${marca(PIEZAS_BONO)} ${PIEZAS_BONO} piezas: ${c.textoBono}`,
+    `${marca(PIEZAS_EFECTO)} ${PIEZAS_EFECTO} piezas: ${c.textoEfecto}`,
+  ].join("\n");
+}
+
+/** Etiqueta "🩸 Set del Gladiador 2/4" con el detalle de bonos en el tooltip. */
+function etiquetaConjunto(id, piezas) {
+  const c = conjunto(id);
+  if (!c) return null;
+  const tip = tooltipConjunto(id, piezas);
+  return h("p", {
+    class: `item-set${piezas >= PIEZAS_BONO ? " activo" : ""}`,
+    style: { "--set": c.color },
+    title: tip,
+    "aria-label": tip.replaceAll("\n", ". "),
+  }, `${c.icono} ${textoProgreso(id, piezas)}`);
+}
+
 function campo(etiqueta, control) {
   return h("label", { class: "inv-campo" }, h("span", {}, etiqueta), control);
 }
@@ -56,7 +86,8 @@ function selectOpciones(id, opciones, valor, aria) {
 }
 
 /** Tarjeta de un objeto. */
-function tarjeta(it, equipado, { onEquipar, onTransferir }) {
+function tarjeta(it, equipado, { onEquipar, onTransferir }, piezasSet = {}) {
+  const set = conjuntoDe(it);
   const r = rareza(it.rareza);
   const nombre = it.nombre || `${it.tipo} #${it.tokenId}`;
   const ico = h("span", { class: "ico-obj" });
@@ -77,6 +108,7 @@ function tarjeta(it, equipado, { onEquipar, onTransferir }) {
       equipado ? h("span", { class: "item-flag" }, "Equipado") : null),
     h("h4", { class: "item-nombre" }, nombre),
     h("p", { class: "item-meta" }, `${it.tipo} · `, h("span", { class: "rar-tag" }, r.nombre)),
+    set ? etiquetaConjunto(set, piezasSet[set] ?? 0) : null,
     h("div", { class: "item-stats" },
       h("span", { class: "st st-atk", title: "Ataque" }, `⚔️ ${it.ataque}`),
       h("span", { class: "st st-def", title: "Defensa" }, `🛡️ ${it.defensa}`)),
@@ -108,6 +140,7 @@ export function renderInventario(contenedor, items = [], equipo = {}, { onEquipa
   if (!contenedor) return;
   const lista = Array.isArray(items) ? items : [];
   const ids = new Set(Object.values(equipo ?? {}).map(String));
+  const piezasSet = Object.fromEntries(contarConjuntos(lista.filter((it) => ids.has(String(it.tokenId)))).map((x) => [x.id, x.piezas]));
   const filtros = filtrosPorContenedor.get(contenedor) ?? { tipo: "", rareza: "", orden: "reciente" };
   filtrosPorContenedor.set(contenedor, filtros);
 
@@ -126,7 +159,7 @@ export function renderInventario(contenedor, items = [], equipo = {}, { onEquipa
       return;
     }
     cuadricula.replaceChildren(...vista.map((it) => {
-      const card = tarjeta(it, ids.has(String(it.tokenId)), { onEquipar, onTransferir });
+      const card = tarjeta(it, ids.has(String(it.tokenId)), { onEquipar, onTransferir }, piezasSet);
       card.setAttribute("role", "listitem");
       return card;
     }));
@@ -161,6 +194,9 @@ export function renderInventario(contenedor, items = [], equipo = {}, { onEquipa
 export function renderRanuras(contenedor, equipo = {}, items = [], { onDesequipar } = {}) {
   if (!contenedor) return;
   const porId = new Map((Array.isArray(items) ? items : []).map((it) => [String(it.tokenId), it]));
+  const equipados = TIPOS.map((t) => (equipo?.[t] != null ? porId.get(String(equipo[t])) : null)).filter(Boolean);
+  const sets = contarConjuntos(equipados);
+  const piezasSet = Object.fromEntries(sets.map((x) => [x.id, x.piezas]));
 
   contenedor.replaceChildren(...TIPOS.map((tipo) => {
     const id = equipo?.[tipo] != null ? String(equipo[tipo]) : null;
@@ -176,12 +212,27 @@ export function renderRanuras(contenedor, equipo = {}, items = [], { onDesequipa
       h("div", { class: "ranura-cuerpo" },
         h("span", { class: "ranura-tipo" }, tipo),
         h("span", { class: "ranura-nombre" }, it ? (it.nombre || `${tipo} #${it.tokenId}`) : "Vacía"),
-        it ? h("span", { class: "ranura-stats" }, `⚔️ ${it.ataque} · 🛡️ ${it.defensa} · ${r.nombre}`) : null),
+        it ? h("span", { class: "ranura-stats" }, `⚔️ ${it.ataque} · 🛡️ ${it.defensa} · ${r.nombre}`) : null,
+        it && conjuntoDe(it) ? etiquetaConjunto(conjuntoDe(it), piezasSet[conjuntoDe(it)] ?? 0) : null),
       it ? h("button", {
         type: "button",
         class: "btn btn-small btn-ghost",
         "aria-label": `Desequipar ${tipo}: ${it.nombre || "#" + it.tokenId}`,
         onclick: () => onDesequipar?.(String(it.tokenId), tipo),
       }, "Quitar") : null);
-  }));
+  }), panelConjuntos(sets));
+}
+
+/** Resumen de conjuntos equipados bajo las ranuras: progreso y bonos activos. */
+function panelConjuntos(sets) {
+  if (!sets.length) return h("p", { class: "inv-sets-vacio tenue" }, "Equipa 2 o 4 piezas del mismo conjunto para activar sus bonos.");
+  return h("section", { class: "inv-sets", "aria-label": "Bonificaciones de conjunto" },
+    h("h4", { class: "inv-sets-tit" }, "Conjuntos"),
+    ...sets.map((s) => h("div", { class: `inv-set${s.bonoActivo ? " activo" : ""}`, style: { "--set": s.color }, title: tooltipConjunto(s.id, s.piezas) },
+      h("div", { class: "inv-set-cab" },
+        h("span", {}, `${s.icono} ${s.nombre}`),
+        h("b", {}, `${s.piezas}/${s.total}`)),
+      h("ul", { class: "inv-set-bonos" },
+        h("li", { class: s.bonoActivo ? "on" : "" }, `${PIEZAS_BONO}: ${s.textoBono}`),
+        h("li", { class: s.efectoActivo ? "on" : "" }, `${PIEZAS_EFECTO}: ${s.textoEfecto}`)))));
 }

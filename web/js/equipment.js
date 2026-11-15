@@ -1,5 +1,6 @@
 // Equipo e inventario: lógica pura (sin DOM). Los tokenId se manejan como strings.
 import { STATS_BASE } from "./combat.js";
+import { bonosConjunto } from "./conjuntos.js";
 
 export const RAREZAS = Object.freeze([
   Object.freeze({ id: 0, nombre: "Común", color: "#9ca3af" }),
@@ -64,14 +65,15 @@ export function itemsEquipados(equipo, inventario) {
   return inventario.filter((it) => ids.has(it.tokenId));
 }
 
-/** Stats del jugador: base + suma de ataque/defensa del equipo. */
+/** Stats del jugador: base + suma de ataque/defensa del equipo (+ % de defensa del set del Coloso). */
 export function statsJugador(equipados) {
   const bonusAtaque = equipados.reduce((s, it) => s + it.ataque, 0);
   const bonusDefensa = equipados.reduce((s, it) => s + it.defensa, 0);
+  const set = bonosConjunto(equipados);
   return {
     vida: STATS_BASE.vida,
     ataque: STATS_BASE.ataque + bonusAtaque,
-    defensa: STATS_BASE.defensa + bonusDefensa,
+    defensa: Math.round((STATS_BASE.defensa + bonusDefensa) * (1 + set.multDefensa)),
     bonusAtaque,
     bonusDefensa,
   };

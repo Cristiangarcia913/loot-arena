@@ -14,6 +14,7 @@
 // evasión aplicados por uno mismo cubren los N ataques rivales siguientes).
 
 import { HABILIDADES, HABILIDADES_BASE, habilidad, iniciarHabilidades, usarHabilidad, avanzarEnfriamientos } from "./skills.js";
+import { EFECTO as EFECTO_SET } from "./conjuntos.js";
 
 export const STATS_BASE = Object.freeze({ vida: 100, ataque: 10, defensa: 5 });
 export const NIVEL_MIN = 1;
@@ -432,13 +433,15 @@ const NEGATIVOS = new Set(["veneno", "sangrado", "aturdido", "fragil"]);
  * Crea un combate nuevo.
  * @param {{vidaMax?:number, vida?:number, ataque:number, defensa:number, nivel?:number,
  *          habilidades?:Array<string|{id:string}>, critico?:number, esquiva?:number,
- *          bonusAtaque?:number, pociones?:number, pocionesExtra?:number}} heroe
+ *          bonusAtaque?:number, pociones?:number, pocionesExtra?:number, efectosConjunto?:string[]}} heroe
  *   Stats del héroe (usa `progression.statsHeroe`). `vida` se acepta como sinónimo de `vidaMax`.
  *   `pociones`: pociones normales que le quedan en la expedición (por defecto POCIONES_POR_EXPEDICION).
  *   `pocionesExtra`: pociones compradas en la tienda (consumible id 14) que se SUMAN a las normales.
  *   Se gastan siempre primero las normales; las extra solo si ya no quedan normales.
  *   Al terminar, `combate.jugador.pocionesExtra` son las extra que quedan y
  *   `combate.resumen.pocionesExtraGastadas` las que se consumieron (bebidas o robadas): esas son las que hay que quemar.
+ *   `efectosConjunto`: efectos de 4 piezas de conjunto (conjuntos.js): "sangradoCritico",
+ *   "escudoVidaBaja", "criticoTrasEsquivar".
  * @param {ReturnType<typeof generarEnemigo>} enemigo
  * @param {() => number} [rng] se usa para la primera intención del enemigo
  */
@@ -460,6 +463,9 @@ export function crearCombate(heroe, enemigo, rng = Math.random) {
     habilidades: iniciarHabilidades(heroe.habilidades ?? HABILIDADES_BASE),
     estados: [],
     defendiendo: false,
+    efectosConjunto: Array.isArray(heroe.efectosConjunto) ? heroe.efectosConjunto.map(String) : [],
+    escudoSetUsado: false,
+    criticoSombra: false,
   };
   jugador.pociones = jugador.pocionesBase + jugador.pocionesExtra;
   const en = {
@@ -737,13 +743,16 @@ function golpear({ c, rng }, de, opts = {}) {
     if (ev >= 0) {
       ob.estados.splice(ev, 1);
       if (a === "jugador") c.resumen.esquivas += 1;
-      return { dano: 0, esquivado: true, critico: false, bloqueado: false, absorbido: 0 };
+      return { dano: 0, esquivado: true, critico: false, bloqueado: false, absorbido: 0, sombra: activarSombra(c, a) };
     }
     if (rng() < (ob.esquiva ?? 0)) {
       if (a === "jugador") c.resumen.esquivas += 1;
-      return { dano: 0, esquivado: true, critico: false, bloqueado: false, absorbido: 0 };
+      return { dano: 0, esquivado: true, critico: false, bloqueado: false, absorbido: 0, sombra: activarSombra(c, a) };
     }
   }
+  // Set de las Sombras (4 piezas): tras esquivar, el siguiente golpe del héroe es crítico seguro.
+  const sombra = de === "jugador" && at.criticoSombra;
+  if (sombra) { at.criticoSombra = false; opts = { ...opts, siempreCritico: true }; }
   const pCrit = opts.siempreCritico ? 1 : (de === "jugador" ? at.critico : (at.critico ?? CRITICO_ENEMIGO)) + (opts.criticoExtra ?? 0);
   const critico = opts.siempreCritico ? true : rng() < pCrit;
   let dano = calcularDano(ataqueEfectivo(c, de), defensaEfectiva(c, a), rng) * (opts.mult ?? 1) * (critico ? MULT_CRITICO : 1);
@@ -765,7 +774,16 @@ function golpear({ c, rng }, de, opts = {}) {
   ob.vida = Math.max(0, ob.vida - dano);
   if (de === "jugador") { c.resumen.danoHecho += dano; if (critico) c.resumen.criticos += 1; }
   else c.resumen.danoRecibido += dano;
-  return { dano, bruto, critico, bloqueado, absorbido, esquivado: false };
+  return { dano, bruto, critico, bloqueado, absorbido, esquivado: false, golpeSombra: sombra };
+}
+
+const tieneEfectoSet = (c, efecto) => c.jugador.efectosConjunto?.includes(efecto);
+
+/** Si el héroe esquiva con el set de las Sombras completo, prepara su crítico seguro. */
+function activarSombra(c, quienEsquiva) {
+  if (quienEsquiva !== "jugador" || !tieneEfectoSet(c, "criticoTrasEsquivar") || c.jugador.criticoSombra) return false;
+  c.jugador.criticoSombra = true;
+  return true;
 }
 
 function textoGolpe(c, de, nombreAccion, r) {
@@ -773,6 +791,7 @@ function textoGolpe(c, de, nombreAccion, r) {
   const obj = yo ? c.enemigo.nombre : "te";
   if (r.esquivado) return yo ? `${c.enemigo.nombre} esquiva tu ${nombreAccion.toLowerCase()} 💨` : `¡Esquivas ${nombreAccion === "Ataque" ? "el ataque" : `«${nombreAccion}»`} de ${c.enemigo.nombre}! 💨`;
   const extra = [
+    r.golpeSombra ? "🌑 " : "",
     r.critico ? "¡CRÍTICO! " : "",
   ].join("");
   const cola = [
@@ -800,6 +819,12 @@ function comprobarFase({ c, emit }) {
 /** Tras un golpe del héroe: reflejo no aplica; contraataque del gólem si defendía. */
 function trasGolpeJugador(ctx, r) {
   const { c, emit } = ctx;
+  // Set del Gladiador Sangriento (4 piezas): los críticos hacen sangrar.
+  if (r.critico && !r.esquivado && c.enemigo.vida > 0 && tieneEfectoSet(c, "sangradoCritico")) {
+    const estado = aplicarEstado(c, "enemigo", EFECTO_SET.sangrado, ataqueEfectivo(c, "jugador"));
+    emit({ actor: "jugador", objetivo: "enemigo", tipo: "estado", id: "set_gladiador", nombre: "Set del Gladiador Sangriento", estado,
+      texto: `🩸 Set del Gladiador: ${c.enemigo.nombre} sangra (${estado.valor} por turno, ${estado.turnos} t).` });
+  }
   comprobarFase(ctx);
   if (r.esquivado || c.enemigo.vida <= 0 || !c.enemigo.defendiendo || !c.enemigo.contraataque) return;
   const rc = golpear(ctx, "enemigo", { mult: c.enemigo.contraataque });
@@ -811,7 +836,12 @@ function trasGolpeJugador(ctx, r) {
 /** Tras un golpe del enemigo: reflejo del héroe. */
 function trasGolpeEnemigo(ctx, r) {
   const { c, emit } = ctx;
+  if (r.sombra) {
+    emit({ actor: "jugador", objetivo: "jugador", tipo: "estado", id: "set_sombras", nombre: "Set de las Sombras",
+      texto: "🌑 Set de las Sombras: tu próximo golpe será crítico." });
+  }
   if (r.esquivado || c.jugador.vida <= 0) return;
+  escudoColoso(ctx);
   const refl = c.jugador.estados.find((e) => e.tipo === "reflejo");
   if (!refl) return;
   const dano = Math.min(c.enemigo.vida, Math.max(1, Math.round(r.bruto * refl.valor)));
@@ -819,6 +849,16 @@ function trasGolpeEnemigo(ctx, r) {
   c.resumen.danoHecho += dano;
   emit({ actor: "jugador", objetivo: "enemigo", tipo: "reflejo", dano, texto: `✨ Tu Muro de Fe devuelve ${dano} de daño a ${c.enemigo.nombre}.` });
   comprobarFase(ctx);
+}
+
+/** Set del Coloso de Hierro (4 piezas): escudo al bajar del umbral de vida, una vez por combate. */
+function escudoColoso({ c, emit }) {
+  const j = c.jugador;
+  if (j.escudoSetUsado || j.vida <= 0 || j.vida > j.vidaMax * EFECTO_SET.umbralEscudo || !tieneEfectoSet(c, "escudoVidaBaja")) return;
+  j.escudoSetUsado = true;
+  const estado = aplicarEstado(c, "jugador", EFECTO_SET.escudo, j.ataque);
+  emit({ actor: "jugador", objetivo: "jugador", tipo: "estado", id: "set_coloso", nombre: "Set del Coloso de Hierro", estado,
+    texto: `🗿 Set del Coloso: un escudo de hierro de ${estado.valor} te protege.` });
 }
 
 const resultado = (r) => ({ dano: r.dano, critico: r.critico, bloqueado: r.bloqueado, esquivado: r.esquivado, absorbido: r.absorbido });

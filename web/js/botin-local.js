@@ -7,6 +7,11 @@
 //
 // Los tokenId son strings numéricos ("1", "2"…) para encajar con equipment.js, y cada objeto
 // lleva `local: true` para que la interfaz no ofrezca transferirlo ni venderlo.
+//
+// Conjuntos (conjuntos.js): con probabilidad PROB_CONJUNTO el objeto pertenece a uno de los
+// 3 conjuntos temáticos; lleva el campo `conjunto` y el sufijo del conjunto en el nombre
+// ("Sable Rúnico del Gladiador Sangriento"), que es lo que también identifica a los NFT.
+import { CONJUNTOS, IDS_CONJUNTO, esConjuntoValido } from "./conjuntos.js";
 
 export const VERSION = 1;
 export const CLAVE_BOTIN_LOCAL = "lootarena:demo:botin";
@@ -15,6 +20,8 @@ export const CLAVE_EQUIPO_LOCAL = "lootarena:demo:equipo";
 export const MAX_OBJETOS = 120;
 
 export const DROP_CHANCE = 0.6;
+/** Probabilidad de que un objeto pertenezca a un conjunto (Gladiador, Coloso o Sombras). */
+export const PROB_CONJUNTO = 0.35;
 const NIVEL_MIN = 1;
 const NIVEL_MAX = 10;
 const RANGO_STAT = [[1, 6], [6, 14], [14, 30]];
@@ -73,11 +80,13 @@ function sortearRareza(rng, nivel, opts) {
   return p.length - 1;
 }
 
-function generarNombre(rng, tipo, rareza) {
+/** Nombre procedural. Si hay `sufijo` (conjunto) sustituye al sufijo/epíteto aleatorio. */
+function generarNombre(rng, tipo, rareza, sufijo = null) {
   const base = elegir(rng, BASES[tipo]);
-  if (rareza === 2) return `${elegir(rng, NOMBRES_LEG)}, ${base.nombre} ${elegir(rng, EPITETOS_LEG)}`;
-  if (rareza === 1) return `${base.nombre} ${concordar(elegir(rng, ADJ_RARO), base.genero)} ${elegir(rng, SUF_RARO)}`;
-  return `${base.nombre} ${concordar(elegir(rng, ADJ_COMUN), base.genero)}`;
+  if (rareza === 2) return `${elegir(rng, NOMBRES_LEG)}, ${base.nombre} ${sufijo ?? elegir(rng, EPITETOS_LEG)}`;
+  if (rareza === 1) return `${base.nombre} ${concordar(elegir(rng, ADJ_RARO), base.genero)} ${sufijo ?? elegir(rng, SUF_RARO)}`;
+  const comun = `${base.nombre} ${concordar(elegir(rng, ADJ_COMUN), base.genero)}`;
+  return sufijo ? `${comun} ${sufijo}` : comun;
 }
 
 /** Rango [lo, hi] de la stat principal (como `rangoStat` del servidor). */
@@ -88,16 +97,22 @@ export function rangoStat(rareza, nivel = 1, { jefe = false } = {}) {
   return [min + Math.round(t * ancho * DESPLAZAMIENTO_NIVEL), max - Math.round((1 - t) * ancho * DESPLAZAMIENTO_NIVEL)];
 }
 
-/** Objeto completo { nombre, tipo, rareza, ataque, defensa } (sin tokenId). */
-export function generarObjeto(rng, { nivel = 1, jefe = false, sinLegendario = 0, rareza: fija = null } = {}) {
+/**
+ * Objeto completo { nombre, tipo, rareza, ataque, defensa[, conjunto] } (sin tokenId).
+ * `conjunto`: id fijo (de conjuntos.js), `null` para forzar que no tenga, o undefined para sortearlo.
+ */
+export function generarObjeto(rng, { nivel = 1, jefe = false, sinLegendario = 0, rareza: fija = null, conjunto: fijo } = {}) {
   const rareza = fija ?? sortearRareza(rng, nivel, { jefe, sinLegendario });
   const tipo = elegir(rng, LISTA_TIPOS);
-  const nombre = generarNombre(rng, tipo, rareza);
+  const conjunto = fijo !== undefined
+    ? (esConjuntoValido(fijo) ? fijo : null)
+    : (rng() < PROB_CONJUNTO ? elegir(rng, IDS_CONJUNTO) : null);
+  const nombre = generarNombre(rng, tipo, rareza, conjunto ? CONJUNTOS[conjunto].sufijo : null);
   const [lo, hi] = rangoStat(rareza, nivel, { jefe });
   const principal = lo + Math.floor(rng() * (hi - lo + 1));
   const secundaria = Math.round(principal * (0.10 + rng() * 0.30));
   const [ataque, defensa] = TIPOS[tipo] === "ataque" ? [principal, secundaria] : [secundaria, principal];
-  return { nombre, tipo, rareza, ataque, defensa };
+  return conjunto ? { nombre, tipo, rareza, ataque, defensa, conjunto } : { nombre, tipo, rareza, ataque, defensa };
 }
 
 /** Estado vacío de la mochila local. */
@@ -118,7 +133,12 @@ export function parsearEstado(texto) {
   try { d = JSON.parse(texto); } catch { return estadoVacio(); }
   if (!d || typeof d !== "object" || !Array.isArray(d.items)) return estadoVacio();
   const items = d.items
-    .map((it) => (it && typeof it === "object" ? { ...it, tokenId: String(it.tokenId), local: true } : null))
+    .map((it) => {
+      if (!it || typeof it !== "object") return null;
+      const limpio = { ...it, tokenId: String(it.tokenId), local: true };
+      if (Object.hasOwn(limpio, "conjunto") && !esConjuntoValido(limpio.conjunto)) delete limpio.conjunto;
+      return limpio;
+    })
     .filter(itemValido)
     .slice(0, MAX_OBJETOS);
   const maxId = items.reduce((m, it) => Math.max(m, Number(it.tokenId)), 0);

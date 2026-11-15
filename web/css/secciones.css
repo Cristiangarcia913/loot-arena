@@ -187,3 +187,24 @@
   .hr-minis { grid-template-columns: minmax(0, 1fr); }
   .hr-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ───────── Conjuntos (set bonuses) ───────── */
+.item-set {
+  --set: var(--tenue);
+  margin: 2px 0 0; font-size: .74rem; font-weight: 600; color: color-mix(in srgb, var(--set) 55%, var(--tenue));
+  cursor: help; overflow-wrap: anywhere;
+}
+.item-set.activo { color: var(--set); filter: brightness(1.35); }
+.inv-sets { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.inv-sets-tit { font-size: .8rem; color: var(--tenue); text-transform: uppercase; letter-spacing: .08em; }
+.inv-sets-vacio { font-size: .78rem; margin: 6px 0 0; }
+.inv-set {
+  --set: var(--borde);
+  padding: 8px 10px; border-radius: 12px; background: rgba(0, 0, 0, .25);
+  border: 1px solid color-mix(in srgb, var(--set) 45%, transparent);
+}
+.inv-set.activo { box-shadow: inset 3px 0 0 var(--set); }
+.inv-set-cab { display: flex; justify-content: space-between; gap: 8px; font-size: .84rem; font-weight: 600; }
+.inv-set-bonos { margin: 4px 0 0; padding-left: 1rem; font-size: .74rem; color: var(--tenue); }
+.inv-set-bonos li.on { color: var(--texto); }
+.inv-set-bonos li.on::marker { content: "✔ "; color: var(--set); }

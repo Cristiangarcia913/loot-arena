@@ -4,6 +4,7 @@
 
 import { STATS_BASE, probCritico, probEsquiva, VICTORIAS_POR_NIVEL, nivelArena } from "./combat.js";
 import { idsHabilidades } from "./skills.js";
+import { bonosConjunto, contarConjuntos } from "./conjuntos.js";
 
 export const NIVEL_HEROE_MAX = 30;
 /** Mejora por nivel de héroe por encima del 1 (pequeña: el equipo NFT es lo que más pesa). */
@@ -140,12 +141,18 @@ export function aplicarHuida(p) {
   return { ...q, huidas: q.huidas + 1, racha: 0 };
 }
 
+/** Topes de crítico y esquiva una vez sumados los bonos de conjunto. */
+export const CRITICO_TOPE_CONJUNTO = 0.65;
+export const ESQUIVA_TOPE_CONJUNTO = 0.35;
+
 /**
- * Stats del héroe para `crearCombate`: base + nivel de héroe + equipo NFT.
+ * Stats del héroe para `crearCombate`: base + nivel de héroe + equipo NFT + bonos de conjunto
+ * (2 piezas: bono pasivo de crítico/defensa/esquiva; 4 piezas: `efectosConjunto` para combat.js).
  * @param {object} p progreso
  * @param {Array<{tipo:string, rareza:number, ataque:number, defensa:number}>} equipados
  * @returns {{vidaMax:number, vida:number, ataque:number, defensa:number, nivel:number, critico:number,
- *            esquiva:number, bonusAtaque:number, bonusDefensa:number, habilidades:string[]}}
+ *            esquiva:number, bonusAtaque:number, bonusDefensa:number, habilidades:string[],
+ *            efectosConjunto:string[], conjuntos:ReturnType<typeof contarConjuntos>}}
  */
 export function statsHeroe(p, equipados = []) {
   const nivel = sanearProgreso(p).nivel;
@@ -154,11 +161,16 @@ export function statsHeroe(p, equipados = []) {
   const bonusDefensa = equipados.reduce((s, it) => s + (Number(it.defensa) || 0), 0);
   const vidaMax = STATS_BASE.vida + Math.round(MEJORA_POR_NIVEL.vida * k);
   const ataque = STATS_BASE.ataque + Math.round(MEJORA_POR_NIVEL.ataque * k) + bonusAtaque;
-  const defensa = STATS_BASE.defensa + Math.round(MEJORA_POR_NIVEL.defensa * k) + bonusDefensa;
+  const set = bonosConjunto(equipados);
+  const defensaSinSet = STATS_BASE.defensa + Math.round(MEJORA_POR_NIVEL.defensa * k) + bonusDefensa;
+  const defensa = Math.round(defensaSinSet * (1 + set.multDefensa));
+  const critico = Math.min(CRITICO_TOPE_CONJUNTO, probCritico(bonusAtaque) + set.critico);
+  const esquiva = Math.min(ESQUIVA_TOPE_CONJUNTO, probEsquiva(defensa) + set.esquiva);
   return {
     vidaMax, vida: vidaMax, ataque, defensa, nivel,
-    critico: probCritico(bonusAtaque), esquiva: probEsquiva(defensa),
+    critico, esquiva,
     bonusAtaque, bonusDefensa, habilidades: idsHabilidades(equipados, nivel),
+    efectosConjunto: set.efectos, conjuntos: contarConjuntos(equipados),
   };
 }
 
