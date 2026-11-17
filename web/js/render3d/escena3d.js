@@ -18,6 +18,7 @@
 import { cargarTres, soporta3d, infoGpu, MSG_3D, TRES_VERSION, TRES_REVISION } from "./tres.js";
 import { construirEscenario, animarEscenario, PUESTO_X, CAMARA, encuadre } from "./escenario.js";
 import { construirEnemigo, construirHeroe } from "./criaturas.js";
+import { precargarModelo } from "./modelos.js";
 import { Rotulos, textoDeGolpe } from "./numeros.js";
 import { liberarRama } from "./piezas.js";
 import {
@@ -315,6 +316,13 @@ async function arrancar() {
   const T = await cargarTres();
   if (!E.montado) return; // se desmontó mientras se descargaba
   E.T = T;
+
+  // Modelos externos verificados por el equipo (ver `modelos.js`): se piden ya, en segundo plano,
+  // para que si existen estén en memoria antes de que haga falta construir al héroe o al jefe. Si
+  // no hay archivo (lo normal hoy) esto no hace nada más que una comprobación de red que falla.
+  precargarModelo("heroe");
+  for (const b of BESTIARIO) precargarModelo(b.clave);
+  precargarModelo("jefe");
 
   const gpu = infoGpu();
   E.calidad = E.calidadPedida ?? nivelEquipo(detectarEquipo(globalThis, gpu));

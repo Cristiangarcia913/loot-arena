@@ -1,5 +1,8 @@
-// Criaturas en 3D, construidas pieza a pieza con geometrías de three.js. Nada descargado:
-// ni modelos, ni texturas, ni licencias dudosas (decisión 3 del plan maestro).
+// Criaturas en 3D, construidas pieza a pieza con geometrías de three.js. Es el sistema por
+// defecto y el que no depende de ninguna descarga (decisión 3 del plan maestro, revisada):
+// si `modelos.js` tiene en memoria un `.glb`/`.gltf` verificado para la clave que toca (ver
+// `web/assets/models/`), se usa como malla principal; si no, se construye aquí por código, igual
+// que siempre.
 //
 // Todas las funciones reciben `T` (three.js) por parámetro, así que este módulo se puede probar
 // en Node con un doble de three.js.
@@ -13,6 +16,7 @@ import { Taller, ALTO_HEROE } from "./piezas.js";
 import { colorEnemigo, rareza3d, hex, oscurecer, HEROE, CLAVES_ENEMIGO } from "./paleta.js";
 import { CATALOGO, cosmetico } from "../economy.js";
 import { metadatos3d, BESTIARIO } from "../combat.js";
+import { modeloEnMemoria, criaturaDesdeModelo } from "./modelos.js";
 
 const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
 
@@ -219,6 +223,12 @@ function ponerCosmeticos(t, ap, { raiz, cuerpo, cabeza }) {
  * @param {{segmentos?:number, sombras?:boolean}} [o]
  */
 export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
+  // Modelo externo verificado por el equipo (ver `modelos.js`): sustituye la malla entera. El
+  // equipo visual (espada, escudo, cosméticos...) es cosa de la receta procedural de abajo, así
+  // que un héroe importado no lo muestra todavía: limitación aceptada al revisar la decisión 3.
+  const plantillaHeroe = modeloEnMemoria("heroe");
+  if (plantillaHeroe) return criaturaDesdeModelo(plantillaHeroe, ALTO_HEROE);
+
   const t = new Taller(T, o);
   const eq = {};
   for (const x of equipados ?? []) if (x?.tipo) eq[x.tipo] = Math.max(0, Math.min(2, Number(x.rareza) || 0));
@@ -1371,6 +1381,18 @@ export function construirEnemigo(T, clave, o = {}) {
   const k = String(clave ?? "").toLowerCase();
   let meta = null;
   try { meta = metadatos3d(k); } catch { meta = null; }
+
+  // Modelo externo verificado por el equipo (ver `modelos.js`): sustituye la malla entera, igual
+  // que en `construirHeroe`. La altura la sigue mandando el bestiario (relativa al héroe), con el
+  // mismo tope `ESTIRADO_MAX` que la vía procedural.
+  const plantillaExterna = modeloEnMemoria(k);
+  if (plantillaExterna) {
+    const alturaObjetivo = meta?.altura > 0 ? Math.min(meta.altura, ESTIRADO_MAX) * ALTO_HEROE : ALTO_HEROE;
+    const cr = criaturaDesdeModelo(plantillaExterna, alturaObjetivo);
+    cr.raiz.name = `enemigo-${k || "generico"}-externo`;
+    if (o.jefe) cr.raiz.scale.setScalar(cr.raiz.scale.x * 1.35); // sin corona: no hay Taller aquí
+    return { ...cr, clave: k, colores: colorEnemigo(k), jefe: !!o.jefe };
+  }
 
   // 1) Receta propia si la hay (las once hechas a mano quedan mejor).
   // 2) Si no, la silueta que declara el bestiario.

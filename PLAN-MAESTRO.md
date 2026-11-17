@@ -44,7 +44,7 @@ Hoy el Mercado compra al jugador a **precio fijo calculado por el contrato**. Es
 
 1. **3D con three.js por CDN** (licencia MIT, gratis, módulo ES). Sin build, como el resto del proyecto. WebXR va incluido en three.js y GitHub Pages sirve por HTTPS, que es lo que WebXR exige.
 2. **El 3D no sustituye al 2D: lo envuelve.** Se implementa como un *renderizador* alternativo que cumple la misma API que `fx.js`. El jugador elige 2D, 3D o VR. Si el dispositivo no puede con el 3D, cae al 2D solo.
-3. **Nada de recursos de terceros.** Los modelos se generan por código con geometrías de three.js, igual que hoy los sprites son SVG escritos a mano. Así no hay licencias dudosas ni descargas pesadas.
+3. **Procedural por defecto; modelo externo solo si está verificado.** Los modelos se siguen generando por código con geometrías de three.js, igual que los sprites son SVG escritos a mano: así no hace falta ninguna descarga para jugar. *Revisado:* el motor 3D puede cargar un `.glb`/`.gltf` concreto desde `web/assets/models/` (p. ej. descargado de CGTrader) cuando el equipo de Motor 3D comprueba a mano que su licencia permite el uso del proyecto y lo deja en esa carpeta; si el archivo no está, no carga o el navegador no puede con él, la criatura se construye igual que siempre. Nunca se depende de la descarga para que el juego funcione.
 4. **Coste cero, siempre.** Red de pruebas Sepolia, servicios con plan gratuito, sin tarjetas.
 5. **Los contratos ya desplegados no se tocan.** Lo nuevo se añade en contratos aparte.
 

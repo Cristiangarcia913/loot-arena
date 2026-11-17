@@ -39,6 +39,7 @@ export const MSG_3D = Object.freeze({
 
 let promesa = null;
 let cargado = null;
+let urlCargada = null;
 
 /**
  * ¿Puede este navegador dibujar en 3D? Comprueba WebGL de verdad (crea un contexto y lo suelta),
@@ -101,6 +102,7 @@ export function cargarTres(urls = TRES_URLS) {
         const T = m?.Scene ? m : m?.default;
         if (!T?.Scene) throw new Error("el módulo no parece three.js");
         cargado = T;
+        urlCargada = url;
         return T;
       } catch (e) {
         fallos.push(`${url}: ${e?.message ?? e}`);
@@ -117,8 +119,16 @@ export function cargarTres(urls = TRES_URLS) {
 /** three.js ya cargado, o `null`. Útil para no esperar si ya está en memoria. */
 export const tresYaCargado = () => cargado;
 
+/**
+ * URL exacta (jsDelivr o unpkg) que respondió en `cargarTres()`, o `null` si todavía no hay nada
+ * cargado. La necesita `modelos.js` para que `GLTFLoader` (que importa "three" como especificador
+ * desnudo) resuelva contra esta MISMA instancia en vez de descargar una copia nueva.
+ */
+export const urlTresCargada = () => urlCargada;
+
 /** Solo para pruebas: olvida la carga anterior. */
 export function _olvidar() {
   promesa = null;
   cargado = null;
+  urlCargada = null;
 }
