@@ -532,6 +532,18 @@ test("saldoEth devuelve bigint, y null si el RPC falla", async () => {
   assert.equal(await lector.saldoEth("0xB"), null);
 });
 
+test("si getBlockNumber falla, barrer lo cuenta como un fallo en vez de reventar (sección Cadena)", async () => {
+  // Fallo real: un RPC caído justo al medir el horizonte o la cabeza rompía `barrer` entero
+  // y con él la pestaña «Tus transacciones» / «Tesorería» que lo llamaban sin su propio try/catch.
+  const mercado = contratoFalso("0xM", EVENTOS_MERCADO);
+  const provider = proveedorFalso({ altura: 20 });
+  provider.getBlockNumber = async () => { throw new Error("fetch failed"); };
+  const lector = L.crearLector({ provider, contratos: { mercado } });
+  const r = await lector.barrer("mercado", "ItemVendido");
+  assert.deepEqual(r.sucesos, []);
+  assert.equal(r.fallos, 1);
+});
+
 test("bloqueActual se cachea unos segundos en vez de preguntar en cada lectura", async () => {
   let veces = 0;
   const provider = proveedorFalso();

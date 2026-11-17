@@ -242,6 +242,19 @@ test("el ORO quemado es completo si la ventana cubre desde el despliegue", async
   assert.ok(!t.avisos.some((a) => /últimos bloques/.test(a)));
 });
 
+test("si falla el RPC al leer el ORO quemado reciente, el resto de la tesorería no se cae con él", async () => {
+  // Fallo real: `quemadoReciente` no tenía try/catch en `leerTesoreria`, así que un fallo de
+  // red ahí (bloqueActual o barrer caídos) tiraba abajo toda la pestaña Tesorería, incluida
+  // la caja, el dueño y el formulario de retirada, que ya se habían leído bien por su lado.
+  const lector = lectorFalso({ contratos: contratosTesoreria(), saldos: { [OPERADOR]: UNO } });
+  lector.barrer = async () => { throw new Error("RPC caído"); };
+  const t = await DT.leerTesoreria(lector, { serverUrl: null });
+  assert.equal(t.cajaEth, 3n * UNO, "la caja se leyó bien y no depende del ORO quemado");
+  assert.equal(t.owner, OWNER);
+  assert.equal(t.oroQuemado.valor, 0n);
+  assert.ok(t.avisos.some((a) => /ORO quemado reciente/.test(a)));
+});
+
 test("leerTesoreria avisa si faltan contratos en vez de enseñar ceros", async () => {
   const lector = lectorFalso({ contratos: { mercado: null, recompensas: null, oro: null, gameItem: null } });
   const t = await DT.leerTesoreria(lector, { serverUrl: null, conQuemado: false });

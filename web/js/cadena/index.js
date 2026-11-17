@@ -229,7 +229,9 @@ async function panelTransacciones() {
       V.titulo("Tus transacciones en el juego"),
       V.aviso("Conecta la cartera o escribe una dirección arriba para ver su historial en nuestros contratos.", "info"));
   }
-  const alto = await S.lector.bloqueActual();
+  // Si el RPC falla justo en esta llamada, no por eso se rompe toda la pestaña: se sigue
+  // sin saber el bloque actual (los textos ya manejan `null` con un "?").
+  const alto = await S.lector.bloqueActual().catch(() => null);
   // `todo` solo se pone a true si el jugador pulsa «intentarlo igualmente»: por defecto no se
   // le pide al RPC público lo que ya sabemos que no guarda (ver la cabecera de lectura.js).
   const { sucesos, recortado, fallos, limitadoPorRpc, desdeDisponible, completo } =
@@ -309,14 +311,20 @@ async function panelJugadores() {
   return V.pintarRivales(rivales, { net: cfg.net, sinFuentes: false });
 }
 
-async function rankingDelServidor(cfg) {
+async function rankingDelServidor(cfg, { timeoutMs = 8000 } = {}) {
   if (!cfg.serverUrl) return [];
+  // El servidor de botín (Render free) puede estar dormido y tardar en despertar: sin este
+  // tope, la pestaña «Los demás jugadores» se quedaba leyendo para siempre.
+  const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+  const t = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
   try {
-    const res = await fetch(`${cfg.serverUrl}/ranking`, { cache: "no-cache" });
+    const res = await fetch(`${cfg.serverUrl}/ranking`, { cache: "no-cache", signal: ctrl?.signal });
     if (!res.ok) return [];
     const b = await res.json();
     return Array.isArray(b) ? b : (b?.ranking ?? b?.jugadores ?? []);
-  } catch { return []; }
+  } catch { return []; } finally {
+    if (t) clearTimeout(t);
+  }
 }
 
 async function listadosDelP2P() {

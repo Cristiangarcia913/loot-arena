@@ -331,8 +331,16 @@ export function crearLector({ provider, contratos, bloqueDespliegue = 0, tamanoT
     } catch { topic0 = null; }
     if (!topic0) return vacio(); // el ABI no tiene ese evento
 
-    const h = await horizonte();
-    const fin = hasta ?? ((await bloqueActual()) - MARGEN_CABEZA);
+    let h, fin;
+    try {
+      h = await horizonte();
+      fin = hasta ?? ((await bloqueActual()) - MARGEN_CABEZA);
+    } catch {
+      // El RPC no respondió ni para esto (red caída, límite de tasa): se cuenta como un
+      // tramo fallido, igual que un `getLogs` que falla, en vez de reventar el barrido entero
+      // y con él la pestaña que lo pidió.
+      return vacio({ fallos: 1 });
+    }
     const pedido = desde ?? bloqueDespliegue;
     // El horizonte manda, salvo que se pida expresamente intentarlo todo.
     const ini = todo ? pedido : Math.max(pedido, h.desde);

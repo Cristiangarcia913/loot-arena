@@ -195,10 +195,17 @@ export async function leerTesoreria(lector, { serverUrl = null, red = null, fetc
   if (delServidor?.oroQuemado != null) {
     oroQuemado = { valor: aBigInt(delServidor.oroQuemado), alcance: "completo", desdeBloque: lector.bloqueDespliegue ?? null };
   } else if (conQuemado && oro) {
-    const r = await quemadoReciente(lector);
-    oroQuemado = r;
-    if (r.alcance === "parcial") {
-      avisos.push("El ORO quemado es solo el de los últimos bloques: el total exacto lo tiene que servir el servidor (indexar toda la historia no cabe en un RPC público).");
+    // Un fallo de red aquí (p. ej. `getBlockNumber` o `getLogs` caídos) no puede tirar abajo
+    // el resto de la tesorería: la caja, los totales y quién manda ya se leyeron cada uno por
+    // su lado y no dependen de esto.
+    try {
+      const r = await quemadoReciente(lector);
+      oroQuemado = r;
+      if (r.alcance === "parcial") {
+        avisos.push("El ORO quemado es solo el de los últimos bloques: el total exacto lo tiene que servir el servidor (indexar toda la historia no cabe en un RPC público).");
+      }
+    } catch {
+      avisos.push("No se pudo leer el ORO quemado reciente: el RPC no respondió. El resto de la tesorería sí se ha podido leer.");
     }
   }
 
