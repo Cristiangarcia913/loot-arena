@@ -17,7 +17,7 @@ siempre (decisión 3 del plan maestro, revisada en `PLAN-MAESTRO.md`).
 
 | Archivo | Origen | Licencia |
 |---|---|---|
-| _(ninguno todavía)_ | | |
+| `heroe.glb` | [KhronosGroup/glTF-Sample-Assets — "RiggedFigure"](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/RiggedFigure) | CC-BY-4.0 (requiere atribución, uso libre incluida publicación en GitHub Pages) |
 
 ## Qué pasa si lo pones
 

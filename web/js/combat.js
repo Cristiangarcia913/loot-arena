@@ -29,6 +29,95 @@ export const RACHA_CADA_JEFE = 5;
  * (vida, ataque y la potencia de sus estados), aunque no sea un piso de jefe. Sin techo
  * a propósito: es lo que hace que seguir arriesgando la racha dé más miedo cuanto más larga es. */
 export const RACHA_ESCALA = Object.freeze({ vida: 0.025, ataque: 0.02, estados: 0.015 });
+/** Cada cuántas victorias CONSECUTIVAS se ofrece elegir un Modificador de Arena (ver abajo). */
+export const MODIFICADOR_ARENA_CADA = 3;
+/** Tope de esquiva y piso de precisión del héroe una vez sumados los Modificadores de Arena
+ * (evitan que apilar el mismo modificador varias veces vuelva al héroe invencible o inútil). */
+export const ESQUIVA_MAX_MODIFICADA = 0.6;
+export const PRECISION_MIN_MODIFICADA = 0.3;
+
+/**
+ * Catálogo de Modificadores de Arena: bendiciones con una maldición a juego que el jugador elige
+ * cada `MODIFICADOR_ARENA_CADA` victorias consecutivas (pantalla de elección entre 2, ver
+ * `elegirModificadoresArena`) y que quedan activos hasta vencer al siguiente Jefe de Arena.
+ * Se aplican sobre las stats ya calculadas del héroe con `aplicarModificadoresArena`, ANTES de
+ * `crearCombate`, salvo `vidaPorTurno` (sangrado propio, ver `inicioTurno`) y `precision`
+ * (probabilidad de que un golpe del héroe falle sin más, ver `golpear`), que sí entran en el motor.
+ */
+export const MODIFICADORES_ARENA = Object.freeze([
+  Object.freeze({
+    id: "furia_sangrienta", nombre: "Furia Sangrienta", icono: "🩸",
+    descripcion: "+30 % de daño, pero pierdes el 5 % de tu vida máxima al empezar cada turno.",
+    ataque: 1.3, vidaPorTurno: 0.05,
+  }),
+  Object.freeze({
+    id: "piel_de_piedra", nombre: "Piel de Piedra", icono: "🪨",
+    descripcion: "+50 % de defensa, pero infliges un 15 % menos de daño.",
+    ataque: 0.85, defensa: 1.5,
+  }),
+  Object.freeze({
+    id: "viento_huracanado", nombre: "Viento Huracanado", icono: "🌀",
+    descripcion: "+20 % de esquiva, pero -20 % de precisión: fallas golpes más a menudo.",
+    esquiva: 1.2, precision: 0.8,
+  }),
+]);
+
+/** Modificador de Arena por id, o `null` si no existe. */
+export function modificadorArena(id) {
+  return MODIFICADORES_ARENA.find((m) => m.id === String(id)) ?? null;
+}
+
+/**
+ * Elige al azar 2 Modificadores de Arena distintos para ofrecer al jugador en la pantalla de
+ * elección, evitando repetir los ya activos (`activos`, ids) mientras queden al menos 2 sin
+ * repetir. Pura (no consume más rng del necesario). Devuelve [] si no hay nada que ofrecer
+ * (los tres ya están activos).
+ * @param {() => number} [rng]
+ * @param {string[]} [activos]
+ * @returns {Array<typeof MODIFICADORES_ARENA[number]>}
+ */
+export function elegirModificadoresArena(rng = Math.random, activos = []) {
+  const sinRepetir = MODIFICADORES_ARENA.filter((m) => !activos.includes(m.id));
+  const resto = (sinRepetir.length >= 2 ? sinRepetir : MODIFICADORES_ARENA).slice();
+  const elegidos = [];
+  while (elegidos.length < 2 && resto.length) {
+    const i = Math.floor(rng() * resto.length);
+    elegidos.push(resto.splice(Math.min(i, resto.length - 1), 1)[0]);
+  }
+  return elegidos;
+}
+
+/**
+ * Aplica la suma de los Modificadores de Arena activos a las stats ya calculadas del héroe
+ * (`progression.statsHeroe`), antes de pasarlas a `crearCombate`. Pura: no muta `heroe`.
+ * Sin modificadores activos devuelve `heroe` tal cual.
+ * @param {object} heroe
+ * @param {string[]} [idsActivos]
+ */
+export function aplicarModificadoresArena(heroe, idsActivos = []) {
+  const mods = (idsActivos ?? []).map(modificadorArena).filter(Boolean);
+  if (!mods.length) return heroe;
+  let ataque = heroe.ataque;
+  let defensa = heroe.defensa;
+  let esquiva = heroe.esquiva ?? probEsquiva(heroe.defensa);
+  let precision = 1;
+  let vidaPorTurno = 0;
+  for (const m of mods) {
+    if (m.ataque) ataque *= m.ataque;
+    if (m.defensa) defensa *= m.defensa;
+    if (m.esquiva) esquiva *= m.esquiva;
+    if (m.precision) precision *= m.precision;
+    if (m.vidaPorTurno) vidaPorTurno += m.vidaPorTurno;
+  }
+  return {
+    ...heroe,
+    ataque: Math.max(1, Math.round(ataque)),
+    defensa: Math.max(0, Math.round(defensa)),
+    esquiva: Math.min(ESQUIVA_MAX_MODIFICADA, esquiva),
+    precision: Math.max(PRECISION_MIN_MODIFICADA, precision),
+    vidaPorTurno,
+  };
+}
 /** Pociones al empezar una expedición. */
 export const POCIONES_POR_EXPEDICION = 3;
 /** Fracción de la vida máxima que cura una poción. */
@@ -503,6 +592,10 @@ export function crearCombate(heroe, enemigo, rng = Math.random) {
     defensa: heroe.defensa,
     critico: heroe.critico ?? probCritico(bonusAtaque),
     esquiva: heroe.esquiva ?? probEsquiva(heroe.defensa),
+    // Modificadores de Arena (ver `aplicarModificadoresArena`): precision < 1 hace fallar algunos
+    // golpes del héroe (`golpear`) y vidaPorTurno > 0 le sangra solo al empezar su turno (`inicioTurno`).
+    precision: Math.min(1, Math.max(0, heroe.precision ?? 1)),
+    vidaPorTurno: Math.max(0, heroe.vidaPorTurno ?? 0),
     pociones: 0, // total (normales + extra); se recalcula abajo
     pocionesBase: Math.max(0, Math.floor(Number(heroe.pociones ?? POCIONES_POR_EXPEDICION) || 0)),
     pocionesExtra: Math.max(0, Math.floor(Number(heroe.pocionesExtra ?? 0) || 0)),
@@ -595,6 +688,7 @@ export function validarAccion(combate, accion) {
  * @property {boolean} [critico]
  * @property {boolean} [bloqueado] el objetivo defendía (daño reducido)
  * @property {boolean} [esquivado] el objetivo esquivó (dano 0)
+ * @property {boolean} [fallo] el héroe falló su propio golpe (Modificador de Arena, dano 0)
  * @property {number} [absorbido] daño absorbido por escudo
  * @property {boolean} [brutal] golpe fuerte (para sacudir la pantalla)
  * @property {boolean} [definitiva] definitiva de jefe
@@ -750,6 +844,17 @@ function inicioTurno({ c, emit }, quien) {
     if (e.tipo === "aturdido") aturdido = true;
     e.turnos -= 1;
   }
+  // Maldición de un Modificador de Arena (p. ej. Furia Sangrienta): sangra al héroe al empezar
+  // su turno, igual que veneno/sangrado pero sin estado ni cuenta atrás (dura toda la racha).
+  if (quien === "jugador" && q.vidaPorTurno > 0 && q.vida > 0) {
+    const dano = Math.min(q.vida, Math.max(1, Math.round(q.vidaMax * q.vidaPorTurno)));
+    q.vida -= dano;
+    c.resumen.danoRecibido += dano;
+    emit({
+      actor: "sistema", objetivo: "jugador", tipo: "dano_estado", dano,
+      texto: `🩸 Tu Modificador de Arena te arrebata ${dano} de vida.`,
+    });
+  }
   return aturdido;
 }
 
@@ -819,6 +924,12 @@ function golpear({ c, rng }, de, opts = {}) {
       return { dano: 0, esquivado: true, critico: false, bloqueado: false, absorbido: 0, sombra: activarSombra(c, a) };
     }
   }
+  // Maldición de un Modificador de Arena (p. ej. Viento Huracanado): el héroe puede fallar su
+  // propio golpe sin más. `precision` es 1 (nunca falla) salvo que haya un modificador activo,
+  // así que una partida sin modificadores no gasta este `rng()` y el resto de pruebas no cambia.
+  if (de === "jugador" && at.precision < 1 && rng() < 1 - at.precision) {
+    return { dano: 0, esquivado: false, fallo: true, critico: false, bloqueado: false, absorbido: 0, sombra: false };
+  }
   // Set de las Sombras (4 piezas): tras esquivar, el siguiente golpe del héroe es crítico seguro.
   const sombra = de === "jugador" && at.criticoSombra;
   if (sombra) { at.criticoSombra = false; opts = { ...opts, siempreCritico: true }; }
@@ -858,6 +969,7 @@ function activarSombra(c, quienEsquiva) {
 function textoGolpe(c, de, nombreAccion, r) {
   const yo = de === "jugador";
   const obj = yo ? c.enemigo.nombre : "te";
+  if (r.fallo) return `🌀 El viento desvía tu ${nombreAccion.toLowerCase()}: fallas el golpe.`;
   if (r.esquivado) return yo ? `${c.enemigo.nombre} esquiva tu ${nombreAccion.toLowerCase()} 💨` : `¡Esquivas ${nombreAccion === "Ataque" ? "el ataque" : `«${nombreAccion}»`} de ${c.enemigo.nombre}! 💨`;
   const extra = [
     r.golpeSombra ? "🌑 " : "",
@@ -895,7 +1007,7 @@ function trasGolpeJugador(ctx, r) {
       texto: `🩸 Set del Gladiador: ${c.enemigo.nombre} sangra (${estado.valor} por turno, ${estado.turnos} t).` });
   }
   comprobarFase(ctx);
-  if (r.esquivado || c.enemigo.vida <= 0 || !c.enemigo.defendiendo || !c.enemigo.contraataque) return;
+  if (r.esquivado || r.fallo || c.enemigo.vida <= 0 || !c.enemigo.defendiendo || !c.enemigo.contraataque) return;
   const rc = golpear(ctx, "enemigo", { mult: c.enemigo.contraataque });
   emit({ actor: "enemigo", objetivo: "jugador", tipo: "contraataque", ...resultado(rc),
     texto: rc.esquivado ? `Esquivas el contraataque de ${c.enemigo.nombre} 💨` : `${c.enemigo.nombre} contraataca: ${rc.dano} de daño.` });
@@ -930,7 +1042,7 @@ function escudoColoso({ c, emit }) {
     texto: `🗿 Set del Coloso: un escudo de hierro de ${estado.valor} te protege.` });
 }
 
-const resultado = (r) => ({ dano: r.dano, critico: r.critico, bloqueado: r.bloqueado, esquivado: r.esquivado, absorbido: r.absorbido });
+const resultado = (r) => ({ dano: r.dano, critico: r.critico, bloqueado: r.bloqueado, esquivado: r.esquivado, absorbido: r.absorbido, fallo: !!r.fallo });
 
 function accionJugador(ctx, accion) {
   const { c, emit } = ctx;
@@ -984,7 +1096,7 @@ function accionJugador(ctx, accion) {
   if (d.mult != null) {
     const r = golpear(ctx, "jugador", { mult: d.mult, imparable: d.imparable, siempreCritico: d.siempreCritico, criticoExtra: d.criticoExtra });
     const ev = { ...base, objetivo: "enemigo", ...resultado(r), brutal: d.mult >= 1.8, texto: `${d.icono} ${textoGolpe(c, "jugador", d.nombre, r)}` };
-    if (!r.esquivado && d.estadoEnemigo && c.enemigo.vida > 0) {
+    if (!r.esquivado && !r.fallo && d.estadoEnemigo && c.enemigo.vida > 0) {
       ev.estado = aplicarEstado(c, "enemigo", d.estadoEnemigo, ataqueEfectivo(c, "jugador"));
       ev.texto += ` ${c.enemigo.nombre} queda con ${NOMBRE_ESTADO[ev.estado.tipo]} (${ev.estado.turnos} t).`;
     }

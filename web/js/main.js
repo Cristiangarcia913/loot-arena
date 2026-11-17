@@ -44,6 +44,10 @@ const S = {
   expedicion: null, // { pociones, pocionesExtra, extraGastadas }
   reclamando: false,
   desafio: null, // { rng } mientras se juega el desafío diario
+  // Modificadores de Arena activos (ids de combat.MODIFICADORES_ARENA): se eligen cada
+  // MODIFICADOR_ARENA_CADA victorias consecutivas y duran hasta vencer al siguiente Jefe de Arena.
+  // No se guardan en el progreso persistente: una racha rota o un Jefe vencido los vacía.
+  modificadoresArena: [],
   pocionesRegalo: 0,
   expResultado: null, // último resultado de recoger una expedición (para «Duplicar botín»)
   transfiriendo: new Set(),
@@ -295,6 +299,7 @@ function renderProgreso() {
   $("#arena-level").textContent = `Nivel de arena ${C.nivelArena(v)}`;
   const faltan = P.combatesHastaJefe(v);
   $("#victorias").textContent = `${v} victoria${v === 1 ? "" : "s"} · ${faltan === 0 ? "👑 ¡jefe!" : `jefe en ${faltan + 1}`}`;
+  FX.actualizarModificadoresArena(S.modificadoresArena.map(C.modificadorArena).filter(Boolean));
 }
 
 // ───────────────────────── Economía (tienda, venta, vestuario) ─────────────────────────
@@ -748,9 +753,9 @@ async function animarEvento(ev, c) {
       brutal: !!(ev.brutal || ev.definitiva),
       animacion: C.animacion3d(ev.id),
     });
-    await FX.animarGolpe(quienFx(ev.objetivo), ev.dano, { critico: !!ev.critico, bloqueado: !!ev.bloqueado, esquivado: !!ev.esquivado });
+    await FX.animarGolpe(quienFx(ev.objetivo), ev.dano, { critico: !!ev.critico, bloqueado: !!ev.bloqueado, esquivado: !!ev.esquivado, fallo: !!ev.fallo });
   } else if (ev.dano != null && ev.objetivo) {
-    await FX.animarGolpe(quienFx(ev.objetivo), ev.dano, { critico: !!ev.critico, bloqueado: !!ev.bloqueado, esquivado: !!ev.esquivado });
+    await FX.animarGolpe(quienFx(ev.objetivo), ev.dano, { critico: !!ev.critico, bloqueado: !!ev.bloqueado, esquivado: !!ev.esquivado, fallo: !!ev.fallo });
   }
   if (ev.curacion) FX.animarCuracion(quienFx(ev.objetivo ?? ev.actor), ev.curacion);
   aplicarSnapshot(ev, c);
@@ -794,7 +799,8 @@ function explorar() {
   const base = TUT.tutorialActivo() ? TUT.combateTutorial() : C.generarEnemigo(nivel, Math.random, { jefe });
   // A mayor racha, más duro el rival (vida, ataque y potencia de sus estados), sin techo.
   const enemigo = C.escalarPorRacha(base, racha, { jefeDeRacha });
-  const heroe = { ...statsHeroe(), pociones: S.expedicion.pociones, pocionesExtra: S.expedicion.pocionesExtra };
+  const heroeBase = { ...statsHeroe(), pociones: S.expedicion.pociones, pocionesExtra: S.expedicion.pocionesExtra };
+  const heroe = C.aplicarModificadoresArena(heroeBase, S.modificadoresArena);
   S.combate = C.crearCombate(heroe, enemigo);
   $("#resultado").hidden = true;
   $("#log").replaceChildren();
@@ -873,6 +879,8 @@ async function alTerminar(fin) {
     const nivelAntes = P.infoXp(S.progreso).nivel;
     const r = P.aplicarVictoria(S.progreso, c.enemigo);
     S.progreso = r.progreso;
+    // Jefe vencido (de nivel o de racha): los Modificadores de Arena en juego se vacían.
+    if (c.enemigo.jefe) S.modificadoresArena = [];
     guardarProgreso();
     renderHeroe();
     const nivelAhora = P.infoXp(S.progreso).nivel;
@@ -881,12 +889,18 @@ async function alTerminar(fin) {
     // El botín se pide ya (el servidor tarda unos segundos en mintear) mientras se ve el resumen.
     const botin = pedirBotin(c.enemigo);
     const eleccion = await FX.mostrarResultado({ tipo: "victoria", ...resumen, xp: r.xp, racha: r.racha });
+    // El modificador se ofrece ANTES de `mostrarBotin`: si `eleccion` es "otra", ese paso ya
+    // encadena el siguiente combate (ver más abajo), así que hay que elegir ahora para que el
+    // modificador llegue a tiempo y se aplique en `explorar()` a la próxima pelea.
+    if (r.racha > 0 && r.racha % C.MODIFICADOR_ARENA_CADA === 0) await ofrecerModificadorArena(r.racha);
     await mostrarBotin(await botin, eleccion);
     return;
   }
 
   if (fin === "derrota") S.progreso = P.aplicarDerrota(S.progreso);
   else S.progreso = P.aplicarHuida(S.progreso);
+  // La racha se rompe: con ella se acaban los Modificadores de Arena en juego.
+  S.modificadoresArena = [];
   guardarProgreso();
   renderHeroe();
   await terminarExpedicion();
@@ -894,6 +908,38 @@ async function alTerminar(fin) {
   const eleccion = await FX.mostrarResultado({ tipo: fin, ...resumen, racha: 0 });
   if (fin === "derrota") resultado(h("div", { class: "res res-derrota" }, h("strong", {}, "☠️ Derrota. "), "Tu racha se rompe y la expedición termina. Mejora tu equipo, compra pociones en la tienda y vuelve a Explorar."));
   if (eleccion === "otra") explorar();
+}
+
+// ───────────────────────── Modificadores de Arena (bendiciones/maldiciones) ─────────────────────────
+// Cada C.MODIFICADOR_ARENA_CADA victorias consecutivas se ofrece elegir uno de dos Modificadores
+// de Arena (combat.js: MODIFICADORES_ARENA); el elegido se suma a `S.modificadoresArena` y se
+// aplica a las stats del héroe en `explorar()` (combat.aplicarModificadoresArena) hasta vencer al
+// siguiente Jefe de Arena, momento en el que `alTerminar` los vacía.
+
+/**
+ * Pantalla de elección rápida entre 2 Modificadores de Arena. No bloquea si no hay nada que
+ * ofrecer (no debería pasar: `elegirModificadoresArena` siempre devuelve 2 salvo catálogo vacío).
+ * @param {number} racha racha actual, solo para el texto
+ */
+async function ofrecerModificadorArena(racha) {
+  const opciones = C.elegirModificadoresArena(Math.random, S.modificadoresArena);
+  if (opciones.length < 2) return;
+  const elegido = await new Promise((resolver) => {
+    resultado(h("div", { class: "res res-modificador" },
+      h("strong", {}, `🌀 ¡Racha de ${racha}! Elige un Modificador de Arena`),
+      h("p", { class: "res-modificador-sub" }, "Se queda activo hasta que venzas al próximo Jefe de Arena."),
+      h("div", { class: "res-modificador-opciones" }, ...opciones.map((m) => h("button", {
+        class: "btn btn-small mod-card", type: "button", title: m.descripcion,
+        onclick: (ev) => { ev.currentTarget.disabled = true; resolver(m); },
+      },
+        h("span", { class: "mod-card-icono", "aria-hidden": "true" }, m.icono),
+        h("span", { class: "mod-card-nombre" }, m.nombre),
+        h("span", { class: "mod-card-desc" }, m.descripcion))))));
+  });
+  if (!S.modificadoresArena.includes(elegido.id)) S.modificadoresArena = [...S.modificadoresArena, elegido.id];
+  toast(`${elegido.icono} ${elegido.nombre} activo hasta el próximo Jefe de Arena.`, "info", 4500);
+  renderProgreso();
+  $("#resultado").hidden = true;
 }
 
 // ───────────────────────── Racha: salvar con anuncio ─────────────────────────

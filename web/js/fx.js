@@ -514,15 +514,17 @@ export function animarAtaque(quien, { critico = false, brutal = false } = {}) {
  * Recibir un golpe: hit-stop, parpadeo blanco, retroceso, chispas, número flotante y sonido.
  * @param {"heroe"|"enemigo"} quien el que RECIBE el golpe
  * @param {number|string} dano cantidad (0 o "esquiva" muestra «¡Esquiva!»)
- * @param {{critico?:boolean, bloqueado?:boolean, esquivado?:boolean}} [o]
+ * @param {{critico?:boolean, bloqueado?:boolean, esquivado?:boolean, fallo?:boolean}} [o] `fallo`:
+ *   el héroe ha fallado su propio golpe (Modificador de Arena «Viento Huracanado»); se anima
+ *   como una esquiva, con el rótulo «¡Fallas!» en vez de «¡Esquiva!».
  * @returns {Promise<void>} cuando termina el retroceso
  */
-export async function animarGolpe(quien, dano, { critico = false, bloqueado = false, esquivado = false } = {}) {
+export async function animarGolpe(quien, dano, { critico = false, bloqueado = false, esquivado = false, fallo = false } = {}) {
   const s = spriteDe(quien);
-  const esq = esquivado || dano === "esquiva";
+  const esq = esquivado || fallo || dano === "esquiva";
   if (esq) {
     sonar("esquiva");
-    numeroFlotante(quien, "¡Esquiva!", "esquiva");
+    numeroFlotante(quien, fallo ? "¡Fallas!" : "¡Esquiva!", "esquiva");
     s?.animate([{ transform: "none" }, { transform: `translateX(${lado(quien) === "heroe" ? -26 : 26}px) skewX(-8deg)`, opacity: 0.5 }, { transform: "none" }], { duration: 380, easing: "ease-out" });
     return esperar(380);
   }
@@ -814,6 +816,24 @@ export function actualizarRacha(n) {
   r.textContent = `🔥 Racha de victorias: ${n}`;
   r.classList.toggle("racha-viva", n >= 3);
   if (n && !reducido()) r.animate([{ transform: "scale(1.4)" }, { transform: "scale(1)" }], { duration: 300, easing: "cubic-bezier(.3,1.6,.5,1)" });
+}
+
+/**
+ * Chips de los Modificadores de Arena activos (#modificadores-arena), uno por modificador, en la
+ * esquina de la pantalla de combate. Vacío → el contenedor se oculta. Idempotente.
+ * @param {Array<{id:string, nombre:string, icono:string, descripcion:string}>} modificadores
+ */
+export function actualizarModificadoresArena(modificadores = []) {
+  const cont = document.getElementById("modificadores-arena");
+  if (!cont) return;
+  cont.hidden = modificadores.length === 0;
+  cont.replaceChildren(...modificadores.map((m) => {
+    const chip = document.createElement("span");
+    chip.className = "chip chip-modificador";
+    chip.title = m.descripcion;
+    chip.textContent = `${m.icono} ${m.nombre}`;
+    return chip;
+  }));
 }
 
 // ───────────────────────── Cartas del inventario ─────────────────────────

@@ -18,7 +18,7 @@
 import { cargarTres, soporta3d, infoGpu, MSG_3D, TRES_VERSION, TRES_REVISION } from "./tres.js";
 import { construirEscenario, animarEscenario, PUESTO_X, CAMARA, encuadre } from "./escenario.js";
 import { construirEnemigo, construirHeroe } from "./criaturas.js";
-import { precargarModelo } from "./modelos.js";
+import { precargarModelo, cargarModeloExterno } from "./modelos.js";
 import { Rotulos, textoDeGolpe } from "./numeros.js";
 import { liberarRama } from "./piezas.js";
 import {
@@ -320,8 +320,19 @@ async function arrancar() {
   // Modelos externos verificados por el equipo (ver `modelos.js`): se piden ya, en segundo plano,
   // para que si existen estén en memoria antes de que haga falta construir al héroe o al jefe. Si
   // no hay archivo (lo normal hoy) esto no hace nada más que una comprobación de red que falla.
-  precargarModelo("heroe");
-  for (const b of BESTIARIO) precargarModelo(b.clave);
+  //
+  // El héroe (y el enemigo en pantalla) normalmente ya se habrán construido por código antes de que
+  // esta descarga resuelva: si resuelve con un modelo de verdad, se tira esa versión procedural del
+  // almacén (ver `olvidarHeroesDelAlmacen`/`olvidarEnemigoDelAlmacen`) y se reconstruye, así no hace
+  // falta cambiar de equipo ni de combate para ver el modelo importado.
+  cargarModeloExterno("heroe").then((m) => { if (m) { olvidarHeroesDelAlmacen(); reconstruirHeroe(); } });
+  for (const b of BESTIARIO) {
+    cargarModeloExterno(b.clave).then((m) => {
+      if (!m) return;
+      olvidarEnemigoDelAlmacen(b.clave);
+      if (E.enemigo?.clave === b.clave) aplicarEnemigo();
+    });
+  }
   precargarModelo("jefe");
 
   const gpu = infoGpu();
@@ -765,6 +776,29 @@ function restaurar(cr) {
       m.emissive.set(m.userData.emisionBase);
       m.emissiveIntensity = m.userData.fuerzaBase ?? 0;
     }
+  }
+}
+
+/** Tira del almacén los héroes ya construidos por código, para que el próximo `reconstruirHeroe()`
+ * los rehaga con el modelo externo de `heroe.glb` que acaba de terminar de cargar (ver `arrancar`). */
+function olvidarHeroesDelAlmacen() {
+  for (const k of [...almacen.keys()]) {
+    if (!k.startsWith("h|")) continue;
+    const cr = almacen.get(k);
+    almacen.delete(k);
+    if (cr !== E.lados.heroe?.criatura) tirar(cr);
+  }
+}
+
+/** Igual que `olvidarHeroesDelAlmacen`, pero para los enemigos (normal y jefe) de una clave
+ * concreta del bestiario, cuando su modelo externo termina de cargar tarde. */
+function olvidarEnemigoDelAlmacen(clave) {
+  for (const jefe of [false, true]) {
+    const k = llaveEnemigo(clave, jefe);
+    const cr = almacen.get(k);
+    if (!cr) continue;
+    almacen.delete(k);
+    if (cr !== E.lados.enemigo?.criatura) tirar(cr);
   }
 }
 
@@ -1323,10 +1357,10 @@ function anilloDeConjuro(q, d) {
  * @param {{critico?:boolean, bloqueado?:boolean, esquivado?:boolean}} [o]
  * @returns {Promise<void>} cuando termina el retroceso
  */
-export async function animarGolpe(quien, dano, { critico = false, bloqueado = false, esquivado = false } = {}) {
+export async function animarGolpe(quien, dano, { critico = false, bloqueado = false, esquivado = false, fallo = false } = {}) {
   const q = lado(quien);
   const L = E.lados[q];
-  const { texto, clase } = textoDeGolpe(dano, { critico, bloqueado, esquivado });
+  const { texto, clase } = textoDeGolpe(dano, { critico, bloqueado, esquivado, fallo });
   const esq = clase === "esquiva";
 
   if (esq) {
@@ -1748,6 +1782,6 @@ export {
   // Enganche: logros, recompensas, pase, racha
   celebrarLogro, celebrarRecompensa, subirNivelPase, mostrarRachaDias,
   // HUD fuera de la arena e inventario
-  actualizarXP, actualizarRacha, actualizarJefeEn, decorarCarta, aplicarFiltrosInventario,
-  previsualizarCosmetico,
+  actualizarXP, actualizarRacha, actualizarJefeEn, actualizarModificadoresArena, decorarCarta,
+  aplicarFiltrosInventario, previsualizarCosmetico,
 } from "../fx.js";

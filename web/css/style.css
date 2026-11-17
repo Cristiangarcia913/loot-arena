@@ -163,6 +163,8 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
 .chip-racha { color: #fed7aa; border-color: rgba(249, 115, 22, .6); background: rgba(249, 115, 22, .12); font-weight: 700; }
 .chip-racha.racha-viva { animation: racha 1.2s ease-in-out infinite; }
 @keyframes racha { 50% { box-shadow: 0 0 14px rgba(249, 115, 22, .7); color: #fff; } }
+.chips-modificadores { margin-top: 6px; }
+.chip-modificador { color: #ddd6fe; border-color: rgba(139, 92, 246, .6); background: rgba(139, 92, 246, .14); font-weight: 700; cursor: help; }
 .sub { font-size: .9rem; color: var(--tenue); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: .12em; }
 
 /* ── Escena de la arena ── */
@@ -341,6 +343,13 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
 .res-limite { border-color: rgba(59, 130, 246, .6); background: rgba(59, 130, 246, .1); }
 .res-espera { flex-direction: row; align-items: center; }
 .res .btn { align-self: flex-start; }
+.res-modificador { border-color: rgba(139, 92, 246, .6); background: radial-gradient(ellipse at top, rgba(139, 92, 246, .16), transparent 70%); }
+.res-modificador-sub { margin: -4px 0 0; color: var(--tenue); font-size: .88rem; }
+.res-modificador-opciones { display: flex; gap: 10px; flex-wrap: wrap; }
+.mod-card { align-self: stretch; flex: 1 1 220px; max-width: 320px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px 14px; text-align: left; white-space: normal; }
+.mod-card-icono { font-size: 1.4rem; line-height: 1; }
+.mod-card-nombre { font-weight: 800; color: var(--texto); }
+.mod-card-desc { font-size: .82rem; color: var(--tenue); line-height: 1.3; }
 .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--oro); border-right-color: transparent; animation: girar .8s linear infinite; flex: none; }
 @keyframes girar { to { transform: rotate(360deg); } }
 

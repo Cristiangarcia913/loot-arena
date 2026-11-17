@@ -13,14 +13,16 @@ export const MAX_CACHE = 48;
 
 /**
  * Texto que toca mostrar, con los mismos criterios que `fx.animarGolpe`:
- * esquiva → «¡Esquiva!», bloqueo → «🛡 N» o «¡Bloqueado!», crítico → «¡N!», normal → «−N».
+ * esquiva → «¡Esquiva!», fallo propio (Modificador de Arena) → «¡Fallas!» (misma clase que esquiva),
+ * bloqueo → «🛡 N» o «¡Bloqueado!», crítico → «¡N!», normal → «−N».
  * Función pura: se prueba en Node.
  *
  * @param {number|string} dano
- * @param {{critico?:boolean, bloqueado?:boolean, esquivado?:boolean}} [o]
+ * @param {{critico?:boolean, bloqueado?:boolean, esquivado?:boolean, fallo?:boolean}} [o]
  * @returns {{texto:string, clase:"dano"|"critico"|"bloqueo"|"esquiva"}}
  */
-export function textoDeGolpe(dano, { critico = false, bloqueado = false, esquivado = false } = {}) {
+export function textoDeGolpe(dano, { critico = false, bloqueado = false, esquivado = false, fallo = false } = {}) {
+  if (fallo) return { texto: "¡Fallas!", clase: "esquiva" };
   if (esquivado || dano === "esquiva") return { texto: "¡Esquiva!", clase: "esquiva" };
   if (bloqueado) return { texto: dano ? `🛡 ${dano}` : "¡Bloqueado!", clase: "bloqueo" };
   if (critico) return { texto: `¡${dano}!`, clase: "critico" };

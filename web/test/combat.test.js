@@ -478,3 +478,101 @@ test("revivirEnArena: solo se puede revivir tras una derrota", () => {
   const c = C.crearCombate(HEROE, C.generarEnemigo(1, neutro), neutro);
   assert.throws(() => C.revivirEnArena(c), /derrota/);
 });
+
+// ───────── Modificadores de Arena (bendiciones/maldiciones) ─────────
+
+test("modificadorArena: busca por id, null si no existe", () => {
+  assert.equal(C.modificadorArena("furia_sangrienta").nombre, "Furia Sangrienta");
+  assert.equal(C.modificadorArena("no_existe"), null);
+});
+
+test("elegirModificadoresArena: 2 distintos del catálogo, evitando los ya activos si puede", () => {
+  const rng = C.mulberry32(5);
+  const [a, b] = C.elegirModificadoresArena(rng);
+  assert.notEqual(a.id, b.id);
+  assert.ok(C.MODIFICADORES_ARENA.includes(a) && C.MODIFICADORES_ARENA.includes(b));
+  // Con 1 ya activo, los 2 ofrecidos son justo los otros 2 (no se repite el activo).
+  const activos = [C.MODIFICADORES_ARENA[0].id];
+  for (let i = 0; i < 20; i++) {
+    const [x, y] = C.elegirModificadoresArena(C.mulberry32(i), activos);
+    assert.ok(![x.id, y.id].includes(activos[0]));
+  }
+});
+
+test("elegirModificadoresArena: con los 3 ya activos, no hay nada nuevo que ofrecer pero sigue devolviendo 2", () => {
+  const todos = C.MODIFICADORES_ARENA.map((m) => m.id);
+  const [a, b] = C.elegirModificadoresArena(C.mulberry32(1), todos);
+  assert.ok(a && b && a.id !== b.id);
+});
+
+test("aplicarModificadoresArena: sin ids activos devuelve el héroe tal cual (misma referencia)", () => {
+  const heroe = { ataque: 10, defensa: 5, esquiva: 0.1 };
+  assert.equal(C.aplicarModificadoresArena(heroe, []), heroe);
+  assert.equal(C.aplicarModificadoresArena(heroe, undefined), heroe);
+});
+
+test("aplicarModificadoresArena: Furia Sangrienta sube el ataque y añade sangrado propio", () => {
+  const heroe = { ataque: 10, defensa: 5, esquiva: 0.1 };
+  const h = C.aplicarModificadoresArena(heroe, ["furia_sangrienta"]);
+  assert.equal(h.ataque, 13);
+  assert.equal(h.defensa, 5);
+  assert.equal(h.vidaPorTurno, 0.05);
+  assert.equal(h.precision, 1);
+});
+
+test("aplicarModificadoresArena: Piel de Piedra sube defensa y baja ataque", () => {
+  const h = C.aplicarModificadoresArena({ ataque: 20, defensa: 10 }, ["piel_de_piedra"]);
+  assert.equal(h.ataque, 17); // 20 × 0.85
+  assert.equal(h.defensa, 15); // 10 × 1.5
+});
+
+test("aplicarModificadoresArena: Viento Huracanado sube esquiva y baja precisión, con topes", () => {
+  const h = C.aplicarModificadoresArena({ ataque: 10, defensa: 5, esquiva: 0.5 }, ["viento_huracanado"]);
+  assert.equal(h.esquiva, Math.min(C.ESQUIVA_MAX_MODIFICADA, 0.6));
+  assert.equal(h.precision, 0.8);
+});
+
+test("aplicarModificadoresArena: se acumulan varios modificadores a la vez, con topes de seguridad", () => {
+  const h = C.aplicarModificadoresArena({ ataque: 10, defensa: 5, esquiva: 0.5 },
+    ["viento_huracanado", "viento_huracanado", "viento_huracanado"]);
+  assert.ok(h.esquiva <= C.ESQUIVA_MAX_MODIFICADA);
+  assert.ok(h.precision >= C.PRECISION_MIN_MODIFICADA);
+});
+
+test("crearCombate: precision/vidaPorTurno del héroe pasan al jugador; por defecto no cambian nada", () => {
+  const normal = C.crearCombate(HEROE, C.generarEnemigo(1, neutro), neutro);
+  assert.equal(normal.jugador.precision, 1);
+  assert.equal(normal.jugador.vidaPorTurno, 0);
+  const conMods = C.crearCombate({ ...HEROE, precision: 0.8, vidaPorTurno: 0.05 }, C.generarEnemigo(1, neutro), neutro);
+  assert.equal(conMods.jugador.precision, 0.8);
+  assert.equal(conMods.jugador.vidaPorTurno, 0.05);
+});
+
+test("Modificador de Arena: vidaPorTurno sangra al héroe al empezar su turno, cada turno", () => {
+  const heroe = { ...HEROE, vidaMax: 100, vidaPorTurno: 0.05 };
+  const c = C.crearCombate(heroe, dummy({ vidaMax: 50, ataque: 0, defensa: 3 }), neutro);
+  const vidaInicial = c.jugador.vida;
+  const { combate, eventos } = C.turnoJugador(c, "defender", neutro);
+  const evSangrado = eventos.find((e) => e.tipo === "dano_estado" && e.objetivo === "jugador");
+  const evEnemigo = eventos.find((e) => e.actor === "enemigo" && e.objetivo === "jugador");
+  assert.ok(evSangrado, "emite un evento de daño propio");
+  assert.equal(evSangrado.dano, 5); // 5 % de 100
+  assert.equal(combate.jugador.vida, vidaInicial - 5 - (evEnemigo?.dano ?? 0));
+});
+
+test("Modificador de Arena: precision < 1 hace fallar algunos ataques del héroe (sin daño ni estado en el enemigo)", () => {
+  const heroe = { ...HEROE, precision: 0 }; // falla siempre, determinista
+  const c = C.crearCombate(heroe, C.generarEnemigo(1, neutro), neutro);
+  const { eventos } = C.turnoJugador(c, "atacar", neutro);
+  const golpe = eventos.find((e) => e.tipo === "ataque");
+  assert.equal(golpe.fallo, true);
+  assert.equal(golpe.dano, 0);
+});
+
+test("precision === 1 (sin modificador) nunca falla y no gasta rng extra: mismo resultado que antes", () => {
+  const sinPrecision = C.crearCombate(HEROE, C.generarEnemigo(3, C.mulberry32(9)), C.mulberry32(9));
+  const conPrecision1 = C.crearCombate({ ...HEROE, precision: 1 }, C.generarEnemigo(3, C.mulberry32(9)), C.mulberry32(9));
+  const a = C.turnoJugador(sinPrecision, "atacar", C.mulberry32(20));
+  const b = C.turnoJugador(conPrecision1, "atacar", C.mulberry32(20));
+  assert.deepEqual(a.eventos.map((e) => e.texto), b.eventos.map((e) => e.texto));
+});

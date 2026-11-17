@@ -154,31 +154,35 @@ export function criaturaDesdeModelo(plantilla, alturaObjetivo) {
     n.receiveShadow = true;
   });
 
-  // Caja del modelo en espacio de mundo, a mano con posición + escala de cada antepasado (igual
-  // que `altoReal` en `criaturas.js`, que tampoco mira la rotación: para medir un bulto basta).
-  let min = Infinity, max = -Infinity, anchoX = 0, anchoZ = 0;
-  const medir = (n, y, x, z, esc) => {
-    const yy = y + n.position.y * esc;
-    const xx = x + n.position.x * esc;
-    const zz = z + n.position.z * esc;
-    const e2 = esc * (n.scale?.y ?? 1);
-    const caja = n.geometry?.boundingBox;
-    if (caja) {
-      min = Math.min(min, yy + caja.min.y * e2);
-      max = Math.max(max, yy + caja.max.y * e2);
-      anchoX = Math.max(anchoX, Math.abs(xx) + Math.max(Math.abs(caja.min.x), Math.abs(caja.max.x)) * e2);
-      anchoZ = Math.max(anchoZ, Math.abs(zz) + Math.max(Math.abs(caja.min.z), Math.abs(caja.max.z)) * e2);
-    }
-    for (const c of n.children ?? []) medir(c, yy, xx, zz, e2);
-  };
-  medir(raiz, 0, 0, 0, 1);
+  // Caja del modelo en espacio de `raiz`, con la transformación COMPLETA (posición, rotación y
+  // escala) de cada antepasado hasta cada malla: a diferencia de `altoReal` en `criaturas.js` (que
+  // sí puede ignorar la rotación porque las recetas procedurales nunca rotan una rama entera), un
+  // `.glb` descargado puede traer una rotación de conversión de ejes (Z-up → Y-up, muy habitual en
+  // piezas exportadas de Blender) en algún antepasado de las mallas; sumar solo posiciones como si
+  // nada rotara mediría la "altura" en el eje equivocado. `raiz` acaba de clonarse y no tiene padre
+  // (`clone()` no conserva `.parent`), así que su propio `matrixWorld` es la identidad y el
+  // `matrixWorld` de cada malla tras `updateMatrixWorld` ya está expresado en el espacio de `raiz`.
+  raiz.updateMatrixWorld(true);
+  let caja = null;
+  raiz.traverse((n) => {
+    if (!n.isMesh || !n.geometry?.boundingBox) return;
+    const b = n.geometry.boundingBox.clone().applyMatrix4(n.matrixWorld);
+    caja = caja ? caja.union(b) : b;
+  });
 
-  const altoBruto = Number.isFinite(min) && max > min ? max - min : 1;
+  const altoBruto = caja && caja.max.y > caja.min.y ? caja.max.y - caja.min.y : 1;
   const escala = altoBruto > 0 ? alturaObjetivo / altoBruto : 1;
   raiz.scale.setScalar(escala);
-  raiz.position.y -= (Number.isFinite(min) ? min : 0) * escala;
+  raiz.position.y -= (caja ? caja.min.y : 0) * escala;
+  // Centrado horizontal: el centro de la caja (no el origen del archivo) cae en x=0,z=0 del puesto.
+  if (caja) {
+    raiz.position.x -= ((caja.min.x + caja.max.x) / 2) * escala;
+    raiz.position.z -= ((caja.min.z + caja.max.z) / 2) * escala;
+  }
 
-  const radio = Math.max(0.3, Math.max(anchoX, anchoZ) * escala);
+  const radio = caja
+    ? Math.max(0.3, Math.max(caja.max.x - caja.min.x, caja.max.z - caja.min.z) * escala * 0.5)
+    : 0.3;
 
   return {
     raiz, taller: { liberar() {} }, alto: alturaObjetivo, radio,

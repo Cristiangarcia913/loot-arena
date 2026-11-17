@@ -352,6 +352,9 @@ test("textoDeGolpe dice lo mismo que fx.js en cada caso", () => {
   assert.deepEqual(textoDeGolpe("esquiva"), { texto: "¡Esquiva!", clase: "esquiva" });
   // La esquiva manda sobre todo lo demás, igual que en fx.animarGolpe.
   assert.equal(textoDeGolpe(99, { critico: true, esquivado: true }).clase, "esquiva");
+  // Fallo propio (Modificador de Arena «Viento Huracanado»): misma clase que esquiva, rótulo distinto.
+  assert.deepEqual(textoDeGolpe(0, { fallo: true }), { texto: "¡Fallas!", clase: "esquiva" });
+  assert.equal(textoDeGolpe(99, { critico: true, fallo: true }).clase, "esquiva");
 });
 
 test("el rótulo de un crítico es más grande que el de un golpe normal", () => {
