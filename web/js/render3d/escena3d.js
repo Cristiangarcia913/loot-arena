@@ -318,14 +318,18 @@ async function arrancar() {
   E.T = T;
 
   // Modelos externos verificados por el equipo (ver `modelos.js`): se piden ya, en segundo plano,
-  // para que si existen estén en memoria antes de que haga falta construir al héroe o al jefe. Si
+  // para que si existen estén en memoria antes de que haga falta construir al enemigo o al jefe. Si
   // no hay archivo (lo normal hoy) esto no hace nada más que una comprobación de red que falla.
   //
-  // El héroe (y el enemigo en pantalla) normalmente ya se habrán construido por código antes de que
-  // esta descarga resuelva: si resuelve con un modelo de verdad, se tira esa versión procedural del
-  // almacén (ver `olvidarHeroesDelAlmacen`/`olvidarEnemigoDelAlmacen`) y se reconstruye, así no hace
-  // falta cambiar de equipo ni de combate para ver el modelo importado.
-  cargarModeloExterno("heroe").then((m) => { if (m) { olvidarHeroesDelAlmacen(); reconstruirHeroe(); } });
+  // El héroe NUNCA pide un modelo externo (a propósito, a diferencia de los enemigos): un `.glb`
+  // sustituye la malla ENTERA y la receta importada no trae las piezas con nombre que `piezas()`
+  // anima (mano de la espada, asa del escudo...), así que equipar o desequipar deja de notarse en
+  // la arena. El héroe siempre se construye por código en `criaturas.js`, que sí sabe dibujar cada
+  // arma y pieza de armadura con el color de su rareza.
+  //
+  // El enemigo en pantalla normalmente ya se habrá construido por código antes de que esta descarga
+  // resuelva: si resuelve con un modelo de verdad, se tira esa versión procedural del almacén (ver
+  // `olvidarEnemigoDelAlmacen`) y se reconstruye, así no hace falta cambiar de combate para verlo.
   for (const b of BESTIARIO) {
     cargarModeloExterno(b.clave).then((m) => {
       if (!m) return;
@@ -779,18 +783,7 @@ function restaurar(cr) {
   }
 }
 
-/** Tira del almacén los héroes ya construidos por código, para que el próximo `reconstruirHeroe()`
- * los rehaga con el modelo externo de `heroe.glb` que acaba de terminar de cargar (ver `arrancar`). */
-function olvidarHeroesDelAlmacen() {
-  for (const k of [...almacen.keys()]) {
-    if (!k.startsWith("h|")) continue;
-    const cr = almacen.get(k);
-    almacen.delete(k);
-    if (cr !== E.lados.heroe?.criatura) tirar(cr);
-  }
-}
-
-/** Igual que `olvidarHeroesDelAlmacen`, pero para los enemigos (normal y jefe) de una clave
+/** Tira del almacén los enemigos (normal y jefe) de una clave
  * concreta del bestiario, cuando su modelo externo termina de cargar tarde. */
 function olvidarEnemigoDelAlmacen(clave) {
   for (const jefe of [false, true]) {

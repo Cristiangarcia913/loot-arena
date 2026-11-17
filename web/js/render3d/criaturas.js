@@ -225,7 +225,9 @@ function ponerCosmeticos(t, ap, { raiz, cuerpo, cabeza }) {
 export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   // Modelo externo verificado por el equipo (ver `modelos.js`): sustituye la malla entera. El
   // equipo visual (espada, escudo, cosméticos...) es cosa de la receta procedural de abajo, así
-  // que un héroe importado no lo muestra todavía: limitación aceptada al revisar la decisión 3.
+  // que un héroe importado no lo muestra: limitación aceptada al revisar la decisión 3. Por eso
+  // `escena3d.js` ya no pide `heroe.glb` (ver `web/assets/models/README.md`) y esta rama solo se
+  // activa hoy en las pruebas, que la fuerzan a mano con `_forzarModeloParaPruebas`.
   const plantillaHeroe = modeloEnMemoria("heroe");
   if (plantillaHeroe) return criaturaDesdeModelo(plantillaHeroe, ALTO_HEROE);
 
@@ -256,7 +258,11 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   const pierna = (s) => {
     const g = t.grupo(s < 0 ? "piernaIzq" : "piernaDer");
     g.add(t.en(t.capsula(0.085, 0.42, matTorsoOsc), 0, 0.52, 0));
-    g.add(t.en(t.caja(0.2, 0.14, 0.3, matBota), 0, 0.26, 0.04));
+    // Sandalia de gladiador (caligae): suela plana, no una bota cerrada, con dos correas de
+    // cuero que suben cruzadas por el tobillo hasta la espinilla.
+    g.add(t.en(t.caja(0.2, 0.07, 0.3, matBota), 0, 0.185, 0.04));
+    g.add(t.en(t.toro(0.1, 0.016, matCuero), 0, 0.25, 0.02, { rx: Math.PI / 2 }));
+    g.add(t.en(t.toro(0.095, 0.016, matCuero), 0, 0.34, -0.01, { rx: Math.PI / 2 }));
     return g;
   };
   const piernas = t.par(pierna, 0.13);
@@ -279,8 +285,12 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   cabeza.add(t.en(t.esfera(0.175, t.mat(HEROE.pelo, { rugosidad: 0.95 }), 0.6), 0, 0.06, -0.01));
   if (cas) {
     const matCasco = t.mat(cas.base, { metal: 0.85, rugosidad: 0.25, emision: cas.emision, fuerza: cas.fuerza * 0.6 });
+    // El penacho SIEMPRE es rojo, aunque el casco sea de rareza común: es lo que hace
+    // reconocible al casco de gladiador en vez de un cubo metálico cualquiera. La rareza del
+    // casco solo cambia el metal (gris/azul/dorado), nunca la cresta.
+    const matCresta = t.mat(0xb3121f, { rugosidad: 0.88, metal: 0.05 });
     cabeza.add(t.en(t.esfera(0.195, matCasco, 0.85), 0, 0.03, 0));
-    cabeza.add(t.en(t.caja(0.035, 0.1, 0.34, matCasco), 0, 0.16, 0)); // cresta
+    cabeza.add(t.en(t.caja(0.045, 0.1, 0.36, matCresta), 0, 0.17, 0)); // cresta/penacho
     cabeza.add(t.en(t.caja(0.07, 0.13, 0.03, matCasco), 0, 0.02, 0.17)); // nasal
   }
   t.en(cabeza, 0, 1.47, 0);
