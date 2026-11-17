@@ -30,7 +30,7 @@
 @keyframes torre-brillo { to { text-shadow: 0 0 4px rgba(232, 183, 90, .2); } }
 @media (prefers-reduced-motion: reduce) { .torre-final-record .torre-final-titulo { animation: none; } .torre-vida-barra { transition: none; } }
 
-.torre-ranking { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.torre-ranking { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; max-height: 420px; overflow-y: auto; overscroll-behavior: contain; }
 .torre-fila { display: grid; grid-template-columns: 2.2em minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 8px; font-size: .9rem; }
 .torre-fila:nth-child(odd) { background: rgba(255, 255, 255, .03); }
 .torre-pos { text-align: center; font-weight: 700; color: var(--tenue); }

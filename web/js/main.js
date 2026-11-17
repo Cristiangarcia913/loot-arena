@@ -931,7 +931,12 @@ function renderTorreSec() {
 async function cargarRankingTorre() {
   S.torreRanking = null;
   renderTorreSec();
-  try { S.torreRanking = await TORRE.pedirRankingTorre(S.cfg.serverUrl); } catch (e) { S.torreRanking = { error: String(e?.message ?? e) }; }
+  // pedirRankingTorre devuelve {ok:true, ranking:[...]} o {ok:false, mensaje}: hay que
+  // desempaquetar el array, si no renderTorre nunca ve una lista (solo el envoltorio).
+  try {
+    const r = await TORRE.pedirRankingTorre(S.cfg.serverUrl);
+    S.torreRanking = r.ok ? r.ranking : { error: r.mensaje };
+  } catch (e) { S.torreRanking = { error: String(e?.message ?? e) }; }
   renderTorreSec();
 }
 

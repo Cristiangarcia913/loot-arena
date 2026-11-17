@@ -96,13 +96,15 @@ function mascotaSvg(id) {
       <circle cx="14" cy="97" r="5.5" fill="#18181b"/><path d="M10 94 L10 88 L13 92 Z M16 92 L18 87 L18.5 93 Z" fill="#18181b"/>
       <circle cx="12.5" cy="97" r="1.1" fill="#facc15"/><circle cx="16" cy="97" r="1.1" fill="#facc15"/>
       <rect x="15" y="107" width="3" height="3" fill="#18181b"/><rect x="26" y="107" width="3" height="3" fill="#18181b"/></g>`;
+  // Igual que el gato: apoyado junto a los pies del héroe (y≈104-110, como la sombra en y=111),
+  // no a la altura del hombro donde se solapaba con el escudo (x33-55, y55-90).
   if (id === 13) return `<g class="sp-mascota sp-minidragon">
-      <path d="M22 70 L12 56 L18 58 L18 50 L26 62 Z" fill="#7f1d1d"/>
-      <ellipse cx="22" cy="72" rx="8" ry="5.5" fill="#dc2626"/>
-      <path d="M28 74 Q36 78 38 70" stroke="#dc2626" stroke-width="2.4" fill="none" stroke-linecap="round"/>
-      <circle cx="14" cy="67" r="4.5" fill="#dc2626"/><path d="M12 63 L11 59 L14 62 Z" fill="#fef3c7"/>
-      <circle cx="12.5" cy="66.5" r="1" fill="#fde047"/>
-      <circle cx="8" cy="69" r="1.8" fill="#fb923c" opacity=".85" class="sp-fuego"/></g>`;
+      <path d="M18 102 L8 88 L14 90 L14 82 L22 94 Z" fill="#7f1d1d"/>
+      <ellipse cx="18" cy="104" rx="8" ry="5.5" fill="#dc2626"/>
+      <path d="M24 106 Q32 110 34 102" stroke="#dc2626" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <circle cx="10" cy="99" r="4.5" fill="#dc2626"/><path d="M8 95 L7 91 L10 94 Z" fill="#fef3c7"/>
+      <circle cx="8.5" cy="98.5" r="1" fill="#fde047"/>
+      <circle cx="4" cy="101" r="1.8" fill="#fb923c" opacity=".85" class="sp-fuego"/></g>`;
   return "";
 }
 

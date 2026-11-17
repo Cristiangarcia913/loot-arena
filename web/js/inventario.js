@@ -85,8 +85,20 @@ function selectOpciones(id, opciones, valor, aria) {
     ...opciones.map(([v, t]) => h("option", { value: v, selected: v === valor }, t)));
 }
 
-/** Tarjeta de un objeto. */
-function tarjeta(it, equipado, { onEquipar, onTransferir }, piezasSet = {}) {
+/**
+ * Flecha de comparación de una stat frente a lo ya equipado de ese tipo: ▲ verde si mejora,
+ * ▼ roja si empeora, nada si es igual o no hay nada equipado con qué comparar.
+ */
+function comparacion(valor, actual) {
+  if (actual == null) return null;
+  const d = Number(valor) - Number(actual);
+  if (!d) return null;
+  return h("span", { class: `st-cmp ${d > 0 ? "st-mejor" : "st-peor"}`, title: `${d > 0 ? "+" : ""}${d} que el equipado` },
+    d > 0 ? `▲${d}` : `▼${-d}`);
+}
+
+/** Tarjeta de un objeto. `actualDelTipo`: lo ya equipado de su tipo (null si no hay o si es esta misma pieza). */
+function tarjeta(it, equipado, { onEquipar, onTransferir }, piezasSet = {}, actualDelTipo = null) {
   const set = conjuntoDe(it);
   const r = rareza(it.rareza);
   const nombre = it.nombre || `${it.tipo} #${it.tokenId}`;
@@ -94,6 +106,9 @@ function tarjeta(it, equipado, { onEquipar, onTransferir }, piezasSet = {}) {
   ico.innerHTML = iconoObjeto(it.tipo, it.rareza) || "";
   if (!ico.firstChild) ico.textContent = emojiTipo(it.tipo);
   const arte = h("div", { class: "item-arte", "aria-hidden": "true" }, ico);
+  const comp = !equipado && actualDelTipo
+    ? { atk: comparacion(it.ataque, actualDelTipo.ataque), def: comparacion(it.defensa, actualDelTipo.defensa) }
+    : { atk: null, def: null };
 
   return h("article", {
     class: `item rar-${Number(it.rareza) || 0}${equipado ? " equipado" : ""}`,
@@ -110,8 +125,8 @@ function tarjeta(it, equipado, { onEquipar, onTransferir }, piezasSet = {}) {
     h("p", { class: "item-meta" }, `${it.tipo} · `, h("span", { class: "rar-tag" }, r.nombre)),
     set ? etiquetaConjunto(set, piezasSet[set] ?? 0) : null,
     h("div", { class: "item-stats" },
-      h("span", { class: "st st-atk", title: "Ataque" }, `⚔️ ${it.ataque}`),
-      h("span", { class: "st st-def", title: "Defensa" }, `🛡️ ${it.defensa}`)),
+      h("span", { class: "st st-atk", title: "Ataque" }, `⚔️ ${it.ataque}`, comp.atk),
+      h("span", { class: "st st-def", title: "Defensa" }, `🛡️ ${it.defensa}`, comp.def)),
     h("div", { class: "item-acciones" },
       h("button", {
         type: "button",
@@ -141,6 +156,11 @@ export function renderInventario(contenedor, items = [], equipo = {}, { onEquipa
   const lista = Array.isArray(items) ? items : [];
   const ids = new Set(Object.values(equipo ?? {}).map(String));
   const piezasSet = Object.fromEntries(contarConjuntos(lista.filter((it) => ids.has(String(it.tokenId)))).map((x) => [x.id, x.piezas]));
+  const porId = new Map(lista.map((it) => [String(it.tokenId), it]));
+  // Lo ya equipado de cada tipo, para la comparación de stats de las tarjetas que no lo son.
+  const actualPorTipo = Object.fromEntries(
+    Object.entries(equipo ?? {}).map(([tipo, id]) => [tipo, id != null ? porId.get(String(id)) ?? null : null]).filter(([, it]) => it),
+  );
   const filtros = filtrosPorContenedor.get(contenedor) ?? { tipo: "", rareza: "", orden: "reciente" };
   filtrosPorContenedor.set(contenedor, filtros);
 
@@ -159,7 +179,7 @@ export function renderInventario(contenedor, items = [], equipo = {}, { onEquipa
       return;
     }
     cuadricula.replaceChildren(...vista.map((it) => {
-      const card = tarjeta(it, ids.has(String(it.tokenId)), { onEquipar, onTransferir }, piezasSet);
+      const card = tarjeta(it, ids.has(String(it.tokenId)), { onEquipar, onTransferir }, piezasSet, actualPorTipo[it.tipo] ?? null);
       card.setAttribute("role", "listitem");
       return card;
     }));

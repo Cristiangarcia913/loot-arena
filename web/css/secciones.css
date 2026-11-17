@@ -24,7 +24,7 @@
 .ranura-ico { font-size: 1.5rem; width: 2rem; text-align: center; }
 .ranura-cuerpo { display: flex; flex-direction: column; min-width: 0; }
 .ranura-tipo { font-size: .72rem; color: var(--tenue); text-transform: uppercase; letter-spacing: .08em; }
-.ranura-nombre { font-weight: 600; color: #6f604d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranura-nombre { font-weight: 600; color: var(--tenue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ranura.lleno .ranura-nombre { color: var(--rar); }
 .ranura-stats { font-size: .74rem; color: var(--tenue); overflow-wrap: anywhere; }
 .ranura .btn { white-space: nowrap; }

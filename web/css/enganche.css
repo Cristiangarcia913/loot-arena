@@ -167,7 +167,7 @@
 .eg-tab { font: 600 .82rem var(--cuerpo, sans-serif); color: var(--eg-tenue); cursor: pointer; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--eg-borde-suave); background: transparent; }
 .eg-tab.on { color: #2a1a06; background: var(--eg-oro); border-color: var(--eg-oro); }
 .eg-tab:focus-visible { outline: 2px solid var(--eg-oro); outline-offset: 2px; }
-.eg-ranking { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.eg-ranking { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow-y: auto; overscroll-behavior: contain; }
 .eg-fila { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 10px; background: var(--eg-panel-2); border: 1px solid transparent; font-variant-numeric: tabular-nums; }
 .eg-fila.top1 { background: linear-gradient(90deg, rgba(245, 197, 66, .25), var(--eg-panel-2)); }
 .eg-fila.top2 { background: linear-gradient(90deg, rgba(203, 213, 225, .18), var(--eg-panel-2)); }

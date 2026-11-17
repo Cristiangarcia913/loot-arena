@@ -423,6 +423,9 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
 .st { font-size: .75rem; font-weight: 600; padding: 2px 6px; border-radius: 6px; background: rgba(0, 0, 0, .35); }
 .st-atk { color: #ffb4a8; }
 .st-def { color: #a8c8ff; }
+.st-cmp { margin-left: 4px; font-weight: 800; }
+.st-mejor { color: #4ade80; }
+.st-peor { color: #f87171; }
 .item-poder {
   position: absolute; top: 8px; left: 8px; z-index: 2;
   font: 800 .78rem var(--cuerpo); padding: 2px 7px; border-radius: 999px;
