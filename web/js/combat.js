@@ -23,6 +23,12 @@ export const NIVEL_MAX = 10;
 export const VARIACION_DANO = 0.15;
 /** Victorias necesarias para subir un nivel de arena (la 5.ª es contra el jefe). */
 export const VICTORIAS_POR_NIVEL = 5;
+/** Victorias CONSECUTIVAS (racha) para que aparezca un Jefe de Arena (5, 10, 15…). */
+export const RACHA_CADA_JEFE = 5;
+/** Escalado continuo por racha: cada victoria consecutiva endurece un poco más al rival
+ * (vida, ataque y la potencia de sus estados), aunque no sea un piso de jefe. Sin techo
+ * a propósito: es lo que hace que seguir arriesgando la racha dé más miedo cuanto más larga es. */
+export const RACHA_ESCALA = Object.freeze({ vida: 0.025, ataque: 0.02, estados: 0.015 });
 /** Pociones al empezar una expedición. */
 export const POCIONES_POR_EXPEDICION = 3;
 /** Fracción de la vida máxima que cura una poción. */
@@ -306,6 +312,46 @@ export function nivelArena(victorias) {
 export function esCombateDeJefe(victorias) {
   const v = Math.max(0, Math.floor(Number(victorias) || 0));
   return v % VICTORIAS_POR_NIVEL === VICTORIAS_POR_NIVEL - 1;
+}
+
+/**
+ * ¿El próximo combate es un Jefe de Arena por racha? Cada RACHA_CADA_JEFE victorias
+ * CONSECUTIVAS (5, 10, 15…; se pierde la cuenta en cuanto se cae). A diferencia de
+ * `esCombateDeJefe` (que no depende de si se ha perdido antes), este jefe es la
+ * recompensa a arriesgar la racha: 2 fases y botín garantizado (ver `escalarPorRacha`).
+ * @param {number} racha victorias consecutivas ANTES del combate
+ */
+export function esJefeDeRacha(racha) {
+  const r = Math.max(0, Math.floor(Number(racha) || 0));
+  return r > 0 && r % RACHA_CADA_JEFE === 0;
+}
+
+/** Combates que faltan para el próximo Jefe de Arena por racha (0 = el próximo combate es el jefe). */
+export function combatesHastaJefeDeRacha(racha) {
+  const r = Math.max(0, Math.floor(Number(racha) || 0));
+  return RACHA_CADA_JEFE - 1 - (r % RACHA_CADA_JEFE);
+}
+
+/**
+ * Escala un enemigo ya generado según la racha de victorias consecutivas: un poco más de
+ * vida y ataque por cada victoria seguida, y estados (veneno, sangrado…) algo más potentes
+ * (`multEstados`, que ya entiende `aplicarEstado`). No muta.
+ * @param {ReturnType<typeof generarEnemigo>} enemigo
+ * @param {number} racha victorias consecutivas antes de este combate
+ * @param {{jefeDeRacha?: boolean}} [opciones] marca el enemigo como Jefe de Arena (solo
+ *   etiqueta: pásale ya `jefe:true` a `generarEnemigo` para que tenga 2 fases y telegrafíe)
+ */
+export function escalarPorRacha(enemigo, racha, { jefeDeRacha = false } = {}) {
+  const r = Math.max(0, Math.floor(Number(racha) || 0));
+  const fv = 1 + RACHA_ESCALA.vida * r;
+  const fa = 1 + RACHA_ESCALA.ataque * r;
+  return {
+    ...enemigo,
+    jefeDeRacha: !!jefeDeRacha,
+    vidaMax: Math.max(1, Math.round(enemigo.vidaMax * fv)),
+    ataque: Math.max(1, Math.round(enemigo.ataque * fa)),
+    multEstados: 1 + RACHA_ESCALA.estados * r,
+  };
 }
 
 /** Nivel del próximo enemigo: nivel de arena ±1, acotado a 1..10. */
@@ -627,6 +673,29 @@ export function huir(combate) {
   if (combate.fase !== "en_curso") return combate;
   const ev = snap(combate, { actor: "sistema", tipo: "huida", texto: "Huyes de la arena con el rabo entre las piernas." });
   return { ...combate, fase: "huida", enemigo: { ...combate.enemigo, intencion: null }, log: [...combate.log, ev] };
+}
+
+/** Fracción de la vida máxima con la que revive el héroe en la Arena al ver un anuncio tras una derrota. */
+export const VIDA_REVIVIR_ARENA = 0.5;
+
+/**
+ * Revive al héroe tras una derrota en la Arena (anuncio recompensado, una vez por sesión:
+ * lo controla quien llama a esto). Sigue el MISMO combate contra el MISMO enemigo: el héroe
+ * recupera VIDA_REVIVIR_ARENA de su vida máxima y se libra de sus estados negativos; el
+ * enemigo se queda tal cual estaba. No muta.
+ * @param {object} combate combate en fase "derrota"
+ * @param {() => number} [rng] para la nueva intención del enemigo
+ * @throws si el combate no ha terminado en derrota
+ */
+export function revivirEnArena(combate, rng = Math.random) {
+  if (combate?.fase !== "derrota") throw new Error("revivirEnArena: el combate no ha terminado en derrota");
+  const vida = Math.max(1, Math.round(combate.jugador.vidaMax * VIDA_REVIVIR_ARENA));
+  const jugador = { ...combate.jugador, vida, estados: [], defendiendo: false };
+  const base = { ...combate, fase: "en_curso", jugador };
+  const intencion = decidirIntencion(base, rng);
+  const c = { ...base, enemigo: { ...combate.enemigo, intencion } };
+  const ev = snap(c, { actor: "sistema", tipo: "revivir", texto: `📺 ¡Revives con ${vida} de vida y sigues en la arena!` });
+  return { ...c, log: [...combate.log, ev] };
 }
 
 /**

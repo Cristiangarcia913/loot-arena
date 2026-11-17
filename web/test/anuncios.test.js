@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as A from "../js/anuncios.js";
-import * as T from "../js/torre.js";
 import * as X from "../js/expediciones.js";
 import * as E from "../js/economy.js";
 
@@ -23,7 +22,7 @@ test("con SDK de CrazyGames pide un anuncio 'rewarded' y premia al terminar", as
   const f = sdkFalso((cb) => { cb.adStarted(); cb.adFinished(); });
   const g = A.crearGestorAnuncios({ entorno: f.entorno, simular: () => assert.fail("no debe simular") });
   let premio = 0, fallo = null;
-  const ok = await g.mostrarAnuncioRecompensado("revivir_torre", () => premio++, (m) => (fallo = m));
+  const ok = await g.mostrarAnuncioRecompensado("revivir_racha", () => premio++, (m) => (fallo = m));
   assert.equal(ok, true);
   assert.equal(premio, 1);
   assert.equal(fallo, null);
@@ -64,21 +63,6 @@ test("no abre dos anuncios a la vez", async () => {
 test("sdkCrazyGames ignora objetos sin API de anuncios", () => {
   assert.equal(A.sdkCrazyGames({}), null);
   assert.equal(A.sdkCrazyGames({ CrazyGames: { SDK: {} } }), null);
-});
-
-// ───────── Revivir en la torre ─────────
-
-test("revivirTorre: mismo piso, 50 % de vida y solo una vez", () => {
-  const t0 = { ...T.nuevaTorre({ vidaMax: 100, ataque: 10, defensa: 5 }), piso: 4, vida: 30 };
-  assert.ok(T.puedeRevivir(t0));
-  const t = T.revivirTorre(t0);
-  assert.equal(t.piso, 4);
-  assert.equal(t.vida, 50);
-  assert.equal(t.estado, "en_curso");
-  assert.equal(t.revivido, true);
-  assert.equal(T.puedeRevivir(t), false);
-  assert.throws(() => T.revivirTorre(t));
-  assert.equal(t0.revivido, undefined, "no muta");
 });
 
 // ───────── Duplicar botín de expedición ─────────

@@ -63,13 +63,20 @@ function concordar(adj, genero) {
 }
 
 /** Probabilidades [Común, Raro, Legendario]: mismas curvas que el servidor. */
-export function probabilidadesRareza(nivel = 1, { jefe = false, sinLegendario = 0 } = {}) {
+export function probabilidadesRareza(nivel = 1, { jefe = false, sinLegendario = 0, excluirComun = false } = {}) {
   const t = fraccionNivel(nivel);
   let leg = jefe ? 0.10 + 0.10 * t : 0.05 + 0.09 * t;
   let raro = jefe ? 0.35 + 0.09 * t : 0.25 + 0.135 * t;
   if (sinLegendario >= PITY_UMBRAL) leg = Math.max(leg, Math.min(1, PITY_BASE + PITY_PASO * (sinLegendario - PITY_UMBRAL)));
   raro = Math.min(raro, 1 - leg);
-  return [Math.max(0, 1 - raro - leg), raro, leg];
+  let comun = Math.max(0, 1 - raro - leg);
+  // Jefe de Arena de la racha (combat.js: esJefeDeRacha): el botín nunca es Común.
+  if (excluirComun && comun > 0) {
+    const resto = raro + leg;
+    if (resto > 0) { raro += comun * (raro / resto); leg += comun * (leg / resto); } else { raro = leg = 0.5; }
+    comun = 0;
+  }
+  return [comun, raro, leg];
 }
 
 function sortearRareza(rng, nivel, opts) {
@@ -101,8 +108,8 @@ export function rangoStat(rareza, nivel = 1, { jefe = false } = {}) {
  * Objeto completo { nombre, tipo, rareza, ataque, defensa[, conjunto] } (sin tokenId).
  * `conjunto`: id fijo (de conjuntos.js), `null` para forzar que no tenga, o undefined para sortearlo.
  */
-export function generarObjeto(rng, { nivel = 1, jefe = false, sinLegendario = 0, rareza: fija = null, conjunto: fijo } = {}) {
-  const rareza = fija ?? sortearRareza(rng, nivel, { jefe, sinLegendario });
+export function generarObjeto(rng, { nivel = 1, jefe = false, sinLegendario = 0, excluirComun = false, rareza: fija = null, conjunto: fijo } = {}) {
+  const rareza = fija ?? sortearRareza(rng, nivel, { jefe, sinLegendario, excluirComun });
   const tipo = elegir(rng, LISTA_TIPOS);
   const conjunto = fijo !== undefined
     ? (esConjuntoValido(fijo) ? fijo : null)
@@ -157,15 +164,16 @@ export const serializarEstado = (estado) => JSON.stringify(estado);
  * Tirada al ganar un combate en modo demo. Devuelve el estado nuevo y el objeto (o null).
  * Igual que el servidor: los jefes siempre sueltan objeto y la primera victoria da un Raro.
  * @param {ReturnType<typeof estadoVacio>} estado
- * @param {{nivel?: number, jefe?: boolean}} enemigo
+ * @param {{nivel?: number, jefe?: boolean, excluirComun?: boolean}} enemigo `excluirComun`: Jefe
+ *   de Arena de la racha (combat.js: esJefeDeRacha), nunca cae Común.
  * @param {() => number} [rng]
  * @param {{equipados?: Iterable<string>}} [opts] tokenId equipados (no se descartan al llenarse)
  */
-export function tirarBotinLocal(estado, { nivel = 1, jefe = false } = {}, rng = Math.random, { equipados = [] } = {}) {
+export function tirarBotinLocal(estado, { nivel = 1, jefe = false, excluirComun = false } = {}, rng = Math.random, { equipados = [] } = {}) {
   const primero = !estado.primeroEntregado;
   if (!primero && !jefe && !(rng() < DROP_CHANCE)) return { estado, item: null };
 
-  const base = generarObjeto(rng, { nivel, jefe, sinLegendario: estado.sinLegendario, rareza: primero ? 1 : null });
+  const base = generarObjeto(rng, { nivel, jefe, sinLegendario: estado.sinLegendario, excluirComun, rareza: primero ? 1 : null });
   const item = { tokenId: String(estado.siguienteId), ...base, local: true };
   let items = [...estado.items, item];
   if (items.length > MAX_OBJETOS) items = descartarMasDebil(items, new Set([...equipados].map(String)), item.tokenId);

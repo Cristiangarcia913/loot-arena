@@ -1,7 +1,7 @@
-// Expediciones, torre y el resto de secciones de contenido, sin wallet.
+// Expediciones y el resto de secciones de contenido, sin wallet.
 
 import { caso, afirmar, igual, esperarA, dormir } from "./arnes.js";
-import { irASeccion, explorar, combatirHastaElFinal, cerrarResultado, resultadoVisible } from "./ayudas.js";
+import { irASeccion, explorar, resultadoVisible } from "./ayudas.js";
 
 caso("Expediciones", "La sección se pinta y se puede enviar al héroe", async ({ abrirApp }) => {
   const app = await abrirApp();
@@ -30,53 +30,6 @@ caso("Expediciones", "La cuenta atrás avanza y no se dispara cuando la sección
   await irASeccion(app, "arena");
   await dormir(600);
   app.sinErrores("con la expedición en curso y la sección oculta");
-});
-
-caso("Torre", "La sección se pinta y se puede empezar una subida", async ({ abrirApp }) => {
-  const app = await abrirApp();
-  await irASeccion(app, "torre");
-  const cont = app.$("#torre");
-  await esperarA(() => cont.textContent.trim().length > 20, "la Torre se pinte");
-  const empezar = [...cont.querySelectorAll("button")].find((b) => !b.disabled);
-  afirmar(empezar, "La Torre no ofrece ningún botón activo para empezar a subir.");
-  empezar.click();
-  await esperarA(() => app.visible("#seccion-arena") || !app.$("#btn-atacar").disabled, "la subida a la Torre lleve a un combate");
-  app.sinErrores("al empezar la Torre");
-});
-
-// Ojo: al GANAR un piso la Torre no abre la pantalla de resultado a pantalla completa como el
-// resto del juego, sino el panel #resultado con un botón «Subir al piso N». Solo al perder sale
-// la pantalla grande. El caso acepta los dos finales.
-caso("Torre", "Un piso de la torre se juega hasta el final y ofrece seguir subiendo", async ({ abrirApp }) => {
-  const app = await abrirApp();
-  await irASeccion(app, "torre");
-  const cont = app.$("#torre");
-  await esperarA(() => [...cont.querySelectorAll("button")].some((b) => !b.disabled), "la Torre ofrezca empezar");
-  [...cont.querySelectorAll("button")].find((b) => !b.disabled).click();
-  await esperarA(() => !app.$("#btn-atacar").disabled, "empiece el combate del primer piso");
-
-  const pisoTerminado = () => resultadoVisible(app) || /Piso \d+ superado|Fin de la subida/i.test(app.texto("#resultado"));
-  let turnos = 0;
-  while (turnos < 140 && !pisoTerminado()) {
-    const hab = app.$$("#skills button").find((b) => !b.disabled);
-    const pocion = app.$("#btn-pocion");
-    if (hab) hab.click();
-    else if (pocion && !pocion.disabled) pocion.click();
-    else if (!app.$("#btn-atacar").disabled) app.$("#btn-atacar").click();
-    turnos++;
-    await dormir(45);
-  }
-  await esperarA(pisoTerminado, "el piso termine con un resultado visible", { ms: 8000 });
-
-  if (resultadoVisible(app)) {
-    igual(app.texto("#pantalla-resultado .resultado-titulo"), "DERROTA", "Al caer en la Torre debería salir la pantalla de DERROTA.");
-    await cerrarResultado(app);
-  } else {
-    afirmar(/Subir al piso/i.test(app.texto("#resultado")), `Tras superar un piso no se ofrece subir al siguiente: «${app.texto("#resultado").slice(0, 120)}».`);
-    await irASeccion(app, "torre");
-    afirmar(/Piso 2|Luchar en el piso/i.test(app.texto("#torre")), "La sección Torre no refleja que se ha superado el piso 1.");
-  }
-  app.sinErrores("al jugar un piso de la Torre");
 });
 
 caso("Misiones", "La sección muestra diario, misiones, desafío y pase", async ({ abrirApp }) => {

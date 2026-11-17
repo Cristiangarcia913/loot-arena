@@ -7,7 +7,7 @@ import { esperarA, FalloPrueba, dormir } from "./arnes.js";
  * Secciones por defecto. Es solo un respaldo: el juego va creciendo (en noviembre entró «cadena»),
  * así que los casos preguntan a la página con `seccionesDe(app)` en vez de fiarse de esta lista.
  */
-export const SECCIONES = ["arena", "heroe", "inventario", "mercado", "misiones", "logros", "expediciones", "torre", "ranking", "cadena"];
+export const SECCIONES = ["arena", "heroe", "inventario", "mercado", "misiones", "logros", "expediciones", "ranking", "cadena"];
 
 /** Las secciones que el menú de la página ofrece ahora mismo, en su orden. */
 export function seccionesDe(app) {

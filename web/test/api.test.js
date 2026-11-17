@@ -45,6 +45,16 @@ test("reclamarBotin envía {address, enemyLevel} por POST", async () => {
   assert.deepEqual(JSON.parse(llamada.opts.body), { address: "0x1234", enemyLevel: 3 });
 });
 
+test("reclamarBotin envía jefe y excluirComun cuando se piden (Jefe de Arena de la racha)", async () => {
+  let llamada;
+  const fetchImpl = async (url, opts) => {
+    llamada = { url, opts };
+    return { status: 200, json: async () => ({ drop: false }) };
+  };
+  await reclamarBotin("http://srv", "0x1234", 7, { fetchImpl, jefe: true, excluirComun: true });
+  assert.deepEqual(JSON.parse(llamada.opts.body), { address: "0x1234", enemyLevel: 7, jefe: true, excluirComun: true });
+});
+
 test("reclamarBotin convierte un fallo de red en error", async () => {
   const r = await reclamarBotin("http://srv", "0x1", 1, { fetchImpl: async () => { throw new TypeError("Failed to fetch"); } });
   assert.equal(r.tipo, "error");

@@ -75,7 +75,6 @@ function respuestaSimulada(url, init) {
   if (ruta === "/ranking") return json({ actualizado: Date.now(), categorias: { objetos: [], oro: [], victorias: [] } });
   if (ruta.startsWith("/ranking/")) return json({ categorias: {} });
   if (ruta.startsWith("/recompensa/diaria/")) return json({ racha: 0, disponible: false, siguiente: Date.now() + 3600_000 });
-  if (ruta === "/torre/rank" || ruta.startsWith("/torre")) return json({ top: [], actualizado: Date.now() });
   if (ruta === "/recompensa") return json({ ok: false, error: "simulado por el arnés" }, 400);
   if (ruta === "/gas" || ruta.startsWith("/gas/")) return json({ ok: false, error: "simulado por el arnés" }, 400);
   return json({ error: `ruta no simulada por el arnés: ${ruta} (${init?.method ?? "GET"})` }, 404);

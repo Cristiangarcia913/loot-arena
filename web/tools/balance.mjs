@@ -17,9 +17,7 @@
 // 3. JEFES con equipo medio: un reto de verdad arriba. El de la arena 10 ronda el 25-40 % y el
 //    héroe lo remata con poca vida. Los de media tabla quedaron más asequibles al suavizar los
 //    niveles bajos: es el precio del recibimiento y está pendiente de un repaso por criatura.
-// 4. TORRE: mediana de 5-8 pisos sin equipo (se comprueba en test/torre.test.js).
-//
-// Los diales están en `ESCALA_ENEMIGO` (combat.js), los `mods` de cada criatura y `TORRE` (torre.js).
+// Los diales están en `ESCALA_ENEMIGO` (combat.js) y los `mods` de cada criatura.
 import * as C from "../js/combat.js";
 import * as P from "../js/progression.js";
 import { habilidadesDisponibles } from "../js/skills.js";

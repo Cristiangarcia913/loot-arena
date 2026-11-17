@@ -184,7 +184,7 @@ export function pintarRivales(rivales, { net, sinFuentes }) {
     "Información pública de la cadena: cualquiera puede leer el saldo y los objetos de cualquier dirección."));
 
   if (sinFuentes) {
-    caja.append(aviso("Todavía no te has cruzado con nadie. Juega la torre o entra al mercado y aquí aparecerán los rivales.", "info"));
+    caja.append(aviso("Todavía no te has cruzado con nadie. Juega en la arena o entra al mercado y aquí aparecerán los rivales.", "info"));
     return caja;
   }
   if (!rivales.length) {

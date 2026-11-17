@@ -690,7 +690,7 @@ export function mostrarEnemigo(enemigo, { interno = false } = {}) {
   if (jefe) {
     sacudir(16, 700);
     destello("#b91c1c", 0.45, 500);
-    anunciar("¡JEFE!", enemigo.titulo ?? enemigo.nombre, "anuncio-jefe");
+    anunciar(enemigo.jefeDeRacha ? "👑 ¡JEFE DE ARENA!" : "¡JEFE!", enemigo.titulo ?? enemigo.nombre, "anuncio-jefe");
   }
 }
 
@@ -811,7 +811,7 @@ export function actualizarRacha(n) {
   const r = document.getElementById("racha");
   if (!r) return;
   r.hidden = !n;
-  r.textContent = `🔥 Racha ${n}`;
+  r.textContent = `🔥 Racha de victorias: ${n}`;
   r.classList.toggle("racha-viva", n >= 3);
   if (n && !reducido()) r.animate([{ transform: "scale(1.4)" }, { transform: "scale(1)" }], { duration: 300, easing: "cubic-bezier(.3,1.6,.5,1)" });
 }

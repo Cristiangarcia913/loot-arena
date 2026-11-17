@@ -333,10 +333,13 @@ nunca la URL, el host ni el token. El error crudo de `fetch` sí los lleva dentr
 del servidor**, que son privados. Hay tests que comprueban que nada de eso se escapa por `/health`.
 
 ### `POST /ganar`
-Body: `{ "address": "0x...", "enemyLevel": 1, "jefe": false }`
+Body: `{ "address": "0x...", "enemyLevel": 1, "jefe": false, "excluirComun": false }`
 - `enemyLevel`: entero 1..10, opcional, por defecto 1.
 - `jefe`: **booleano** opcional, por defecto `false`. `true` = el combate ganado era contra un jefe
   (siempre suelta objeto y mejora rareza y stats). Cualquier otro tipo (`"true"`, `1`, `null`…) → 400.
+- `excluirComun`: **booleano** opcional, por defecto `false` (1.5). `true` = la rareza del botín nunca es
+  Común (se reparte lo que le tocaba entre Raro y Legendario, en su misma proporción). Lo usa la web para
+  el Jefe de Arena de la racha de la Arena (cada 5 victorias consecutivas). Cualquier otro tipo → 400.
 
 La forma de la respuesta no cambia respecto a la 1.0, salvo el campo opcional `primerBotin` (1.3, ver abajo).
 
@@ -344,7 +347,7 @@ La forma de la respuesta no cambia respecto a la 1.0, salvo el campo opcional `p
 |---|---|
 | 200 con drop | `{ "drop": true, "tokenId": "5", "txHash": "0x...", "item": { "nombre": "Cimitarra Rúnica de Escarcha", "tipo": "Espada", "rareza": 1, "ataque": 12, "defensa": 3 } }` |
 | 200 sin drop | `{ "drop": false }` |
-| 400 | `{ "error": "Dirección inválida" }` · `{ "error": "enemyLevel debe ser un entero entre 1 y 10" }` · `{ "error": "jefe debe ser un booleano" }` · `{ "error": "JSON inválido" }` |
+| 400 | `{ "error": "Dirección inválida" }` · `{ "error": "enemyLevel debe ser un entero entre 1 y 10" }` · `{ "error": "jefe debe ser un booleano" }` · `{ "error": "excluirComun debe ser un booleano" }` · `{ "error": "JSON inválido" }` |
 | 429 | `{ "error": "Demasiadas peticiones, espera N s" }` (más cabecera `Retry-After: N`) |
 | 500 | `{ "error": "..." }` con mensaje legible (sin ETH para gas, contrato rechazó el mint, timeout…) |
 

@@ -46,6 +46,15 @@ export function validarJefe(valor) {
 }
 
 /**
+ * Valida `excluirComun` (booleano opcional → false): el Jefe de Arena de la racha (web/js/
+ * combat.js: esJefeDeRacha) pide que el botín nunca sea Común. Devuelve el booleano o null.
+ */
+export function validarExcluirComun(valor) {
+  if (valor === undefined) return false;
+  return typeof valor === 'boolean' ? valor : null;
+}
+
+/**
  * @param {{
  *   mint: (to: string, item: object) => Promise<{ tokenId: string, txHash: string }>,
  *   contractAddress: string, chainId: number,
@@ -147,12 +156,15 @@ export function crearApp({
     const jefe = validarJefe(body.jefe);
     if (jefe === null) return res.status(400).json({ error: 'jefe debe ser un booleano' });
 
+    const excluirComun = validarExcluirComun(body.excluirComun);
+    if (excluirComun === null) return res.status(400).json({ error: 'excluirComun debe ser un booleano' });
+
     const porDir = limDir.hit(address);
     if (!porDir.ok) return demasiadas(res, porDir.retryAfterS);
 
     // Primera victoria de esta dirección (desde que arrancó el servidor): siempre un Raro.
     const esPrimera = primerBotin && registroPrimerBotin.reservar(address);
-    const opciones = { dropChance, nivel: enemyLevel, jefe, ...estadoBotin.opciones(address) };
+    const opciones = { dropChance, nivel: enemyLevel, jefe, excluirComun, ...estadoBotin.opciones(address) };
     const item = esPrimera ? tirarPrimerBotin(rng, opciones) : tirarLoot(rng, opciones);
     if (!item) return res.json({ drop: false });
 

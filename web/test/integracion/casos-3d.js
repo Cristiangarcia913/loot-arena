@@ -83,7 +83,7 @@ caso("3D", "En 3D el HUD sigue contando vida, estados e intención (el lienzo no
 caso("3D", "Cambiar de sección y volver con el 3D puesto no duplica lienzos", async ({ abrirApp }) => {
   const app = await abrirApp({ semilla: SEMILLA_3D });
   await esperar3D(app);
-  for (const s of ["inventario", "torre", "expediciones", "arena"]) { await irASeccion(app, s); await dormir(150); }
+  for (const s of ["inventario", "mercado", "expediciones", "arena"]) { await irASeccion(app, s); await dormir(150); }
   await dormir(500);
   const clases = lienzos(app);
   igual(clases.length, 1, `Tras pasear por las secciones hay ${clases.length} lienzos en la arena: ${clases.join(", ")}.`);

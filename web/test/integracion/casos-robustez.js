@@ -39,7 +39,7 @@ caso("Robustez", "Cambiar de sección mientras se anima el combate no rompe nada
   await explorar(app);
   app.pulsar("#btn-atacar");
   await dormir(60); // justo en mitad de la animación del golpe
-  for (const s of ["inventario", "misiones", "torre", "arena"]) {
+  for (const s of ["inventario", "misiones", "expediciones", "arena"]) {
     app.$(`.menu-item[data-ir="${s}"]`).click();
     await dormir(80);
   }

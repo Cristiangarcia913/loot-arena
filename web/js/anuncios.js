@@ -5,7 +5,7 @@
 //   - Sin SDK (local, itch.io…) muestra un modal que simula el anuncio: cuenta atrás de 5 s y,
 //     al acabar, un botón para cerrarlo y cobrar la recompensa. Cerrarlo antes no da nada.
 //
-// `tipo` solo identifica el gancho ("revivir_torre", "botin_expedicion", "renovar_tienda") para
+// `tipo` solo identifica el gancho ("revivir_racha", "botin_expedicion", "renovar_tienda") para
 // el texto del modal y para depurar. Devuelve además una Promise<boolean> (true = recompensa).
 // Nunca hay dos anuncios a la vez: una segunda llamada mientras hay uno abierto falla al momento.
 //
@@ -14,7 +14,7 @@
 export const SEGUNDOS_SIMULADO = 5;
 
 const TEXTO_TIPO = Object.freeze({
-  revivir_torre: "Revive en la Torre infinita",
+  revivir_racha: "Salva tu racha de victorias",
   botin_expedicion: "Duplica el botín de la expedición",
   renovar_tienda: "Nuevo catálogo en el Mercado",
 });

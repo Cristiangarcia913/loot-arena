@@ -421,3 +421,60 @@ test("huir termina el combate", () => {
   assert.equal(c.fase, "huida");
   assert.equal(c.log.at(-1).tipo, "huida");
 });
+
+// ───────── Jefe de Arena por racha ─────────
+
+test("esJefeDeRacha: solo en 5, 10, 15… (nunca en 0)", () => {
+  assert.equal(C.esJefeDeRacha(0), false);
+  for (const r of [1, 2, 3, 4, 6, 7, 11]) assert.equal(C.esJefeDeRacha(r), false);
+  for (const r of [5, 10, 15, 20]) assert.equal(C.esJefeDeRacha(r), true);
+});
+
+test("combatesHastaJefeDeRacha cuenta hacia atrás hasta 0 y reinicia tras el jefe", () => {
+  assert.equal(C.combatesHastaJefeDeRacha(0), 4);
+  assert.equal(C.combatesHastaJefeDeRacha(4), 0);
+  assert.equal(C.combatesHastaJefeDeRacha(5), 4);
+  assert.equal(C.combatesHastaJefeDeRacha(9), 0);
+});
+
+test("escalarPorRacha: más vida/ataque y estados más potentes a más racha; sin racha no cambia nada", () => {
+  const base = C.generarEnemigoDe("rata", 3);
+  const sinRacha = C.escalarPorRacha(base, 0);
+  assert.deepEqual(sinRacha, { ...base, jefeDeRacha: false, multEstados: 1 });
+  const con10 = C.escalarPorRacha(base, 10);
+  assert.ok(con10.vidaMax > base.vidaMax);
+  assert.ok(con10.ataque > base.ataque);
+  assert.ok(con10.multEstados > 1);
+  const con20 = C.escalarPorRacha(base, 20);
+  assert.ok(con20.vidaMax > con10.vidaMax, "la dificultad sigue subiendo, sin techo");
+});
+
+test("escalarPorRacha etiqueta jefeDeRacha sin tocar las stats por sí sola (eso ya lo hace generarEnemigo({jefe:true}))", () => {
+  const jefe = C.generarEnemigo(5, C.mulberry32(1), { jefe: true });
+  const e = C.escalarPorRacha(jefe, 5, { jefeDeRacha: true });
+  assert.equal(e.jefeDeRacha, true);
+  assert.equal(e.jefe, true);
+});
+
+// ───────── Revivir en la Arena (anuncio recompensado) ─────────
+
+test("revivirEnArena: mismo enemigo, 50 % de vida, sin estados negativos, y el combate sigue", () => {
+  const rng = C.mulberry32(3);
+  let c = C.crearCombate(HEROE, dummy({ vidaMax: 999, ataque: 500, defensa: 99 }), rng);
+  ({ combate: c } = C.turnoJugador(c, "atacar", rng));
+  assert.equal(c.fase, "derrota");
+  const vidaEnemigoAntes = c.enemigo.vida;
+  const r = C.revivirEnArena(c, rng);
+  assert.equal(r.fase, "en_curso");
+  assert.equal(r.jugador.vida, Math.round(c.jugador.vidaMax * C.VIDA_REVIVIR_ARENA));
+  assert.deepEqual(r.jugador.estados, []);
+  assert.equal(r.enemigo.vida, vidaEnemigoAntes, "el enemigo sigue como estaba");
+  assert.ok(C.intencionEnemigo(r), "el enemigo tiene una nueva intención para seguir luchando");
+  assert.equal(r.log.at(-1).tipo, "revivir");
+  assert.equal(c.fase, "derrota", "no muta el combate original");
+});
+
+test("revivirEnArena: solo se puede revivir tras una derrota", () => {
+  const c = C.crearCombate(HEROE, C.generarEnemigo(1, neutro), neutro);
+  assert.throws(() => C.revivirEnArena(c), /derrota/);
+});

@@ -18,7 +18,7 @@ Meta: un juego que se juegue en el navegador **en 3D**, cuyos objetos sean activ
 | Servidor | Express en Render: botín, recompensas, ranking, grifo de gas. 148 tests |
 | Contratos | 5 en Sepolia, verificados: `GameItem`, `LootCosmetics`, `LootGold`, `Mercado`, `Recompensas`. 70 tests |
 | Publicación | GitHub Pages, itch.io y ejecutables (Windows, macOS, Linux) |
-| Jugabilidad | Combate por turnos, jefes, torre, expediciones, misiones, pase, logros, tutorial |
+| Jugabilidad | Combate por turnos, jefes, racha de victorias con Jefe de Arena, expediciones, misiones, pase, logros, tutorial |
 | **3D / XR** | **No hay nada** |
 | **Fintech** | Venta al contrato a precio fijo. **No hay mercado entre jugadores ni datos de mercado** |
 

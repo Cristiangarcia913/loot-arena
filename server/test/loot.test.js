@@ -81,6 +81,34 @@ describe('rareza según nivel y jefe', () => {
   });
 });
 
+describe('excluirComun (Jefe de Arena de la racha, 1.5)', () => {
+  test('nunca cae Común: lo que le tocaba se reparte entre Raro y Legendario en su misma proporción', () => {
+    for (const nivel of NIVELES) {
+      for (const jefe of [false, true]) {
+        const [c0, r0, l0] = probabilidadesRareza(nivel, { jefe });
+        const [c1, r1, l1] = probabilidadesRareza(nivel, { jefe, excluirComun: true });
+        assert.equal(c1, 0);
+        assert.ok(Math.abs(r1 + l1 - 1) < 1e-9);
+        // La proporción Raro:Legendario no cambia, solo se reparte el hueco de Común.
+        assert.ok(Math.abs(r1 / l1 - r0 / l0) < 1e-9, `nivel ${nivel} jefe=${jefe}`);
+        assert.ok(r1 >= r0 && l1 >= l0);
+      }
+    }
+  });
+
+  test('con pity ya al 100 % (sin Común), excluirComun no cambia nada', () => {
+    const sinC = probabilidadesRareza(1, { sinLegendario: PITY_UMBRAL + 5 });
+    assert.deepEqual(probabilidadesRareza(1, { sinLegendario: PITY_UMBRAL + 5, excluirComun: true }), sinC);
+  });
+
+  test('generarObjeto con excluirComun nunca sortea rareza 0 en 10k tiradas', () => {
+    const rng = rngSemilla(99);
+    for (let i = 0; i < 10_000; i++) {
+      assert.notEqual(generarObjeto(rng, { nivel: 5, excluirComun: true }).rareza, 0);
+    }
+  });
+});
+
 describe('drop', () => {
   test('probabilidad de drop ≈ dropChance (60 % por defecto) y respeta 0 y 1', () => {
     const rng = rngSemilla(7);

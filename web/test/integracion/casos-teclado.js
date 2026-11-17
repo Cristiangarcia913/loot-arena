@@ -1,6 +1,6 @@
 // Teclado y lector de pantalla a fondo: orden de tabulación, trampas de foco, dónde aterriza el
 // foco al cambiar de sección, qué se anuncia durante el combate y si se puede jugar sin ratón
-// en todas las secciones nuevas (Expediciones, Torre) y en el modo 3D.
+// en todas las secciones nuevas (Expediciones) y en el modo 3D.
 //
 // Lo que un lector de pantalla anuncia se aproxima mirando el árbol accesible que expone el DOM:
 // `aria-live`, `role`, nombres accesibles y el texto que cambia. No sustituye a escuchar la página
@@ -188,35 +188,6 @@ caso("Teclado", "Expediciones se maneja entera con teclado", async ({ abrirApp }
   igual(cuenta?.getAttribute("aria-live"), "off",
     "La cuenta atrás de la expedición debería ser aria-live=\"off\": si no, el lector de pantalla la repite cada segundo y tapa todo lo demás.");
   app.sinErrores("manejando Expediciones con teclado");
-});
-
-caso("Teclado", "La Torre se maneja entera con teclado y dice en qué piso vas", async ({ abrirApp }) => {
-  const app = await abrirApp();
-  await irASeccion(app, "torre");
-  await esperarA(() => app.$("#torre button:not([disabled])"), "la Torre ofrezca empezar");
-  const empezar = enfocables(app, app.$("#torre"))[0];
-  afirmar(empezar, "No se llega con Tab a ningún botón de la Torre.");
-  afirmar(nombreAccesible(empezar).length > 0, "El botón de la Torre no tiene nombre accesible.");
-  empezar.focus();
-  empezar.click();
-  await esperarA(() => !app.$("#btn-atacar").disabled, "empiece el combate del piso");
-  // Al saltar a la Arena, el foco no debería quedarse en un botón que ya no existe.
-  const act = app.doc.activeElement;
-  afirmar(act && act !== app.doc.body && act.isConnected,
-    "Al empezar la Torre el foco se pierde (queda en <body> o en un nodo que ya no está en la página): con teclado hay que tabular desde el principio.");
-  app.sinErrores("manejando la Torre con teclado");
-});
-
-caso("Teclado", "El anuncio del piso de la Torre llega al lector de pantalla", async ({ abrirApp }) => {
-  const app = await abrirApp();
-  await irASeccion(app, "torre");
-  await esperarA(() => app.$("#torre button:not([disabled])"), "la Torre ofrezca empezar");
-  app.$$("#torre button").find((b) => !b.disabled).click();
-  await esperarA(() => !app.$("#btn-atacar").disabled, "empiece el piso");
-  await dormir(400);
-  const textoVivo = app.$$("[aria-live], [role=status], [role=alert]").map((e) => e.textContent).join(" ");
-  afirmar(/piso/i.test(textoVivo) || /piso/i.test(app.texto("#log")),
-    "El cambio a «Torre · piso N» solo se ve en un rótulo animado: no pasa por ninguna zona viva, así que un lector de pantalla no lo anuncia.");
 });
 
 // ───────────────────────── Modo 3D ─────────────────────────

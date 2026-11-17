@@ -56,8 +56,8 @@ caso("Navegación", "Cada sección tiene un encabezado o nombre accesible", asyn
 caso("Navegación", "Los atajos Alt+1…Alt+9 llevan a cada sección", async ({ abrirApp }) => {
   const app = await abrirApp();
   const fallos = [];
-  // Solo hasta la 9.ª: el router lee `Number(ev.key)` de UNA tecla, así que la décima sección
-  // («cadena», añadida en noviembre) se queda sin atajo. Eso se comprueba aparte, abajo.
+  // Solo hasta la 9.ª: el router lee `Number(ev.key)` de UNA tecla, así que a partir de la
+  // décima sección se quedaría sin atajo de una sola tecla. Eso se comprueba aparte, abajo.
   const lista = seccionesDe(app).slice(0, 9);
   for (let i = 0; i < lista.length; i++) {
     app.tecla(String(i + 1), { destino: app.doc.body, altKey: true });
@@ -85,10 +85,10 @@ caso("Navegación", "Las secciones a partir de la décima también tienen atajo 
 
 caso("Navegación", "Al volver a entrar se recupera la última sección visitada", async ({ abrirApp }) => {
   const app1 = await abrirApp();
-  await irASeccion(app1, "torre");
+  await irASeccion(app1, "expediciones");
   app1.cerrar();
   const app2 = await abrirApp({ limpiar: false, ruta: "" });
-  await esperarA(() => app2.visible("#seccion-torre"), "la app recuerde que la última sección fue la Torre");
+  await esperarA(() => app2.visible("#seccion-expediciones"), "la app recuerde que la última sección fue Expediciones");
   app2.sinErrores("al recuperar la última sección");
 });
 

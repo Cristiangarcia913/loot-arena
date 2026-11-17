@@ -1,6 +1,6 @@
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { crearApp, validarDireccion, validarNivel, validarJefe } from '../src/app.js';
+import { crearApp, validarDireccion, validarNivel, validarJefe, validarExcluirComun } from '../src/app.js';
 import { EstadoBotin, PITY_UMBRAL } from '../src/loot.js';
 import { levantar, post, rngFijo, loggerMudo } from './helpers.js';
 
@@ -34,6 +34,12 @@ describe('validarDireccion / validarNivel', () => {
     assert.equal(validarJefe(false), false);
     assert.equal(validarJefe(true), true);
     for (const v of [null, 'true', 1, 0, {}, [], 'si']) assert.equal(validarJefe(v), null, String(v));
+  });
+  test('excluirComun: booleano opcional, por defecto false', () => {
+    assert.equal(validarExcluirComun(undefined), false);
+    assert.equal(validarExcluirComun(false), false);
+    assert.equal(validarExcluirComun(true), true);
+    for (const v of [null, 'true', 1, 0, {}, [], 'si']) assert.equal(validarExcluirComun(v), null, String(v));
   });
 });
 
@@ -132,6 +138,23 @@ describe('API HTTP (contrato simulado, sin red)', () => {
     }
     assert.equal(mints.length, 0);
     assert.equal((await post(srv.url, { address: JUGADOR, jefe: true })).status, 200);
+  });
+
+  test('excluirComun: true → nunca Común, aunque el RNG daría Común sin esa opción (Jefe de Arena de la racha)', async () => {
+    rngValor = 0; // sin excluirComun esto sería Común (el primer tramo)
+    const r = await post(srv.url, { address: JUGADOR, enemyLevel: 5, jefe: true, excluirComun: true });
+    assert.equal(r.status, 200);
+    assert.notEqual(r.json.item.rareza, 0);
+  });
+
+  test('400 si excluirComun no es booleano (y no se acuña ni consume el límite por dirección)', async () => {
+    for (const excluirComun of ['true', 1, null, {}, []]) {
+      const r = await post(srv.url, { address: JUGADOR, excluirComun });
+      assert.equal(r.status, 400, JSON.stringify(excluirComun));
+      assert.deepEqual(r.json, { error: 'excluirComun debe ser un booleano' });
+    }
+    assert.equal(mints.length, 0);
+    assert.equal((await post(srv.url, { address: JUGADOR, excluirComun: true })).status, 200);
   });
 
   test('pity: el contador por dirección sube con cada drop entregado y no si el mint falla', async () => {

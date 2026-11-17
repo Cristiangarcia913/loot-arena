@@ -191,13 +191,20 @@ export function probabilidadPity(sinLegendario = 0) {
  * @param {{ jefe?: boolean, sinLegendario?: number }} [opts]
  * @returns {[number, number, number]}
  */
-export function probabilidadesRareza(nivel = 1, { jefe = false, sinLegendario = 0 } = {}) {
+export function probabilidadesRareza(nivel = 1, { jefe = false, sinLegendario = 0, excluirComun = false } = {}) {
   const t = fraccionNivel(nivel);
   let leg = jefe ? 0.10 + 0.10 * t : 0.05 + 0.09 * t;
   let raro = jefe ? 0.35 + 0.09 * t : 0.25 + 0.135 * t;
   leg = Math.max(leg, probabilidadPity(sinLegendario));
   raro = Math.min(raro, 1 - leg);
-  const comun = Math.max(0, 1 - raro - leg);
+  let comun = Math.max(0, 1 - raro - leg);
+  // Jefe de Arena de la racha (web/js/combat.js: esJefeDeRacha): el botín nunca es Común.
+  // Se reparte lo que le tocaba a Común entre Raro y Legendario, en su misma proporción.
+  if (excluirComun && comun > 0) {
+    const resto = raro + leg;
+    if (resto > 0) { raro += comun * (raro / resto); leg += comun * (leg / resto); } else { raro = leg = 0.5; }
+    comun = 0;
+  }
   return [comun, raro, leg];
 }
 
@@ -293,8 +300,9 @@ export function generarStats(rng, tipo, rareza, { nivel = 1, jefe = false } = {}
 // ─── Objeto completo ──────────────────────────────────────────────────────────
 
 /**
- * @typedef {{ nivel?: number, jefe?: boolean, sinLegendario?: number, evitarNombre?: string|null, rareza?: number|null }} OpcionesBotin
+ * @typedef {{ nivel?: number, jefe?: boolean, sinLegendario?: number, excluirComun?: boolean, evitarNombre?: string|null, rareza?: number|null }} OpcionesBotin
  * `rareza` fija la rareza en vez de sortearla (primer botín garantizado).
+ * `excluirComun` nunca sortea Común (Jefe de Arena de la racha).
  */
 
 /**
@@ -302,8 +310,8 @@ export function generarStats(rng, tipo, rareza, { nivel = 1, jefe = false } = {}
  * @param {() => number} rng
  * @param {OpcionesBotin} [opts]
  */
-export function generarObjeto(rng, { nivel = 1, jefe = false, sinLegendario = 0, evitarNombre = null, rareza: fija = null } = {}) {
-  const rareza = fija ?? sortearRareza(rng, nivel, { jefe, sinLegendario });
+export function generarObjeto(rng, { nivel = 1, jefe = false, sinLegendario = 0, excluirComun = false, evitarNombre = null, rareza: fija = null } = {}) {
+  const rareza = fija ?? sortearRareza(rng, nivel, { jefe, sinLegendario, excluirComun });
   const tipo = sortearTipo(rng);
   const nombre = generarNombre(rng, tipo, rareza, { evitar: evitarNombre });
   const { ataque, defensa } = generarStats(rng, tipo, rareza, { nivel, jefe });

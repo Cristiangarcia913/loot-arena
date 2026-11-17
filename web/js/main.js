@@ -19,7 +19,6 @@ import * as HEROE from "./heroe.js";
 import * as GAS from "./gas.js";
 import * as TUT from "./tutorial.js";
 import * as EXP from "./expediciones.js";
-import * as TORRE from "./torre.js";
 import { reclamarBotin } from "./api.js";
 import { mostrarAnuncioRecompensado } from "./anuncios.js";
 import { catalogoRotativo, semillaDelDia } from "./economy.js";
@@ -46,11 +45,6 @@ const S = {
   reclamando: false,
   desafio: null, // { rng } mientras se juega el desafío diario
   pocionesRegalo: 0,
-  torre: null, // subida en curso (entre pisos)
-  torreUltimo: null, // resultado de la última subida
-  torreUltimoPiso: null, // resultado del último piso superado
-  torreRanking: null, // pociones ganadas en misiones/pase para la próxima expedición
-  torreRevivir: null, // { torre, combate } tras caer, si aún se puede revivir con anuncio
   expResultado: null, // último resultado de recoger una expedición (para «Duplicar botín»)
   transfiriendo: new Set(),
   links: { tx: () => null, token: () => null },
@@ -296,6 +290,7 @@ function renderProgreso() {
   const i = P.infoXp(S.progreso);
   FX.actualizarXP({ xp: i.xp, xpSiguiente: i.max ? i.xp || 1 : i.necesaria, nivel: i.nivel });
   FX.actualizarRacha(S.progreso.racha);
+  FX.actualizarJefeEn(C.combatesHastaJefeDeRacha(S.progreso.racha));
   const v = S.progreso.victorias;
   $("#arena-level").textContent = `Nivel de arena ${C.nivelArena(v)}`;
   const faltan = P.combatesHastaJefe(v);
@@ -357,7 +352,6 @@ async function montarEconomia() {
   if (id !== montajeEco) return;
   pintarTitulo(ENG.tituloActivo());
   renderExp();
-  renderTorreSec();
   R.marcarAviso("expediciones", EXP.hayExpedicionLista(claveExp()));
   ENG.registrarEvento({ tipo: "inventario", items: S.inventario });
   ENG.registrarEvento({ tipo: "nivel", valor: P.infoXp(S.progreso).nivel });
@@ -372,7 +366,7 @@ function aplicarRecompensa(r) {
     renderHeroe();
     const nv = P.infoXp(S.progreso).nivel;
     if (nv > antes) { FX.subidaDeNivel(nv); ENG.registrarEvento({ tipo: "nivel", valor: nv }); }
-    toast(`✨ +${r.xp} XP${({ pase: " del pase", torre: " de la torre", expedicion: " de la expedición" })[r.fuente] ?? " por la misión"}`, "ok", 3500);
+    toast(`✨ +${r.xp} XP${({ pase: " del pase", expedicion: " de la expedición" })[r.fuente] ?? " por la misión"}`, "ok", 3500);
   } else if (r.tipo === "pociones" && r.cantidad > 0) {
     if (S.expedicion) S.expedicion.pociones += r.cantidad;
     else S.pocionesRegalo += r.cantidad;
@@ -427,7 +421,7 @@ function guardarEquipo() {
 
 /** Tira el botín local del modo demo, lo guarda y devuelve el objeto (o null si no cae nada). */
 function tirarBotinDemo(enemigo) {
-  const { estado, item } = BL.tirarBotinLocal(leerBotinLocal(), enemigo ?? {}, Math.random, { equipados: Object.values(S.equipo) });
+  const { estado, item } = BL.tirarBotinLocal(leerBotinLocal(), { ...enemigo, excluirComun: !!enemigo?.jefeDeRacha }, Math.random, { equipados: Object.values(S.equipo) });
   if (item) guardar(BL.CLAVE_BOTIN_LOCAL, BL.serializarEstado(estado));
   return item;
 }
@@ -787,11 +781,19 @@ function explorar() {
   if (enCurso() || S.animando) return;
   if (!S.expedicion) nuevaExpedicion();
   const v = S.progreso.victorias;
-  const jefe = C.esCombateDeJefe(v);
+  const racha = S.progreso.racha;
+  // Jefe de nivel (de siempre, por victorias totales) o Jefe de Arena (nuevo, por racha: cada
+  // 5 victorias CONSECUTIVAS). Los dos dan jefe con 2 fases y ataques telegrafiados (combat.js);
+  // el de racha además garantiza botín Raro/Legendario (ver pedirBotin).
+  const jefeNivel = C.esCombateDeJefe(v);
+  const jefeDeRacha = C.esJefeDeRacha(racha);
+  const jefe = jefeNivel || jefeDeRacha;
   const nivelA = C.nivelArena(v);
   // Los dos primeros combates son de nivel 1 para que el jugador nuevo aprenda sin frustrarse.
   const nivel = jefe || v < 2 ? nivelA : C.nivelEnemigo(nivelA);
-  const enemigo = TUT.tutorialActivo() ? TUT.combateTutorial() : C.generarEnemigo(nivel, Math.random, { jefe });
+  const base = TUT.tutorialActivo() ? TUT.combateTutorial() : C.generarEnemigo(nivel, Math.random, { jefe });
+  // A mayor racha, más duro el rival (vida, ataque y potencia de sus estados), sin techo.
+  const enemigo = C.escalarPorRacha(base, racha, { jefeDeRacha });
   const heroe = { ...statsHeroe(), pociones: S.expedicion.pociones, pocionesExtra: S.expedicion.pocionesExtra };
   S.combate = C.crearCombate(heroe, enemigo);
   $("#resultado").hidden = true;
@@ -854,7 +856,7 @@ function resultado(...contenido) {
 async function alTerminar(fin) {
   const c = S.combate;
   if (S.desafio) return terminarDesafioActual(fin);
-  if (S.torre) return terminarPisoTorre(fin);
+  if (fin === "derrota" && S.progreso.racha > 0 && puedeSalvarRachaConAnuncio() && await ofrecerSalvarRacha(c, S.progreso.racha)) return;
   ENG.registrarCombate(c);
   const restantes = C.pocionesRestantes(c);
   if (S.expedicion) {
@@ -894,6 +896,54 @@ async function alTerminar(fin) {
   if (eleccion === "otra") explorar();
 }
 
+// ───────────────────────── Racha: salvar con anuncio ─────────────────────────
+// Al perder en la Arena con una racha en juego, se ofrece ver un anuncio recompensado para
+// revivir en el MISMO combate con el 50 % de vida (combat.js: revivirEnArena) y no perder la
+// racha. Solo una vez por sesión de navegador (antes era "revivir en la Torre"; la Torre ya no existe).
+
+const CLAVE_ANUNCIO_RACHA = "lootarena:anuncio-racha-usado";
+
+function puedeSalvarRachaConAnuncio() {
+  try { return sessionStorage.getItem(CLAVE_ANUNCIO_RACHA) !== "1"; } catch { return true; }
+}
+
+function marcarAnuncioRachaUsado() {
+  try { sessionStorage.setItem(CLAVE_ANUNCIO_RACHA, "1"); } catch { /* sin storage */ }
+}
+
+/**
+ * Ofrece salvar la racha viendo un anuncio tras una derrota. Si el jugador acepta y el
+ * anuncio se completa, revive en el mismo combate y la función devuelve true (el llamador
+ * no debe seguir con el flujo normal de derrota). Si rechaza o el anuncio falla, devuelve
+ * false y el combate original sigue en fase "derrota" para que el flujo normal continúe.
+ * @param {object} c combate en fase "derrota"
+ * @param {number} racha racha que se perdería
+ * @returns {Promise<boolean>}
+ */
+async function ofrecerSalvarRacha(c, racha) {
+  const quiere = await new Promise((resolver) => {
+    resultado(h("div", { class: "res res-derrota" },
+      h("strong", {}, "☠️ Derrota. "), `Vas a perder tu racha de ${racha} victoria${racha === 1 ? "" : "s"}.`,
+      h("div", { class: "res-acciones" },
+        h("button", { class: "btn btn-small btn-gold", type: "button", onclick: (ev) => { ev.currentTarget.disabled = true; resolver(true); } },
+          "📺 Ver anuncio para salvar tu racha"),
+        h("button", { class: "btn btn-small btn-ghost", type: "button", onclick: () => resolver(false) }, "No, continuar"))));
+  });
+  if (!quiere) return false;
+  marcarAnuncioRachaUsado();
+  const ok = await mostrarAnuncioRecompensado("revivir_racha");
+  if (!ok) { toast("Anuncio no completado: la racha se rompe.", "info"); return false; }
+  S.combate = C.revivirEnArena(c);
+  toast(`💖 ¡Sigues en pie! Tu racha de ${racha} se mantiene.`, "ok", 3500);
+  $("#resultado").hidden = true;
+  añadirLog([S.combate.log.at(-1)]);
+  FX.revivir("heroe");
+  FX.mostrarIntencion(C.intencionEnemigo(S.combate));
+  renderLuchadores();
+  renderBotones();
+  return true;
+}
+
 /** Fin del desafío diario: no da botín del servidor; puntúa en el enganche y da XP si se gana. */
 async function terminarDesafioActual(fin) {
   const c = S.combate;
@@ -913,114 +963,6 @@ async function terminarDesafioActual(fin) {
     res ? `Puntuación: ${res.puntuacion}${res.mejorPersonal ? " (¡récord personal!)" : ""}. Vuelve mañana para un desafío nuevo.` : (r.motivo ?? "")));
   const eleccion = await FX.mostrarResultado({ tipo: fin === "victoria" ? "victoria" : fin, ...c.resumen, enemigo: `Desafío · ${c.enemigo.nombre}`, xp: xp ?? undefined });
   if (eleccion === "otra") explorar();
-}
-
-// ───────────────────────── Torre infinita ─────────────────────────
-
-function renderTorreSec() {
-  const c = $("#torre");
-  if (!c) return;
-  TORRE.renderTorre(c, {
-    estado: S.torre ?? S.torreUltimo, ranking: S.torreRanking, cuenta: S.cuenta,
-    record: TORRE.cargarRecord(globalThis.localStorage, S.cuenta), ultimo: S.torreUltimoPiso,
-    onEmpezar: empezarTorre, onSiguientePiso: siguientePisoTorre,
-    onRevivir: S.torreRevivir ? revivirTorreConAnuncio : null,
-  });
-}
-
-async function cargarRankingTorre() {
-  S.torreRanking = null;
-  renderTorreSec();
-  // pedirRankingTorre devuelve {ok:true, ranking:[...]} o {ok:false, mensaje}: hay que
-  // desempaquetar el array, si no renderTorre nunca ve una lista (solo el envoltorio).
-  try {
-    const r = await TORRE.pedirRankingTorre(S.cfg.serverUrl);
-    S.torreRanking = r.ok ? r.ranking : { error: r.mensaje };
-  } catch (e) { S.torreRanking = { error: String(e?.message ?? e) }; }
-  renderTorreSec();
-}
-
-function empezarTorre() {
-  if (enCurso() || S.animando) return toast("Termina primero el combate actual.", "info");
-  S.torre = TORRE.nuevaTorre(statsHeroe());
-  S.torreRevivir = null;
-  S.torreUltimo = null;
-  S.torreUltimoPiso = null;
-  lanzarPisoTorre();
-}
-
-function siguientePisoTorre() {
-  if (!S.torre || enCurso() || S.animando) return;
-  lanzarPisoTorre();
-}
-
-function lanzarPisoTorre() {
-  S.combate = TORRE.combateDePiso(S.torre);
-  R.irA("arena");
-  $("#resultado").hidden = true;
-  $("#log").replaceChildren();
-  añadirLog(S.combate.log);
-  FX.revivir("heroe");
-  FX.actualizarHeroe(equipados());
-  FX.mostrarEstado("heroe", []);
-  FX.mostrarEnemigo(S.combate.enemigo);
-  FX.mostrarIntencion(C.intencionEnemigo(S.combate));
-  FX.anunciar(`TORRE · PISO ${S.torre.piso}`, TORRE.esPisoJefe(S.torre.piso) ? "¡Piso de jefe!" : "Sube todo lo que puedas");
-  renderLuchadores();
-  renderBotones();
-}
-
-async function terminarPisoTorre(fin) {
-  const c = S.combate;
-  if (fin === "victoria") {
-    const r = TORRE.trasVictoria(S.torre, c);
-    S.torre = r.torre;
-    S.torreUltimoPiso = r;
-    aplicarRecompensa({ tipo: "xp", xp: r.xp, fuente: "torre" });
-    if (S.cuenta) TORRE.enviarPiso(S.cfg.serverUrl, S.cuenta, r.superado, S.torre.turnos).catch(() => {});
-    if (r.botin && S.cuenta && redCorrecta()) {
-      const b = await reclamarBotin(S.cfg.serverUrl, S.cuenta, r.botin.nivel, { jefe: true });
-      if (b.tipo === "drop") { ENG.registrarEvento({ tipo: "botin", item: b.item }); await FX.revelarBotin(b.item); await cargarInventario(); }
-    }
-    resultado(h("div", { class: "res res-drop" },
-      h("strong", {}, `🗼 Piso ${r.superado} superado. `), `+${r.xp} XP y +${r.curacion} de vida. `,
-      h("button", { class: "btn btn-small btn-gold", type: "button", onclick: siguientePisoTorre }, `Subir al piso ${S.torre.piso}`)));
-    renderTorreSec();
-    return;
-  }
-  // Revivir con anuncio: solo al ser derrotado (no al huir) y una vez por subida.
-  S.torreRevivir = fin === "derrota" && TORRE.puedeRevivir(S.torre) ? { torre: S.torre, combate: c } : null;
-  const res = TORRE.trasDerrota(S.torre, c, { storage: globalThis.localStorage, address: S.cuenta });
-  S.torre = null;
-  S.torreUltimo = res;
-  S.torreUltimoPiso = null;
-  resultado(h("div", { class: "res res-derrota" },
-    h("strong", {}, `🗼 Fin de la subida: ${res.pisosSuperados} piso${res.pisosSuperados === 1 ? "" : "s"}. `),
-    res.nuevoRecord ? "¡Nuevo récord personal!" : `Tu récord: ${res.record}.`,
-    S.torreRevivir && h("button", { class: "btn btn-small btn-gold", type: "button", onclick: (ev) => { ev.currentTarget.disabled = true; revivirTorreConAnuncio(); } },
-      "📺 Ver anuncio para revivir con 50% de vida y continuar")));
-  await FX.mostrarResultado({ tipo: fin === "derrota" ? "derrota" : "huida", ...c.resumen, enemigo: `Torre · piso ${res.piso}` });
-  renderTorreSec();
-  R.irA("torre");
-  cargarRankingTorre();
-}
-
-/** Anuncio recompensado → la misma subida sigue en el mismo piso con el 50 % de la vida. */
-function revivirTorreConAnuncio() {
-  if (!S.torreRevivir) return;
-  mostrarAnuncioRecompensado("revivir_torre", () => {
-    const pend = S.torreRevivir;
-    if (!pend || S.torre || enCurso() || S.animando) return toast("No se puede revivir ahora mismo.", "info");
-    S.torreRevivir = null;
-    S.torre = TORRE.revivirTorre(pend.torre, pend.combate);
-    S.torreUltimo = null;
-    S.torreUltimoPiso = null;
-    toast("💖 ¡Has revivido! Sigues en la torre.", "ok", 3500);
-    lanzarPisoTorre();
-  }, (motivo) => {
-    if (motivo !== "ocupado") toast("Anuncio no completado: no hay recompensa.", "info");
-    renderTorreSec();
-  });
 }
 
 // ───────────────────────── Expediciones ─────────────────────────
@@ -1115,7 +1057,7 @@ async function pedirBotin(enemigo) {
   S.reclamando = true;
   resultado(h("div", { class: "res res-espera" }, h("span", { class: "spinner" }), enemigo.jefe ? "👑 ¡Jefe derrotado! Forjando su botín en la blockchain…" : "🏆 ¡Victoria! Consultando al servidor si cae botín…"));
   try {
-    return await reclamarBotin(S.cfg.serverUrl, S.cuenta, enemigo.nivel, { jefe: !!enemigo.jefe });
+    return await reclamarBotin(S.cfg.serverUrl, S.cuenta, enemigo.nivel, { jefe: !!enemigo.jefe, excluirComun: !!enemigo.jefeDeRacha });
   } finally {
     S.reclamando = false;
   }
@@ -1226,7 +1168,7 @@ async function iniciar() {
   if ($("#pantalla-portada")?.hidden) empezarGuia();
   else $("#btn-entrar")?.addEventListener("click", () => setTimeout(empezarGuia, 450));
   R.alCambiar(async (sec) => {
-    // Hallazgo de Calidad (#11, ALTO): torre, expediciones y cadena pintan su contenido con
+    // Hallazgo de Calidad (#11, ALTO): expediciones y cadena pintan su contenido con
     // `replaceChildren` después de que el router ya enfocó el <h2> de la sección; si ese nodo
     // estaba dentro de lo que se repinta, el foco cae a <body> sin que nadie lo note. Solo se
     // devuelve si de verdad se perdió (activeElement === body): si el jugador ya puso el foco
@@ -1237,8 +1179,7 @@ async function iniciar() {
         if (el) R.enfocarSeccion(el);
       }
     };
-    if (sec === "torre") { await cargarRankingTorre(); recuperarFoco(); }
-    else if (sec === "expediciones") { renderExp(); recuperarFoco(); }
+    if (sec === "expediciones") { renderExp(); recuperarFoco(); }
     else if (sec === "cadena") { await montarSeccionCadena(); recuperarFoco(); }
   });
   setInterval(() => R.marcarAviso("expediciones", EXP.hayExpedicionLista(claveExp())), 30_000);

@@ -128,3 +128,28 @@ Límite: máx. 1 petición `/ganar` cada 10 s por dirección y 30 por hora por I
 | `Recompensas` | `0x67436408fe590dA830E783dc20345CccBCDbEE56` |
 
 - **Servidor:** `GET /ranking`, `GET /ranking/:address` (indexa eventos on-chain desde el bloque 12072405 y los `ItemMinted` de GameItem) y `POST /recompensa {address, motivo}` con `motivo ∈ pase10|pase20|pase30|misiones_diarias` (topes por jugador y día en el contrato).
+
+---
+
+## Cambios de la versión 1.5
+
+- **Se quita la Torre infinita** (menú, sección, `web/js/torre.js` y su CSS). El servidor
+  conserva `POST /torre` y `GET /torre/ranking` (`server/src/torre.js`) sin cambios, por si se
+  reactiva, pero la web ya no los llama.
+- **Arena: racha y Jefe de Arena.** La Arena ya llevaba una racha de victorias consecutivas
+  (`progression.js`: se rompe con una derrota o una huida); ahora además:
+  - A mayor racha, el rival escala en vida, ataque y potencia de sus estados (`combat.js`:
+    `RACHA_ESCALA`, `escalarPorRacha`), sin techo.
+  - Cada 5 victorias consecutivas (`combat.js`: `esJefeDeRacha`, `RACHA_CADA_JEFE`) el
+    combate es contra un **Jefe de Arena**: 2 fases y ataques telegrafiados (la misma
+    maquinaria de jefes de siempre) y botín garantizado Raro o Legendario (nunca Común: ver
+    `POST /ganar` más abajo). Es independiente del jefe de subida de nivel de siempre
+    (`esCombateDeJefe`, ligado a las victorias totales, no a la racha).
+  - El gancho de anuncio recompensado "Revivir con 50 % de vida" (antes solo en la Torre) se
+    traslada a la Arena: al perder con una racha en juego se puede ver un anuncio (una vez por
+    sesión de navegador) para seguir en el MISMO combate con el 50 % de vida y no perder la
+    racha (`combat.js`: `revivirEnArena`, `VIDA_REVIVIR_ARENA`).
+- **`POST /ganar` admite `excluirComun`** (booleano opcional, por defecto `false`): si es
+  `true`, la rareza del botín nunca es Común (lo que le tocaba se reparte entre Raro y
+  Legendario en su misma proporción); `400` si no es booleano. Lo usa la Arena para el botín
+  garantizado del Jefe de Arena.

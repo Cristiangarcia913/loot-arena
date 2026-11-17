@@ -3,7 +3,7 @@
 Las pruebas de `web/test/*.test.js` y `server/test/` comprueban **lógica pura** con `node --test`.
 Este arnés comprueba la otra mitad: que **la página real funcione en un navegador de verdad**.
 Carga `web/index.html` tal cual, sin tocar ni una línea de producción, y recorre los caminos que
-recorre un jugador: portada, tutorial, combate, derrota, cada sección del menú, expediciones y torre.
+recorre un jugador: portada, tutorial, combate, derrota, cada sección del menú y expediciones.
 
 Además mide **rendimiento** (tiempo hasta ser jugable, peso descargado, fps en combate, en escritorio
 y en móvil) y audita **accesibilidad** (contraste, teclado, foco, nombres accesibles, zonas vivas).
@@ -37,7 +37,7 @@ Desde la consola del navegador o desde un agente:
 
 ```js
 await window.arnesEjecutarTodo();   // casos + accesibilidad + rendimiento
-await window.arnesSoloCasos("Torre");
+await window.arnesSoloCasos("Expediciones");
 await window.arnesSoloA11y();
 await window.arnesSoloPerf();
 window.arnesCasos();                // lista de casos registrados
@@ -63,7 +63,7 @@ en el que ocurra, con el archivo y la línea.
 | `ayudas.js` | ayudas del juego: explorar, combatir, leer la vida, ir a una sección, nombre accesible |
 | `casos-navegacion.js` | portada, menú, router, atajos, historial, pestañas |
 | `casos-combate.js` | combate completo, derrota, huida, habilidades, ritmo, tutorial de 5 pasos |
-| `casos-contenido.js` | expediciones, torre, misiones, logros, inventario, mercado, ranking, héroe |
+| `casos-contenido.js` | expediciones, misiones, logros, inventario, mercado, ranking, héroe |
 | `casos-robustez.js` | doble pulsación, recargas, almacenamiento roto, servidor caído, red lenta |
 | `accesibilidad.js` | casos de accesibilidad + `auditar()` para el informe detallado |
 | `rendimiento.js` | `medirPerfil()`: carga, peso y fps, en escritorio y móvil |
@@ -101,7 +101,7 @@ const app = await abrirApp({
 ```
 
 El servidor público (Render) **no** se usa: no permite CORS desde `localhost`, duerme y tarda. Por
-defecto el arnés responde él mismo a `/health`, `/ganar`, `/ranking`, `/recompensa` y `/torre`, lo
+defecto el arnés responde él mismo a `/health`, `/ganar`, `/ranking` y `/recompensa`, lo
 que además hace los casos deterministas. `servidor: "real"` deja pasar las peticiones de verdad.
 
 ### Mando a distancia

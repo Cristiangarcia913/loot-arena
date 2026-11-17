@@ -12,7 +12,7 @@
 //   alCambiar((nueva, anterior) => …);
 
 /** Secciones válidas, en el orden del menú. */
-export const SECCIONES = Object.freeze(["arena", "heroe", "inventario", "mercado", "misiones", "logros", "expediciones", "torre", "ranking", "cadena"]);
+export const SECCIONES = Object.freeze(["arena", "heroe", "inventario", "mercado", "misiones", "logros", "expediciones", "ranking", "cadena"]);
 
 const K_ULTIMA = "lootarena:seccion";
 const oyentes = new Set();
@@ -118,7 +118,7 @@ function mostrar(seccion, enfocar) {
 
 /**
  * Enfoca el `<h2>` de una sección (o la sección si no tiene). Exportada para que quien
- * repinta una sección después de que el router ya enfocó (torre, expediciones, cadena: su
+ * repinta una sección después de que el router ya enfocó (expediciones, cadena: su
  * contenido llega por red y se pinta con `replaceChildren`, que borra el nodo enfocado y el
  * foco cae a `<body>`) pueda devolver el foco a donde el router lo habría dejado.
  */
@@ -143,9 +143,10 @@ export function iniciarRouter({ porDefecto = "arena" } = {}) {
     const s = deHash(location.hash);
     if (s) mostrar(s, true);
   });
-  // Atajos: Alt+1..9 y Alt+0 para la 10.ª (no hay tecla de "10": es la convención de las
-  // pestañas del navegador). Hallazgo de Calidad (#14): con 10 secciones, Alt+1..9 por sí solo
-  // deja "cadena" sin atajo.
+  // Atajos: Alt+1..9 y Alt+0 para una eventual 10.ª (no hay tecla de "10": es la convención
+  // de las pestañas del navegador). Hallazgo de Calidad (#14): con 10 secciones (antes de
+  // quitar la Torre) Alt+1..9 por sí solo dejaba "cadena" sin atajo; con 9 ya no hace falta,
+  // pero se deja preparado por si vuelve a hacer falta.
   document.addEventListener("keydown", (ev) => {
     if (!ev.altKey || ev.ctrlKey || ev.metaKey) return;
     const d = Number(ev.key);
