@@ -349,7 +349,7 @@ async function arrancar() {
   render.setClearColor(0x0c0806, 1);
   render.shadowMap.enabled = cal.sombras;
   if (cal.sombras) render.shadowMap.type = T.PCFSoftShadowMap;
-  if (T.ACESFilmicToneMapping != null) { render.toneMapping = T.ACESFilmicToneMapping; render.toneMappingExposure = 1.08; }
+  if (T.ACESFilmicToneMapping != null) { render.toneMapping = T.ACESFilmicToneMapping; render.toneMappingExposure = 1.15; }
   if (T.SRGBColorSpace != null) render.outputColorSpace = T.SRGBColorSpace;
   E.render = render;
 
