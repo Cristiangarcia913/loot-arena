@@ -3,7 +3,7 @@
 // Hasta ahora todas embestían igual, dijera lo que dijera su ficha: un dragón que escupe fuego
 // daba un empujón, y un hechicero que lanza un conjuro también. El bestiario de `combat.js` ya
 // declara `ataque3d` por criatura y `animacion3d(id)` por movimiento (contrato VALORES_3D.ataque),
-// así que aquí está lo que significa cada uno de esos nueve valores en pantalla.
+// así que aquí está lo que significa cada uno de esos diez valores en pantalla.
 //
 // La distinción que más se nota no es el gesto, es **si la criatura se mueve de su sitio o no**:
 // un mordisco y una embestida van hacia el rival; un aliento, un proyectil o un conjuro se lanzan
@@ -12,7 +12,7 @@
 //
 // Módulo puro: solo describe números. Quien los convierte en movimiento es `escena3d.js`.
 
-/** Los nueve valores del contrato. Si `combat.js` añade uno, `sinDescriptor()` lo denuncia. */
+/** Los diez valores del contrato. Si `combat.js` añade uno, `sinDescriptor()` lo denuncia. */
 export const ANIMACIONES = Object.freeze({
   /** Golpe con arma: el que había, y el de más de la mitad de los movimientos. */
   arma: Object.freeze({
@@ -32,6 +32,17 @@ export const ANIMACIONES = Object.freeze({
   garra: Object.freeze({
     avance: 0.26, impulso: 0.18, alzar: 0.14, inclinar: 0.1, giro: 0.85,
     arma: 0.9, cabeza: 0.2, ms: 400, impacto: 0.48, sacude: 0,
+    proyectil: null, chorro: null, anillo: null, defensivo: false,
+  }),
+
+  /**
+   * Coletazo: no se lanza contra el rival, GIRA sobre sí misma para barrer con la cola baja.
+   * Por eso casi no avanza (`avance` bajo) y apenas se eleva (`alzar` negativo, se agacha):
+   * lo que vende el gesto es el giro, mucho más amplio que el de un zarpazo.
+   */
+  coletazo: Object.freeze({
+    avance: 0.08, impulso: 0.14, alzar: -0.08, inclinar: -0.18, giro: 2.4,
+    arma: 0, cabeza: -0.12, ms: 560, impacto: 0.58, sacude: 9,
     proyectil: null, chorro: null, anillo: null, defensivo: false,
   }),
 

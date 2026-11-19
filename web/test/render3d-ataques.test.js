@@ -1,5 +1,5 @@
 // Pruebas de las animaciones de ataque. Lo que se fija aquí es el contrato con `combat.js`
-// (los nueve valores de `VALORES_3D.ataque`) y la distinción que de verdad se nota en pantalla:
+// (los diez valores de `VALORES_3D.ataque`) y la distinción que de verdad se nota en pantalla:
 // **quién se mueve de su sitio y quién no**. Que un dragón deje de darse un paseo para escupir
 // fuego cambia más el combate que cualquier detalle del gesto.
 
@@ -13,7 +13,7 @@ import { VALORES_3D, BESTIARIO, MOVIMIENTOS, animacion3d, metadatos3d } from "..
 
 // ───────────────────────── El contrato con combat.js ─────────────────────────
 
-test("este motor sabe animar los NUEVE valores del contrato", () => {
+test("este motor sabe animar los DIEZ valores del contrato", () => {
   // Si contenido añade un valor a `VALORES_3D.ataque`, esta prueba falla aquí en vez de que la
   // criatura nueva se quede con el gesto de reserva sin que nadie se entere.
   assert.deepEqual(sinDescriptor(VALORES_3D.ataque), []);
@@ -68,12 +68,20 @@ test("una embestida llega más lejos que un golpe con arma, y un zarpazo menos",
   assert.ok(ANIMACIONES.arma.arma > ANIMACIONES.mordisco.arma, "el arma la mueve quien la lleva");
 });
 
+test("coletazo gira mucho más que un zarpazo y casi no se mueve del sitio", () => {
+  // Lo que vende el gesto es el giro (barrer con la cola), no un desplazamiento como el de
+  // mordisco/garra/arma/embestida.
+  assert.equal(viaja("coletazo"), false, "un coletazo gira sobre sí mismo, no avanza");
+  assert.ok(ANIMACIONES.coletazo.giro > ANIMACIONES.garra.giro, "un coletazo barre más que un zarpazo");
+  assert.ok(ANIMACIONES.coletazo.alzar < 0, "se agacha: la cola va baja");
+});
+
 test("guardia y apoyo no son ataques", () => {
   for (const n of ["guardia", "apoyo"]) {
     assert.equal(ANIMACIONES[n].defensivo, true);
     assert.ok(ANIMACIONES[n].avance <= 0, `${n} no puede lanzarse hacia el rival`);
   }
-  for (const n of ["arma", "mordisco", "garra", "embestida", "aliento", "proyectil", "conjuro"]) {
+  for (const n of ["arma", "mordisco", "garra", "embestida", "aliento", "proyectil", "conjuro", "coletazo"]) {
     assert.equal(ANIMACIONES[n].defensivo, false, `${n} sí es un ataque`);
   }
 });

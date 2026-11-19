@@ -163,7 +163,7 @@ export const VALORES_3D = Object.freeze({
   /** Cómo se apoya y se mueve: decide el esqueleto y la animación de reposo/desplazamiento. */
   silueta: Object.freeze(["cuadrupedo", "bipedo", "aracnido", "reptante", "alado", "flotante"]),
   /** Animación de ataque. `guardia` y `apoyo` solo aparecen en movimientos/habilidades, nunca como `ataque3d` de una criatura. */
-  ataque: Object.freeze(["mordisco", "garra", "arma", "proyectil", "aliento", "embestida", "conjuro", "guardia", "apoyo"]),
+  ataque: Object.freeze(["mordisco", "garra", "arma", "proyectil", "aliento", "embestida", "conjuro", "guardia", "apoyo", "coletazo"]),
   /** `altura` es relativa: 1 = la altura del héroe. Siempre dentro de este rango. */
   altura: Object.freeze({ min: 0.5, max: 2.8 }),
 });
@@ -261,7 +261,7 @@ export const MOVIMIENTOS = Object.freeze({
   // dragón
   inspirar: { tipo: "cargar", nombre: "Tomar aire", icono: "🌬️", libera: "aliento", animacion3d: "apoyo" },
   aliento: { tipo: "habilidad", nombre: "Aliento de fuego", icono: "🔥", mult: 2.0, bloqueable: true, brutal: true, estado: { tipo: "veneno", turnos: 3, pct: 0.22 }, animacion3d: "aliento" },
-  coletazo: { tipo: "habilidad", nombre: "Coletazo", icono: "🦎", mult: 0.8, estado: { tipo: "aturdido", turnos: 1 }, animacion3d: "garra" },
+  coletazo: { tipo: "habilidad", nombre: "Coletazo", icono: "🦎", mult: 0.8, estado: { tipo: "aturdido", turnos: 1 }, animacion3d: "coletazo" },
   // jefes
   definitiva_carga: { tipo: "cargar", nombre: "Preparar definitiva", icono: "☄️", libera: "definitiva", definitiva: true, animacion3d: "apoyo" },
   definitiva: { tipo: "habilidad", nombre: "Definitiva", icono: "☄️", mult: JEFE.multDefinitiva, bloqueable: true, imparable: true, brutal: true, definitiva: true, animacion3d: "conjuro" },
