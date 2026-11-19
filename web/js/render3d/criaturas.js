@@ -276,6 +276,28 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
     const matHombro = t.mat(arm.base, { metal: 0.75, rugosidad: 0.3, emision: arm.emision, fuerza: arm.fuerza * 0.5 });
     for (const s of [-1, 1]) torso.add(t.en(t.esfera(0.135, matHombro, 0.7), s * 0.27, 0.2, 0));
   }
+  // Hombrera de placas (manica): SIEMPRE en el brazo derecho, lleve armadura o no. Es lo que hace
+  // reconocible al gladiador frente a un soldado cualquiera (el brazo del arma va protegido con
+  // placas de metal superpuestas; el del escudo va desnudo, que para eso lo cubre el escudo).
+  const matPlaca = t.mat(0x9c7a3e, { metal: 0.78, rugosidad: 0.32 });
+  const hombreraDer = t.grupo("hombreraDer");
+  for (let i = 0; i < 3; i++) {
+    hombreraDer.add(t.en(t.esfera(0.15 - i * 0.014, matPlaca, 0.55), 0, -i * 0.07, 0.025 + i * 0.012));
+  }
+  t.en(hombreraDer, 0.28, 0.2, 0);
+  torso.add(hombreraDer);
+  // Pteruges: tiras de cuero colgando del cinturón, en arco por delante. También siempre puestas:
+  // es la silueta del faldellín de gladiador, no un cosmético de equipo.
+  const matPteruge = t.mat(0x6b4423, { rugosidad: 0.88, metal: 0.04 });
+  const pteruges = t.grupo("pteruges");
+  const nTiras = 10;
+  for (let i = 0; i < nTiras; i++) {
+    const a = (i / (nTiras - 1) - 0.5) * 2.5;
+    const tira = t.caja(0.052, 0.26, 0.02, matPteruge);
+    t.en(tira, Math.sin(a) * 0.24, -0.33, Math.cos(a) * 0.2, { ry: a });
+    pteruges.add(tira);
+  }
+  torso.add(pteruges);
   t.en(torso, 0, 1.03, 0);
   cuerpo.add(torso);
 
@@ -288,9 +310,12 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
     // El penacho SIEMPRE es rojo, aunque el casco sea de rareza común: es lo que hace
     // reconocible al casco de gladiador en vez de un cubo metálico cualquiera. La rareza del
     // casco solo cambia el metal (gris/azul/dorado), nunca la cresta.
-    const matCresta = t.mat(0xb3121f, { rugosidad: 0.88, metal: 0.05 });
+    const matCresta = t.mat(0xb3121f, { rugosidad: 0.82, metal: 0.08 });
     cabeza.add(t.en(t.esfera(0.195, matCasco, 0.85), 0, 0.03, 0));
-    cabeza.add(t.en(t.caja(0.045, 0.1, 0.36, matCresta), 0, 0.17, 0)); // cresta/penacho
+    // Penacho: cresta alta + remate curvo encima, para que se lea como un cepillo romano y no
+    // como un bloque plano pegado al casco.
+    cabeza.add(t.en(t.caja(0.05, 0.12, 0.4, matCresta), 0, 0.19, 0));
+    cabeza.add(t.en(t.cilindro(0.028, 0.028, 0.4, matCresta), 0, 0.25, 0, { rx: Math.PI / 2 }));
     cabeza.add(t.en(t.caja(0.07, 0.13, 0.03, matCasco), 0, 0.02, 0.17)); // nasal
   }
   t.en(cabeza, 0, 1.47, 0);
@@ -302,15 +327,18 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   brazoDer.add(t.en(t.esfera(0.075, matPiel), 0, -0.38, 0));
   const arma = t.grupo("arma");
   if (esp) {
-    // La hoja es acero (que se lee como hoja); lo que cambia con la rareza es su brillo y la
+    // Gladius: hoja corta de acero con forma de hoja (más ancha a media altura, afilada en la
+    // punta) y un nervio central que marca el filo. Lo que cambia con la rareza es su brillo y la
     // guarda. Una hoja entera dorada parecia un palo mas del mismo color.
-    const matFilo = t.mat(0xe7ecf2, { metal: 0.98, rugosidad: 0.12, emision: esp.emision, fuerza: esp.fuerza * 0.8 });
+    const matFilo = t.mat(0xd7dde6, { metal: 0.8, rugosidad: 0.2, emision: esp.emision, fuerza: esp.fuerza * 0.8 });
     const matGuarda = t.mat(esp.osc, { metal: 0.8, rugosidad: 0.35 });
-    arma.add(t.en(t.caja(0.055, 0.74, 0.015, matFilo), 0, 0.47, 0));
-    arma.add(t.en(t.cono(0.04, 0.12, matFilo), 0, 0.9, 0));
-    arma.add(t.en(t.caja(0.3, 0.045, 0.05, matGuarda), 0, 0.1, 0));
-    arma.add(t.en(t.cilindro(0.032, 0.032, 0.18, t.mat(0x3a2414, { rugosidad: 0.9 })), 0, 0, 0));
-    arma.add(t.en(t.esfera(0.045, matGuarda), 0, -0.1, 0));
+    arma.add(t.en(t.caja(0.062, 0.28, 0.016, matFilo), 0, 0.24, 0));  // base de la hoja
+    arma.add(t.en(t.caja(0.07, 0.2, 0.016, matFilo), 0, 0.46, 0));    // vientre, más ancho
+    arma.add(t.en(t.cono(0.05, 0.16, matFilo), 0, 0.64, 0));          // punta
+    arma.add(t.en(t.caja(0.016, 0.56, 0.022, matFilo), 0, 0.38, 0));  // nervio central: el brillo del filo
+    arma.add(t.en(t.caja(0.26, 0.04, 0.045, matGuarda), 0, 0.08, 0)); // guarda
+    arma.add(t.en(t.cilindro(0.028, 0.028, 0.16, t.mat(0x3a2414, { rugosidad: 0.9 })), 0, 0, 0)); // empuñadura
+    arma.add(t.en(t.esfera(0.04, matGuarda), 0, -0.09, 0));           // pomo
   } else {
     arma.add(t.en(t.cilindro(0.03, 0.035, 0.5, t.mat(0x6b4a2a, { rugosidad: 0.9 })), 0, 0.25, 0)); // palo
   }
@@ -327,7 +355,14 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   if (esc) {
     const matEsc = t.mat(esc.base, { metal: 0.8, rugosidad: 0.3, emision: esc.emision, fuerza: esc.fuerza * 0.7 });
     escudo.add(t.en(t.cilindro(0.3, 0.26, 0.055, matEsc), 0, 0, 0, { rx: Math.PI / 2 }));
-    escudo.add(t.en(t.esfera(0.075, t.mat(esc.luz, { metal: 0.95, rugosidad: 0.1 })), 0, 0, 0.05));
+    // Remate de hierro en el centro (el umbo): siempre del mismo metal oscuro, nunca del color de
+    // la rareza, para que se lea como herraje de verdad y no como una gema más del escudo.
+    const matRemate = t.mat(0x3b2a1c, { metal: 0.85, rugosidad: 0.3 });
+    escudo.add(t.en(t.esfera(0.08, matRemate), 0, 0, 0.055));
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      escudo.add(t.en(t.esfera(0.025, matRemate), Math.cos(a) * 0.19, Math.sin(a) * 0.19, 0.045));
+    }
     escudo.add(t.en(t.toro(0.29, 0.028, t.mat(esc.osc, { metal: 0.7, rugosidad: 0.4 })), 0, 0, 0.01));
     t.en(escudo, -0.14, -0.4, 0.14, { ry: 0.35 });
     brazoIzq.add(escudo);

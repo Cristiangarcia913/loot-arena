@@ -132,6 +132,35 @@ export function construirEscenario(T, o = {}) {
   }, false);
   raiz.add(manchas);
 
+  // ── Círculo central grabado: marca el punto de combate, con relieve radial alrededor ──
+  // Todo pegado al suelo (como las manchas) y sin proyectar sombra sobre sí mismo: mismo motivo
+  // que el suelo y las manchas, un poco más arriba.
+  const matGrabado = t.matLuz(ARENA.arenaOsc, { opacidad: 0.55 });
+  const circuloCentral = t.malla(new T.CircleGeometry(2.3, Math.max(16, cal.segmentos * 2)), matGrabado, false);
+  circuloCentral.rotation.x = -Math.PI / 2;
+  circuloCentral.position.y = 0.009;
+  raiz.add(circuloCentral);
+
+  const matRelieve = t.mat(ARENA.muroLuz, { rugosidad: 0.85, metal: 0.15 });
+  const aroExterior = t.malla(new T.TorusGeometry(2.3, 0.025, Math.max(6, t.seg >> 1), t.seg), matRelieve, false);
+  aroExterior.rotation.x = Math.PI / 2;
+  aroExterior.position.y = 0.03;
+  raiz.add(aroExterior);
+  const aroInterior = t.malla(new T.TorusGeometry(1.45, 0.02, Math.max(6, t.seg >> 1), t.seg), matRelieve, false);
+  aroInterior.rotation.x = Math.PI / 2;
+  aroInterior.position.y = 0.03;
+  raiz.add(aroInterior);
+
+  // Surcos radiales entre los dos anillos: el «relieve de combate» grabado en la piedra.
+  const matSurco = t.mat(ARENA.muro, { rugosidad: 0.9, plano: true });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const surco = t.malla(new T.BoxGeometry(0.1, 0.02, 0.82), matSurco, false);
+    surco.position.set(Math.cos(a) * 1.88, 0.015, Math.sin(a) * 1.88);
+    surco.rotation.y = -a;
+    raiz.add(surco);
+  }
+
   // Foso / reborde
   raiz.add(t.en(t.toro(RADIO_ARENA, 0.3, t.mat(ARENA.muroLuz, { rugosidad: 0.95, plano: true })), 0, 0.1, 0, { rx: Math.PI / 2 }));
 
@@ -248,9 +277,46 @@ export function construirEscenario(T, o = {}) {
     raiz.add(polvo);
   }
 
+  // ── Chispas de las antorchas: suben desde el fuego, titilan y se reinician arriba ──
+  // Mismo presupuesto que el polvo (depende de `cal.polvo`) para que el perfil bajo, que no lleva
+  // polvo, tampoco pague por esto.
+  let chispas = null;
+  if (cal.polvo > 0 && !o.reducido) {
+    const n = Math.max(12, Math.round(cal.polvo * 0.3));
+    const pos = new Float32Array(n * 3);
+    const vel = new Float32Array(n);
+    const fase = new Float32Array(n);
+    const nacer = (i) => {
+      const a = sitios[i % sitios.length] + (Math.random() - 0.5) * 0.3;
+      const r = RADIO_ARENA - 0.5;
+      pos[i * 3] = Math.cos(a) * r + (Math.random() - 0.5) * 0.25;
+      pos[i * 3 + 1] = 2.55 + Math.random() * 0.4;
+      pos[i * 3 + 2] = Math.sin(a) * r + (Math.random() - 0.5) * 0.25;
+    };
+    for (let i = 0; i < n; i++) {
+      nacer(i);
+      vel[i] = 0.35 + Math.random() * 0.55;
+      fase[i] = Math.random() * 6.28;
+    }
+    const geo = new T.BufferGeometry();
+    geo.setAttribute("position", new T.BufferAttribute(pos, 3));
+    t.reg(geo);
+    const mat = new T.PointsMaterial({
+      color: ARENA.llama, size: 0.045, sizeAttenuation: true,
+      transparent: true, opacity: 0.8, depthWrite: false, blending: T.AdditiveBlending,
+    });
+    t.reg(mat);
+    chispas = new T.Points(geo, mat);
+    chispas.name = "chispas";
+    chispas.userData.vel = vel;
+    chispas.userData.fase = fase;
+    chispas.userData.nacer = nacer;
+    raiz.add(chispas);
+  }
+
   const niebla = new T.FogExp2(ARENA.niebla, 0.052);
 
-  return { raiz, taller: t, antorchas, polvo, luces: { ambiente, hemisferio, clave, contra, recorte }, niebla, suelo, calidad: cal };
+  return { raiz, taller: t, antorchas, polvo, chispas, luces: { ambiente, hemisferio, clave, contra, recorte }, niebla, suelo, calidad: cal };
 }
 
 /**
@@ -283,5 +349,20 @@ export function animarEscenario(esc, s, reducido = false) {
       if (arr[i * 3 + 1] > 4.8) arr[i * 3 + 1] = 0.15;
     }
     pos.needsUpdate = true;
+  }
+  const ch = esc.chispas;
+  if (ch && !reducido) {
+    const pos = ch.geometry.attributes.position;
+    const arr = pos.array, vel = ch.userData.vel, fase = ch.userData.fase, nacer = ch.userData.nacer;
+    const dt = 1 / 60;
+    for (let i = 0; i < vel.length; i++) {
+      arr[i * 3 + 1] += vel[i] * dt * 1.4;
+      arr[i * 3] += Math.sin(s * 2.1 + fase[i]) * 0.006;
+      arr[i * 3 + 2] += Math.cos(s * 1.7 + fase[i]) * 0.006;
+      if (arr[i * 3 + 1] > 3.6) nacer(i);
+    }
+    pos.needsUpdate = true;
+    // Mismo titileo que las llamas: las chispas no brillan a ritmo constante.
+    ch.material.opacity = 0.6 + 0.2 * Math.sin(s * 9 + 1);
   }
 }

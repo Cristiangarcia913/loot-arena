@@ -704,13 +704,16 @@ function renderBotones() {
 
   const pBtn = $("#btn-pocion");
   const pociones = lucha ? S.combate.jugador.pociones : (S.expedicion ? S.expedicion.pociones + S.expedicion.pocionesExtra : C.POCIONES_POR_EXPEDICION + T.pocionesExtra());
-  pBtn.textContent = `🧪 Poción ×${pociones}`;
+  // `replaceChildren` y no `textContent`: este botón lleva también la etiqueta de atajo de
+  // teclado (`.tecla`), que `textContent =` borraría en cada repintado.
+  pBtn.replaceChildren(`🧪 Poción ×${pociones}`, tecla("0"));
   pBtn.disabled = !libre || !(lucha && S.combate.jugador.pociones > 0) || S.combate.jugador.vida >= S.combate.jugador.vidaMax;
 
   const habs = lucha
     ? Sk.habilidadesDisponibles({ habilidades: S.combate.jugador.habilidades })
     : Sk.habilidadesDisponibles({ habilidades: statsHeroe().habilidades });
-  $("#skills").replaceChildren(...habs.map((hb) => {
+  // Atajos de teclado 3-9 para las habilidades, en el mismo orden en que se pintan (ver `alTecla`).
+  $("#skills").replaceChildren(...habs.map((hb, i) => {
     const b = h("button", {
       class: `btn btn-skill${hb.especial ? " legendaria" : ""}`, type: "button",
       title: `${hb.nombre}: ${hb.descripcion}${hb.restante ? ` (listo en ${hb.restante})` : ""}`,
@@ -718,9 +721,14 @@ function renderBotones() {
       style: hb.restante ? `--cd:${(hb.restante / hb.enfriamiento).toFixed(2)}` : null,
       disabled: !libre || hb.restante > 0,
       onclick: () => accion({ habilidad: hb.id }),
-    }, `${hb.icono} ${hb.nombre}`);
+    }, `${hb.icono} ${hb.nombre}`, i < 7 ? tecla(String(i + 3)) : null);
     return b;
   }));
+}
+
+/** Etiqueta `[N]` en la esquina de un botón, para que se vea qué tecla lo activa. */
+function tecla(n) {
+  return h("span", { class: "tecla", "aria-hidden": "true" }, n);
 }
 
 function añadirLog(eventos) {
@@ -758,12 +766,16 @@ async function animarEvento(ev, c) {
     await FX.animarGolpe(quienFx(ev.objetivo), ev.dano, { critico: !!ev.critico, bloqueado: !!ev.bloqueado, esquivado: !!ev.esquivado, fallo: !!ev.fallo });
   }
   if (ev.curacion) FX.animarCuracion(quienFx(ev.objetivo ?? ev.actor), ev.curacion);
+  // `animarDefensa` solo existe en el motor 3D (el 2D no tenía gesto propio para defender): si no
+  // está, se cae en la espera genérica de abajo, igual que siempre.
+  const defensa = ev.tipo === "defensa" && typeof FX.animarDefensa === "function";
+  if (defensa) await FX.animarDefensa(quienFx(ev.actor));
   aplicarSnapshot(ev, c);
   añadirLog([ev]);
   if (ev.tipo === "fase") FX.anunciar("¡FASE 2!", c.enemigo.nombre, "anuncio-jefe");
   if (ev.tipo === "victoria") FX.animarMuerte("enemigo");
   if (ev.tipo === "derrota") FX.animarMuerte("heroe");
-  if (!golpe && ev.dano == null && !ev.curacion) await esperar(FX.reducido() ? 80 : 260);
+  if (!golpe && ev.dano == null && !ev.curacion && !defensa) await esperar(FX.reducido() ? 80 : 260);
 }
 
 // ───────────────────────── Combate: flujo ─────────────────────────
@@ -851,6 +863,29 @@ function huir() {
   S.combate = C.huir(S.combate);
   añadirLog([S.combate.log.at(-1)]);
   alTerminar("huida");
+}
+
+/**
+ * Atajos de teclado de la arena: 1 Atacar, 2 Defender, 3-9 las habilidades en el orden en que se
+ * pintan (coincide con la etiqueta `[N]` que lleva cada botón) y 0 la Poción.
+ * Se ignoran si se está escribiendo en un campo, con alguna tecla modificadora, fuera de la
+ * sección de la arena o con un diálogo abierto, para no robarle teclas a nada más de la página.
+ */
+function alTecla(ev) {
+  if (ev.defaultPrevented || ev.repeat || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const t = ev.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+  if ($("#dlg-transfer")?.open) return;
+  if ($("#seccion-arena")?.hidden) return;
+  const k = ev.key;
+  let btn = null;
+  if (k === "1") btn = $("#btn-atacar");
+  else if (k === "2") btn = $("#btn-defender");
+  else if (k === "0") btn = $("#btn-pocion");
+  else if (/^[3-9]$/.test(k)) btn = $("#skills")?.querySelectorAll(".btn-skill")[Number(k) - 3] ?? null;
+  if (!btn || btn.disabled) return;
+  ev.preventDefault();
+  btn.click();
 }
 
 function resultado(...contenido) {
@@ -1234,6 +1269,17 @@ async function iniciar() {
   $("#btn-defender").addEventListener("click", () => accion("defender"));
   $("#btn-pocion").addEventListener("click", () => accion("pocion"));
   $("#btn-huir").addEventListener("click", huir);
+  // Micro-animación de pulsación en cualquier botón de la arena (atacar, defender, poción,
+  // habilidades…), venga de un clic o de un atajo de teclado: un solo oyente delegado en vez de
+  // uno por botón, porque las habilidades se repintan en cada turno.
+  $(".actions")?.addEventListener("click", (ev) => {
+    const b = ev.target.closest(".btn");
+    if (!b) return;
+    b.classList.remove("pulso-activar");
+    void b.offsetWidth; // reinicia la animación si se pulsa dos veces seguidas
+    b.classList.add("pulso-activar");
+  });
+  document.addEventListener("keydown", alTecla);
   $("#btn-refrescar").addEventListener("click", cargarInventario);
   $("#btn-connect").addEventListener("click", () => (S.cuenta && !redCorrecta() ? asegurarRed() : conectar()));
   $("#form-transfer").addEventListener("submit", confirmarTransferencia);

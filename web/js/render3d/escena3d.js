@@ -1250,6 +1250,9 @@ export function animarAtaque(quien, { critico = false, brutal = false, animacion
   if (d.chorro) setTimeout(() => chorroDeAliento(q, d), ms * imp * 0.82);
   if (d.proyectil) setTimeout(() => lanzarProyectil(q, d, ms * (1 - imp) * 0.9), ms * imp * 0.55);
   if (d.anillo) setTimeout(() => anilloDeConjuro(q, d), ms * imp * 0.7);
+  // Tajo: arma, mordisco, garra y embestida son golpes de cuerpo a cuerpo (lo que NO viaja desde
+  // lejos). El aliento, el proyectil y el conjuro ya tienen su propio efecto de salida.
+  if (!d.chorro && !d.proyectil && !d.anillo) setTimeout(() => estelaDeTajo(q, critico || brutal), ms * imp);
 
   return animar({
     ms, lado: q, cumplirEn: imp,
@@ -1368,6 +1371,87 @@ function anilloDeConjuro(q, d) {
 }
 
 /**
+ * Arco de corte brillante frente a quien recibe el golpe: un tajo curvo que aparece en el
+ * instante del impacto y se apaga enseguida. Es puramente decorativo (no se sincroniza con nada
+ * más que el propio reloj), así que sobrevive sin problema a un hit-stop o a un cambio de escena.
+ * @param {"heroe"|"enemigo"} atacante quien da el golpe (el tajo sale delante del OTRO lado)
+ * @param {boolean} [grande=false] golpe crítico o brutal: arco más ancho y más vivo
+ */
+function estelaDeTajo(atacante, grande = false) {
+  const blanco = otroLado(atacante);
+  const L = E.lados[blanco];
+  if (!E.listo || !L?.criatura || !L.vivo) return;
+  const T = E.T;
+  const col = E.lados[atacante]?.criatura?.colores?.acento ?? 0xf1f5f9;
+  const geo = new T.TorusGeometry(grande ? 0.52 : 0.42, grande ? 0.045 : 0.032, 6, 20, Math.PI * 1.1);
+  const mat = new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, blending: T.AdditiveBlending, depthWrite: false });
+  const tajo = new T.Mesh(geo, mat);
+  // De cara a la cámara (sin el giro de 90° que usan los anillos que se posan en el suelo), con
+  // una inclinación lateral para que se lea como un corte diagonal y no como un aro perfecto.
+  const fuera = Math.sign(L.baseX ?? L.ancla.position.x) || 1;
+  tajo.rotation.z = -fuera * 0.55 + azar(-0.12, 0.12);
+  tajo.rotation.y = azar(-0.2, 0.2);
+  tajo.position.copy(puntoImpacto(blanco));
+  tajo.position.x -= fuera * 0.18;
+  tajo.scale.setScalar(0.5);
+  E.escena.add(tajo);
+  animar({
+    ms: dur(220),
+    al: (p) => {
+      const k = salida(p);
+      tajo.scale.setScalar(0.5 + k * 0.75);
+      mat.opacity = 0.9 * (1 - p * p);
+    },
+    fin: () => { E.escena.remove(tajo); geo.dispose(); mat.dispose(); },
+  });
+}
+
+/**
+ * Defensa: el gladiador se encoge tras el escudo y una onda dorada (con chispas doradas y
+ * azules) se abre a su alrededor. Se usa tanto si defiende el héroe como si lo hace el enemigo
+ * (`finta`, `guardia_piedra`…), que es lo que decide `quien`.
+ * @param {"heroe"|"enemigo"} quien @returns {Promise<void>}
+ */
+export function animarDefensa(quien) {
+  const q = lado(quien);
+  sonar("bloqueo");
+  const L = E.lados[q];
+  if (!E.listo || !L?.criatura || !L.vivo) return esperar(dur(320));
+  const T = E.T;
+  const centro = puntoImpacto(q);
+  particulas(centro, { n: 26, color: 0xf6d27c, vel: 1.8, g: -2.2, ms: 620, tam: 0.065 });
+  particulas(centro, { n: 18, color: 0x60a5fa, vel: 1.5, g: -1.8, ms: 680, tam: 0.06 });
+
+  const geo = new T.TorusGeometry(0.3, 0.035, 8, 26);
+  const mat = new T.MeshBasicMaterial({ color: 0xf6d27c, transparent: true, opacity: 0.8, blending: T.AdditiveBlending, depthWrite: false });
+  const onda = new T.Mesh(geo, mat);
+  onda.rotation.x = Math.PI / 2;
+  onda.position.y = 0.08;
+  L.mov.add(onda);
+  animar({
+    ms: dur(420),
+    al: (p) => {
+      const k = salida(p);
+      onda.scale.setScalar(0.6 + k * 2.3);
+      mat.opacity = 0.8 * (1 - k);
+    },
+    fin: () => { L.mov.remove(onda); geo.dispose(); mat.dispose(); },
+  });
+
+  // Encogida defensiva: breve, el cuerpo se agacha un poco tras alzar el escudo.
+  animar({
+    ms: dur(300), lado: q,
+    al: (p) => {
+      const k = Math.sin(Math.min(1, p / 0.5) * Math.PI);
+      L.mov.position.y = -0.05 * k;
+      L.mov.scale.setScalar(1 - 0.03 * k);
+    },
+    fin: () => { L.mov.position.y = 0; L.mov.scale.setScalar(1); },
+  });
+  return esperar(dur(260));
+}
+
+/**
  * Recibir un golpe: hit-stop, destello blanco, retroceso, chispas y número flotante en 3D.
  * @param {"heroe"|"enemigo"} quien el que RECIBE el golpe
  * @param {number|string} dano cantidad (0 o "esquiva" muestra «¡Esquiva!»)
@@ -1412,6 +1496,12 @@ export async function animarGolpe(quien, dano, { critico = false, bloqueado = fa
       ? { n: 46, color: 0xfde047, vel: 4.2, g: -7, ms: 820, tam: 0.085 }
       : { n: 20, color: 0xef4444, vel: 2.6, g: -7, ms: 560, tam: 0.06 });
     if (critico) { destello(0xfff2c4, 0.45); sacudir(12, 420); }
+    // El dragón escupe fuego: el golpe que recibe el héroe lleva una ráfaga extra de llamas y
+    // humo en el punto de impacto, además de las chispas normales de arriba.
+    if (q === "heroe" && !bloqueado && E.enemigo?.clave === "dragon") {
+      particulas(centro, { n: 34, color: 0xff6a2c, vel: 3.6, g: -2.6, ms: 700, tam: 0.09 });
+      particulas(centro, { n: 20, color: 0x4b4b4b, vel: 1.1, g: 0.6, ms: 1000, tam: 0.11 });
+    }
 
     const base = L.baseX ?? L.ancla.position.x;
     const fuera = Math.sign(base) || 1;
