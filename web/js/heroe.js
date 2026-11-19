@@ -39,20 +39,26 @@ function pintarRetrato(el, equipados, apariencia) {
   el.innerHTML = spriteHeroe(equipados, apariencia);
 }
 
-/** Estadísticas que se muestran como "valor / tope" con barra (dependen del nivel, no solo del equipo). */
+/**
+ * Estadísticas que se muestran como "valor / tope" con barra (dependen del nivel, no solo del
+ * equipo). Dos filas: arriba icono + nombre a la izquierda y el valor a la derecha, abajo la
+ * barra sola ocupando todo el ancho — así el número nunca se monta encima de la barra ni se
+ * desborda de la tarjeta (ver css/style.css `.stat-tope`).
+ */
 function pintarConTope(ico, lbl, val, tope) {
   const v = Math.max(0, Number(val) || 0);
   const m = Math.max(v, Number(tope) || 0, 1);
   const p = Math.max(0, Math.min(100, (v / m) * 100));
   return h("div", { class: "stat stat-tope" },
-    h("span", { class: "stat-ico", "aria-hidden": "true" }, ico),
-    h("span", { class: "stat-lbl" }, lbl),
+    h("div", { class: "stat-top" },
+      h("span", { class: "stat-ico", "aria-hidden": "true" }, ico),
+      h("span", { class: "stat-lbl" }, lbl),
+      h("b", { class: "stat-val" }, `${num(v)} / ${num(m)}`)),
     h("div", {
       class: "stat-bar", role: "progressbar", "aria-label": lbl,
       "aria-valuemin": "0", "aria-valuemax": String(m), "aria-valuenow": String(v),
     },
-      h("div", { class: "stat-bar-fill", style: { width: `${p}%` } }),
-      h("b", { class: "stat-bar-txt" }, `${num(v)} / ${num(m)}`)));
+      h("div", { class: "stat-bar-fill", style: { width: `${p}%` } })));
 }
 
 function pintarStats(el, stats = {}, statsTope = {}, nivel, xp, xpSiguiente) {

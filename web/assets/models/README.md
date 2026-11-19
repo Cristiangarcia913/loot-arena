@@ -29,7 +29,6 @@ color de su rareza.
 | `dragon.glb` | [Cethiel's Dragon 3D](https://opengameart.org/content/cethiels-dragon-3d) (Drummyfish, OpenGameArt), malla `dragon.obj`+textura convertida a `.glb` con `obj2gltf` (sin los clips de animación Collada del paquete original, que el motor no carga) | CC0 1.0 (dominio público, sin atribución obligatoria) |
 | `esqueleto.glb` | ["LowPoly Animated Monsters"](https://opengameart.org/content/lowpoly-animated-monsters) (Quaternius, OpenGameArt), malla `Skeleton.obj`+textura del paquete, convertida a `.glb` con `obj2gltf` (sin los clips de animación Blend del paquete original, que el motor no carga) | CC0 1.0 (dominio público, sin atribución obligatoria) |
 | `lobo.glb` | ["Animated Animales Low Poly"](https://opengameart.org/content/animated-animales-low-poly) (Quaternius, OpenGameArt), malla `Wolf.obj`+textura del paquete, convertida a `.glb` con `obj2gltf` (sin los clips de animación Blend del paquete original, que el motor no carga) | CC0 1.0 (dominio público, sin atribución obligatoria) |
-| `golem.gltf` | ["Golem Knight"](https://opengameart.org/content/golem-knight) (OpenGameArt), `golem.gltf` del paquete usado tal cual (un único archivo con texturas y buffers embebidos en base64, exportado de Blockbench; no hace falta `obj2gltf`) | CC0 1.0 (dominio público, sin atribución obligatoria) |
 | `murcielago.glb` | ["LowPoly Animated Monsters"](https://opengameart.org/content/lowpoly-animated-monsters) (Quaternius, OpenGameArt — el mismo paquete de `esqueleto.glb`), malla `Bat.obj` (sin textura: colores planos por material, como el esqueleto) convertida a `.glb` con `obj2gltf` | CC0 1.0 (dominio público, sin atribución obligatoria) |
 | `limo.glb` | ["LowPoly Animated Monsters"](https://opengameart.org/content/lowpoly-animated-monsters) (Quaternius, OpenGameArt — el mismo paquete de `esqueleto.glb`), malla `Slime.obj` (sin textura: colores planos por material) convertida a `.glb` con `obj2gltf` | CC0 1.0 (dominio público, sin atribución obligatoria) |
 
@@ -71,25 +70,32 @@ gratis para ninguna de las dos claves. Si en el futuro aparece uno con licencia 
 añadirlo con el mismo nombre de clave (`orco.glb`/`orco.gltf`, `quimera.glb`/`quimera.gltf`)
 basta para que el motor lo recoja solo.
 
-**Fallo conocido de `golem.gltf`: a veces no se ve.** Verificado en el navegador (motor de
-producción, `cargarModeloExterno` + `criaturaDesdeModelo` + `aplicarEnemigo`, sin atajos): en
-~50% de las veces que aparece como enemigo, no se dibuja ni un píxel suyo — la arena queda vacía,
-sin ningún error en consola. Se investigó a fondo antes de aceptar esto:
+**`golem.gltf` se retiró — el gólem se queda con su receta procedural.** Había estado puesto con
+["Golem Knight"](https://opengameart.org/content/golem-knight) (OpenGameArt, CC0), pero verificado
+en el navegador (motor de producción, `cargarModeloExterno` + `criaturaDesdeModelo` +
+`aplicarEnemigo`, sin atajos): en ~50% de las veces que aparecía como enemigo no se dibujaba ni un
+píxel suyo — la arena quedaba vacía, sin ningún error en consola. Se investigó a fondo antes de
+retirarlo:
 
-- La malla se carga y se mide bien siempre: 16 mallas, 2060 vértices, texturas (128×128 a
+- La malla se cargaba y medía bien siempre: 16 mallas, 2060 vértices, texturas (128×128 a
   256×256) totalmente decodificadas, posición y escala del pivote idénticas entre el caso que
-  falla y el que funciona.
-- El fotograma que falla SÍ llega a mandar la orden de dibujar: 50 `drawCalls`, 13.344 triángulos,
-  las 16 mallas dentro del frustum de la cámara — tal cual el fotograma que sí se ve.
-- No es un problema de licencia, geometría, textura, posición, tween de entrada (termina
+  fallaba y el que funcionaba.
+- El fotograma que fallaba SÍ llegaba a mandar la orden de dibujar: 50 `drawCalls`, 13.344
+  triángulos, las 16 mallas dentro del frustum de la cámara — tal cual el fotograma que sí se veía.
+- No era un problema de licencia, geometría, textura, posición, tween de entrada (terminaba
   normalmente) ni frustum culling: todo eso se comprobó directamente en el motor real y salió
   idéntico en ambos casos.
 
-Apunta a un problema de estado de la GPU (profundidad, cara visible o mezcla) que cambia entre
-fotogramas — para seguir hace falta un inspector de fotogramas WebGL (Spector.js/RenderDoc), que
-no estaba disponible al investigarlo. Se deja el archivo puesto (en partidas reales el jugador
-tarda minutos en llegar al nivel 7, de sobra para que todo se asiente) pero si alguien lo
-reproduce con herramientas de verdad, esto es el punto de partida.
+Apuntaba a un problema de estado de la GPU (profundidad, cara visible o mezcla) que cambiaba entre
+fotogramas, y para seguir hacía falta un inspector de fotogramas WebGL (Spector.js/RenderDoc) que
+no estaba disponible. Un enemigo que desaparece la mitad de las veces que sale (incluido como
+jefe de la Arena, ver `CLAVES_JEFE_ARENA` en `combat.js`) no es aceptable, así que en vez de seguir
+dejándolo puesto se retiró el archivo: `golem` queda igual que `orco`/`quimera` más abajo, sin
+`.glb`, con su receta a mano en `criaturas.js` (bloques de roca angulares con `flatShading`,
+grietas de magma emisivas y ojos encendidos), que SIEMPRE se ve. Si algún día aparece una versión
+corregida del modelo (o uno nuevo con licencia clara), añadirlo de nuevo como `golem.glb`/
+`golem.gltf` basta para que el motor lo recoja — pero antes de hacerlo, confirmar con un inspector
+de fotogramas de verdad que el problema de arriba no reaparece.
 
 ## Qué pasa si lo pones
 
