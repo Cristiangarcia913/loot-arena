@@ -13,6 +13,16 @@ import { cargarTres, urlTresCargada, TRES_VERSION } from "./tres.js";
 /** Carpeta donde el equipo de Motor 3D deja los modelos ya verificados. */
 export const BASE_MODELOS = new URL("../../assets/models/", import.meta.url);
 
+/**
+ * Corrección de orientación por modelo: algunos `.glb` descargados miran hacia -Z en vez de hacia
+ * +Z (de cara al jugador), según cómo los haya orientado quien los modeló. Se arregla aquí, con un
+ * giro sobre Y en radianes, sin tocar `criaturaDesdeModelo`. Vacío a propósito: se rellena a mano
+ * tras comprobar en pantalla cómo mira cada modelo nuevo.
+ */
+export const ROTACION_Y_MODELOS = Object.freeze({
+  // dragon: Math.PI,
+});
+
 const urlAddon = (archivo) => `https://cdn.jsdelivr.net/npm/three@${TRES_VERSION}/examples/jsm/${archivo}`;
 
 let promesaLoader = null;
@@ -100,6 +110,10 @@ export async function cargarModeloExterno(nombre) {
       const cargador = new GLTFLoader();
       const gltf = await cargador.loadAsync(url);
       resultado = gltf?.scene ?? gltf?.scenes?.[0] ?? null;
+      // Los clips embebidos (idle, respiración, alas...) viajan sueltos en `gltf.animations`, no
+      // colgados de la escena: se guardan aquí como propiedad de conveniencia, LEÍDA ANTES de
+      // clonar en `criaturaDesdeModelo` (un `clone()` de three.js no copia propiedades ajenas).
+      if (resultado) resultado.animaciones = gltf.animations ?? [];
       break;
     }
   } catch {
@@ -131,17 +145,20 @@ export function precargarModelo(nombre) {
  * geometría, liberar una dejaría a la otra con un `dispose()` de más (WebGL ya no podría dibujarla).
  * Clonar aquí es barato: una vez por aparición, no por fotograma.
  *
- * No necesita three.js por parámetro (a diferencia de `construirHeroe`/`construirEnemigo`):
- * clonar y medir una escena ya cargada son operaciones de los propios objetos, no del espacio de
- * nombres `THREE`.
+ * Clonar y medir una escena ya cargada son operaciones de los propios objetos, no del espacio de
+ * nombres `THREE`, así que `T` solo hace falta si el modelo trae clips de animación (para crear el
+ * `AnimationMixer`); en las pruebas, sin `T`, esa parte simplemente se omite.
  *
  * @param {object} plantilla la escena de `cargarModeloExterno` (no se modifica)
  * @param {number} alturaObjetivo metros, de los pies a lo más alto
+ * @param {object} [T] three.js, solo para arrancar el `AnimationMixer` si hay clips embebidos
+ * @param {string} [nombre] clave del bestiario (para `ROTACION_Y_MODELOS`)
  * @returns {{raiz:object, taller:{liberar:Function}, alto:number, radio:number, partes:object,
- *            materiales:object[], flota:boolean, externo:true}}
+ *            materiales:object[], flota:boolean, externo:true, mixer:object|null}}
  */
-export function criaturaDesdeModelo(plantilla, alturaObjetivo) {
+export function criaturaDesdeModelo(plantilla, alturaObjetivo, T, nombre) {
   const raiz = plantilla.clone(true);
+  const clips = plantilla.animaciones ?? [];
   const materiales = [];
 
   raiz.traverse((n) => {
@@ -184,9 +201,27 @@ export function criaturaDesdeModelo(plantilla, alturaObjetivo) {
     ? Math.max(0.3, Math.max(caja.max.x - caja.min.x, caja.max.z - caja.min.z) * escala * 0.5)
     : 0.3;
 
+  // Giro de corrección (ver `ROTACION_Y_MODELOS`): algunos `.glb` miran hacia -Z en vez de hacia
+  // el jugador. Rota sobre el propio pivote (ya centrado en x/z), así que no desplaza nada más.
+  const giro = (nombre && ROTACION_Y_MODELOS[nombre]) || 0;
+  if (giro) raiz.rotation.y = giro; // `raiz` recién clonada: su rotación de partida siempre es 0
+
+  // Clips embebidos (idle, respiración, alas...): si hay y tenemos `T`, se reproducen en bucle
+  // desde ya. Sin esto un modelo externo se queda congelado en su pose de reposo del archivo.
+  let mixer = null;
+  if (T?.AnimationMixer && clips.length) {
+    mixer = new T.AnimationMixer(raiz);
+    for (const clip of clips) mixer.clipAction(clip).play();
+  }
+
   return {
-    raiz, taller: { liberar() {} }, alto: alturaObjetivo, radio,
-    partes: {}, materiales, flota: false, externo: true,
+    raiz, taller: { liberar() { mixer?.stopAllAction(); } }, alto: alturaObjetivo, radio,
+    partes: {}, materiales, flota: false, externo: true, mixer,
+    // `escena3d.js` reutiliza instancias desde un almacén y `restaurar()` repone la posición y la
+    // rotación del modelo; sin esto volvería a (0,0,0) y perdería el centrado/giro de arriba en
+    // cuanto se reciclara una segunda vez.
+    posBase: { x: raiz.position.x, y: raiz.position.y, z: raiz.position.z },
+    rotYBase: giro,
   };
 }
 

@@ -229,7 +229,7 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   // `escena3d.js` ya no pide `heroe.glb` (ver `web/assets/models/README.md`) y esta rama solo se
   // activa hoy en las pruebas, que la fuerzan a mano con `_forzarModeloParaPruebas`.
   const plantillaHeroe = modeloEnMemoria("heroe");
-  if (plantillaHeroe) return criaturaDesdeModelo(plantillaHeroe, ALTO_HEROE);
+  if (plantillaHeroe) return criaturaDesdeModelo(plantillaHeroe, ALTO_HEROE, T, "heroe");
 
   const t = new Taller(T, o);
   const eq = {};
@@ -1398,7 +1398,7 @@ export function construirEnemigo(T, clave, o = {}) {
   const plantillaExterna = modeloEnMemoria(k);
   if (plantillaExterna) {
     const alturaObjetivo = meta?.altura > 0 ? Math.min(meta.altura, ESTIRADO_MAX) * ALTO_HEROE : ALTO_HEROE;
-    const cr = criaturaDesdeModelo(plantillaExterna, alturaObjetivo);
+    const cr = criaturaDesdeModelo(plantillaExterna, alturaObjetivo, T, k);
     cr.raiz.name = `enemigo-${k || "generico"}-externo`;
     if (o.jefe) cr.raiz.scale.setScalar(cr.raiz.scale.x * 1.35); // sin corona: no hay Taller aquí
     return { ...cr, clave: k, colores: colorEnemigo(k), jefe: !!o.jefe };

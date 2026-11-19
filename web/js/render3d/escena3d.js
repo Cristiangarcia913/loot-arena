@@ -484,9 +484,11 @@ function bucle(t) {
 
   const brutoDt = Math.min(0.1, (t - E.ultimo) / 1000);
   E.ultimo = t;
+  let dtAnimacion = brutoDt;
   if (t < E.congelado) {
     // Hit-stop: el bucle sigue dibujando, pero ni el tiempo del mundo ni las animaciones avanzan.
     for (const tw of E.tweens) tw.t0 += brutoDt * 1000;   // (la red ya lleva 400 ms de margen)
+    dtAnimacion = 0;
   } else {
     E.tiempo += brutoDt;
   }
@@ -495,6 +497,11 @@ function bucle(t) {
   animarEscenario(E.esc, s, reducido());
   reposo("heroe", s);
   reposo("enemigo", s);
+  // Clips embebidos de un modelo externo (ver `criaturaDesdeModelo`): el mismo reloj que el resto
+  // de la escena, así que el hit-stop los congela igual que a la respiración procedural.
+  const dtMixer = reducido() ? 0 : dtAnimacion;
+  E.lados.heroe?.criatura?.mixer?.update(dtMixer);
+  E.lados.enemigo?.criatura?.mixer?.update(dtMixer);
   pasarTweens(t);
   colocarCamara(s, brutoDt);
 
@@ -772,8 +779,13 @@ function tirar(cr) {
  */
 function restaurar(cr) {
   cr.raiz.visible = true;
-  cr.raiz.position.set(0, 0, 0);
-  cr.raiz.rotation.set(0, 0, 0);
+  // Un modelo externo normaliza su pivote en `criaturaDesdeModelo` (centrado x/z, pies en y=0 y,
+  // si hace falta, un giro de orientación): esa es su "cero", no (0,0,0) literal, o se perdería al
+  // reciclarlo desde el almacén por segunda vez. Las recetas procedurales no declaran base: su
+  // pivote ya nace en (0,0,0) y el `?? 0` de abajo las deja exactamente como estaban.
+  const pb = cr.posBase;
+  cr.raiz.position.set(pb?.x ?? 0, pb?.y ?? 0, pb?.z ?? 0);
+  cr.raiz.rotation.set(0, cr.rotYBase ?? 0, 0);
   for (const m of cr.materiales) {
     if (m.userData.opBase != null) m.opacity = m.userData.opBase;
     if (m.emissive && m.userData.emisionBase != null) {
