@@ -166,7 +166,14 @@ export function criaturaDesdeModelo(plantilla, alturaObjetivo, T, nombre) {
     n.geometry = n.geometry.clone();
     n.geometry.computeBoundingBox?.();
     const clonar = (m) => { const c = m.clone(); materiales.push(c); return c; };
-    n.material = Array.isArray(n.material) ? n.material.map(clonar) : clonar(n.material);
+    if (!n.material && T?.MeshStandardMaterial) {
+      // Malla sin material (algún exportador lo deja vacío): sin esto se ve negra o blanca lisa.
+      const m = new T.MeshStandardMaterial({ color: 0x6b3a2e, roughness: 0.6, metalness: 0.1 });
+      materiales.push(m);
+      n.material = m;
+    } else if (n.material) {
+      n.material = Array.isArray(n.material) ? n.material.map(clonar) : clonar(n.material);
+    }
     n.castShadow = true;
     n.receiveShadow = true;
   });

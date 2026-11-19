@@ -26,7 +26,7 @@ color de su rareza.
 
 | Archivo | Origen | Licencia |
 |---|---|---|
-| _(ninguno todavía)_ | | |
+| `dragon.glb` | [Cethiel's Dragon 3D](https://opengameart.org/content/cethiels-dragon-3d) (Drummyfish, OpenGameArt), malla `dragon.obj`+textura convertida a `.glb` con `obj2gltf` (sin los clips de animación Collada del paquete original, que el motor no carga) | CC0 1.0 (dominio público, sin atribución obligatoria) |
 
 ## Qué pasa si lo pones
 
