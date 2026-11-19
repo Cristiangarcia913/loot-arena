@@ -30,17 +30,28 @@ color de su rareza.
 | `esqueleto.glb` | ["LowPoly Animated Monsters"](https://opengameart.org/content/lowpoly-animated-monsters) (Quaternius, OpenGameArt), malla `Skeleton.obj`+textura del paquete, convertida a `.glb` con `obj2gltf` (sin los clips de animación Blend del paquete original, que el motor no carga) | CC0 1.0 (dominio público, sin atribución obligatoria) |
 | `lobo.glb` | ["Animated Animales Low Poly"](https://opengameart.org/content/animated-animales-low-poly) (Quaternius, OpenGameArt), malla `Wolf.obj`+textura del paquete, convertida a `.glb` con `obj2gltf` (sin los clips de animación Blend del paquete original, que el motor no carga) | CC0 1.0 (dominio público, sin atribución obligatoria) |
 | `golem.gltf` | ["Golem Knight"](https://opengameart.org/content/golem-knight) (OpenGameArt), `golem.gltf` del paquete usado tal cual (un único archivo con texturas y buffers embebidos en base64, exportado de Blockbench; no hace falta `obj2gltf`) | CC0 1.0 (dominio público, sin atribución obligatoria) |
+| `murcielago.glb` | ["LowPoly Animated Monsters"](https://opengameart.org/content/lowpoly-animated-monsters) (Quaternius, OpenGameArt — el mismo paquete de `esqueleto.glb`), malla `Bat.obj` (sin textura: colores planos por material, como el esqueleto) convertida a `.glb` con `obj2gltf` | CC0 1.0 (dominio público, sin atribución obligatoria) |
+| `limo.glb` | ["LowPoly Animated Monsters"](https://opengameart.org/content/lowpoly-animated-monsters) (Quaternius, OpenGameArt — el mismo paquete de `esqueleto.glb`), malla `Slime.obj` (sin textura: colores planos por material) convertida a `.glb` con `obj2gltf` | CC0 1.0 (dominio público, sin atribución obligatoria) |
 
-**`orco.glb` y `quimera.glb` no existen todavía.** Se buscó en OpenGameArt/Kenney/Quaternius (tras
-descartar una fuente sin reputación verificable que sí los tenía) y no apareció ningún modelo CC0
-utilizable: para el orco, solo había estilos incompatibles (voxel tipo Minecraft) o criaturas que
-no son un orco de verdad (goblin, vikingo humano, zombi — ya usados o con la especie equivocada);
-para la quimera, el único candidato real (`Hydrach`, CC0 en OpenGameArt) viene empaquetado en
-`.rar`, formato que no se pudo abrir con las herramientas disponibles. Ambas criaturas se quedan
-con su receta procedural de `criaturas.js`, que es el comportamiento seguro por defecto de este
-sistema. Si aparece un modelo CC0/MIT válido para cualquiera de las dos, añadirlo con el mismo
-nombre de clave (`orco.glb`/`orco.gltf`, `quimera.glb`/`quimera.gltf`) basta para que el motor lo
-recoja solo.
+**`orco.glb` y `quimera.glb` siguen sin existir — sustituidos por `murcielago.glb` y `limo.glb`.**
+Segundo intento, más a fondo (añadiendo itch.io y Poly Pizza a la búsqueda): para el orco, lo único
+con licencia CC0 verificable de verdad seguía sin ser un orco (goblin, vikingo humano, zombi,
+ya cubiertos o con la especie equivocada) o venía en un estilo incompatible (cartoon tipo Pokémon
+de ["50 Monsters Pack 3D"](https://opengameart.org/content/50-monsters-pack-3d), CC0 pero que
+desentonaría al lado del dragón/esqueleto/lobo/gólem ya puestos); lo demás con pinta de orco de
+verdad (itch.io, CGTrader, Sloyd...) era de pago, "paga lo que quieras" sin licencia clara, o
+CC-BY con atribución obligatoria. Para la quimera, `Hydrach` (CC0, OpenGameArt) seguía siendo el
+único candidato real y seguía en `.rar`, formato que este entorno no puede abrir; no apareció
+ninguna quimera/mantícora alternativa con licencia CC0/MIT/dominio público en ningún sitio.
+
+En vez de forzar una sustitución de mala calidad o dejar las dos claves vacías, se buscó en el
+propio paquete CC0 ya verificado de `esqueleto.glb` (que también trae `Bat.obj` y `Slime.obj`,
+sin usar hasta ahora) y se cubrieron dos claves del bestiario que SÍ estaban sin modelo: el
+murciélago (`murcielago`) y el limo ácido (`limo`). `orco` y `quimera` se quedan con su receta
+procedural de `criaturas.js`, que es el comportamiento seguro por defecto de este sistema. Si
+aparece un modelo CC0/MIT válido para cualquiera de las dos, añadirlo con el mismo nombre de
+clave (`orco.glb`/`orco.gltf`, `quimera.glb`/`quimera.gltf`) basta para que el motor lo recoja
+solo.
 
 **Fallo conocido de `golem.gltf`: a veces no se ve.** Verificado en el navegador (motor de
 producción, `cargarModeloExterno` + `criaturaDesdeModelo` + `aplicarEnemigo`, sin atajos): en
