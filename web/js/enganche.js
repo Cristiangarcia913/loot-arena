@@ -200,6 +200,7 @@ function adaptarLogros(m) {
     titulos: (e, extra = {}) => m.titulosDisponibles(e).map((id) => ({ id, texto: m.textoTitulo ? m.textoTitulo(id, extra) : extra[id] ?? id })),
     tituloActual: (e) => e?.titulo ?? null,
     elegirTitulo: (e, id) => { const r = m.elegirTitulo(e, id); return { ok: !!r.ok, estado: r.progreso, motivo: r.motivo }; },
+    nivelesDesafio: (e) => (typeof m.nivelesDesafio === "function" ? m.nivelesDesafio(e) : null),
   };
 }
 
@@ -868,14 +869,15 @@ function tarjetaMision(m, { onReclamar, extra } = {}) {
   const rec = m.recompensa ?? {};
   const partes = [rec.xp ? `${rec.xp} XP` : null, rec.puntos ? `${rec.puntos} pts de pase` : null, rec.motivo ? "25 ORO" : null].filter(Boolean).join(" · ");
   const ocupado = S.ocupado.has(`m:${m.id}`);
-  return h("li", { class: `eg-mision${m.completada ? " completa" : ""}${m.reclamada ? " reclamada" : ""}` },
+  const lista = m.completada && !m.reclamada;
+  return h("li", { class: `eg-mision${m.completada ? " completa" : ""}${m.reclamada ? " reclamada" : ""}${lista ? " eg-mision-lista" : ""}` },
     h("span", { class: "eg-mision-ico", "aria-hidden": "true" }, m.icono ?? "📜"),
     h("div", { class: "eg-mision-cuerpo" },
-      h("strong", {}, m.nombre ?? m.id),
+      h("strong", {}, m.nombre ?? m.id, lista ? h("span", { class: "eg-chip eg-chip-lista" }, "¡Lista!") : null),
       barra(m.progreso ?? 0, m.objetivo ?? 1),
-      h("span", { class: "eg-tenue eg-mini" }, `${Math.min(m.progreso ?? 0, m.objetivo ?? 1)}/${m.objetivo ?? 1}${partes ? ` · ${partes}` : ""}`), extra),
+      h("span", { class: "eg-tenue eg-mini" }, `[${Math.min(m.progreso ?? 0, m.objetivo ?? 1)}/${m.objetivo ?? 1}]${partes ? ` · ${partes}` : ""}`), extra),
     m.reclamada ? h("span", { class: "eg-chip eg-chip-ok" }, "✔ Reclamada")
-      : h("button", { type: "button", class: `btn btn-small${m.completada ? " btn-gold" : ""}`, disabled: !m.completada || ocupado, onclick: onReclamar }, ocupado ? "…" : "Reclamar"));
+      : h("button", { type: "button", class: `btn btn-small${m.completada ? " btn-gold eg-btn-reclamar-lista" : ""}`, disabled: !m.completada || ocupado, onclick: onReclamar }, ocupado ? "…" : "Reclamar"));
 }
 
 function renderMisiones(v) {
@@ -1058,6 +1060,21 @@ function tarjetaLogro(l, { nuevo, cerca }) {
     nuevo ? h("span", { class: "eg-nuevo" }, "¡Nuevo!") : cerca ? h("span", { class: "eg-cerca" }, "🎯 Más cerca") : null);
 }
 
+/** Vitrina compacta de "Niveles de desafío" (Iniciación/Veterano/Maestro) sobre logros.nivelesDesafio. */
+function tarjetaNivelesDesafio(niveles) {
+  if (!Array.isArray(niveles) || !niveles.length) return null;
+  return h("div", { class: "eg-niveles-desafio" },
+    niveles.map((n) => {
+      const hechos = n.items.filter((it) => it.conseguido).length;
+      return h("div", { class: `eg-nivel-desafio${hechos === n.items.length ? " completo" : ""}` },
+        h("h5", {}, `${n.icono} ${n.nombre}`, h("span", { class: "eg-chip" }, `${hechos}/${n.items.length}`)),
+        h("ul", { class: "eg-nivel-desafio-items" },
+          n.items.map((it) => h("li", { class: it.conseguido ? "conseguido" : "", title: it.texto },
+            h("span", { "aria-hidden": "true" }, it.conseguido ? "✔" : it.icono),
+            h("span", { class: "eg-mini" }, `${it.nombre} [${it.progreso}/${it.meta}]`)))));
+    }));
+}
+
 function renderLogros(lista) {
   const el = S?.els.logros;
   if (!el) return;
@@ -1083,6 +1100,7 @@ function renderLogros(lista) {
         h("strong", {}, `${conseguidos.length}/${total} logros`),
         h("span", { class: "eg-tenue eg-mini" }, pct >= 1 ? "¡Todos conseguidos!" : `${Math.round(pct * 100)} % completado`)),
       barra(conseguidos.length, total, "dorada")),
+    tarjetaNivelesDesafio(S.A.logros.nivelesDesafio?.(S.E.logros)),
     h("div", { class: "eg-titulo-box" },
       h("label", { class: "eg-titulo-sel" }, "Título junto a tu nombre",
         h("select", { disabled: !titulos.length, onchange: (ev) => cambiarTitulo(ev.target.value || null) },

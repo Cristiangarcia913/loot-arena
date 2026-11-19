@@ -219,9 +219,10 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
   display: flex; flex-direction: column; gap: 6px;
 }
 .f-hud {
-  padding: 8px 10px; border-radius: 10px;
-  background: linear-gradient(180deg, rgba(10, 7, 5, .78), rgba(10, 7, 5, .55));
+  padding: 6px 9px; border-radius: 8px 8px 6px 6px;
+  background: linear-gradient(180deg, rgba(10, 7, 5, .82), rgba(10, 7, 5, .58));
   border: 1px solid rgba(232, 183, 90, .22); backdrop-filter: blur(2px);
+  max-width: 260px; margin: 0 auto;
 }
 .fighter.vacio .f-hud { opacity: .7; }
 .f-name { font: 700 1.02rem var(--titulo); margin: 0 0 6px; overflow-wrap: anywhere; text-shadow: 0 1px 2px #000; }
@@ -781,7 +782,7 @@ body.app { height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-
 .seccion-arena .seccion-head { margin-bottom: 0; flex: none; }
 .app .escena { flex: 1 1 0; height: auto; min-height: 250px; max-height: 620px; }
 .escena .fighter { min-height: 0; }
-.escena .f-hud { width: 100%; max-width: 330px; margin: 0 auto; }
+.escena .f-hud { width: 100%; max-width: 240px; margin: 0 auto; }
 .escena .retrato { container-type: size; min-height: 110px; }
 .escena .sprite { width: min(100cqw, 100cqh); max-width: 250px; }
 .escena .fighter.jefe .sprite { width: min(115cqw, 100cqh); max-width: 300px; }

@@ -871,6 +871,18 @@ const RETROCESO_Z_ENEMIGO = Object.freeze({
   quimera: -1.4,
 });
 
+/**
+ * Descenso extra en Y (metros) para enemigos tan altos que su cabeza queda justo detrás del HUD
+ * de combate (caja de nombre y vida, pegada al borde superior de la pantalla). El puesto del
+ * enemigo es el mismo para todas las claves, así que esto se aplica y se deshace al cambiar de
+ * enemigo (ver abajo), nunca se queda pegado a un combate anterior. Vacío salvo casos comprobados
+ * en pantalla, igual que `RETROCESO_Z_ENEMIGO`.
+ */
+const DESCENSO_Y_ENEMIGO = Object.freeze({
+  dragon: -0.12,
+  quimera: -0.2,
+});
+
 function aplicarEnemigo() {
   const L = E.lados.enemigo;
   if (!L || !E.T) return;
@@ -879,6 +891,7 @@ function aplicarEnemigo() {
   const f = luchadorEl("enemigo");
   if (!e) { f?.classList.remove("jefe"); E.director?.reposar(); return; }
   L.ancla.position.z = (L.baseZ ?? L.ancla.position.z) + (RETROCESO_Z_ENEMIGO[e.clave] ?? 0);
+  L.ancla.position.y = DESCENSO_Y_ENEMIGO[e.clave] ?? 0;
   const cr = delAlmacen(llaveEnemigo(e.clave, e.jefe),
     () => construirEnemigo(E.T, e.clave, { ...opcionesTaller(), jefe: !!e.jefe }));
   L.mov.add(cr.raiz);

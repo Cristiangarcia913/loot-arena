@@ -137,6 +137,16 @@
 .hr-stats { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
 .hr-stats .stat { min-width: 0; }
 .hr-stats .stat b { overflow-wrap: anywhere; }
+.stat-tope { gap: 6px; }
+.stat-bar {
+  position: relative; width: 100%; height: 18px; border-radius: 999px; overflow: hidden;
+  background: rgba(0, 0, 0, .45); border: 1px solid var(--borde-suave);
+}
+.stat-bar-fill { height: 100%; background: linear-gradient(90deg, var(--oro-2), #fde68a); transition: width .4s ease; }
+.stat-bar-txt {
+  position: absolute; inset: 0; display: grid; place-items: center; font: 700 .68rem var(--titulo);
+  color: #fff; text-shadow: 0 1px 2px #000; overflow-wrap: anywhere;
+}
 .hr-vestuario { grid-column: 1 / -1; min-width: 0; }
 .hr-ayuda { margin: 0 0 10px; color: var(--tenue); font-size: .85rem; }
 .hr-vestuario-grid { display: flex; flex-direction: column; gap: 14px; }

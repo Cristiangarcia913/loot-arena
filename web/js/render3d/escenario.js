@@ -53,8 +53,13 @@ export function encuadre(aspecto, altoMax = 2) {
 
   // A qué altura se mira: el centro de la criatura más alta, sin bajar del pecho del héroe.
   const miraY = Math.min(2.4, Math.max(CAMARA.mira[1], alto * 0.45));
-  // Medio alto y medio ancho que hay que abarcar.
-  const medioAlto = Math.max(miraY, alto - miraY) * 1.14;
+  // Medio alto y medio ancho que hay que abarcar. El margen de ARRIBA es mayor que el de abajo a
+  // propósito: el HUD de combate (nombre + barra de vida) flota pegado al borde superior de la
+  // pantalla, y sin este hueco de más la cabeza de un bicho grande (dragón, quimera) queda justo
+  // detrás de esa caja. Abajo no hace falta tanto margen porque ahí solo hay suelo.
+  const medioAltoArriba = (alto - miraY) * 1.3;
+  const medioAltoAbajo = miraY * 1.14;
+  const medioAlto = Math.max(medioAltoArriba, medioAltoAbajo);
   const medioAncho = MEDIO_PLANO;
 
   const ideal = Math.max(medioAncho / (a * tanMitad(CAMARA.fov)), medioAlto / tanMitad(CAMARA.fov));

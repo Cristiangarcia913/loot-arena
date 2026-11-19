@@ -298,6 +298,12 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
     pteruges.add(tira);
   }
   torso.add(pteruges);
+  // Correas cruzadas de cuero sobre el pecho + hebilla: con esto el torso deja de ser una
+  // cápsula lisa (la «pastilla» que se veía con cualquier tinte) incluso sin armadura puesta.
+  const correa = (signo) => t.en(t.cilindro(0.022, 0.022, 0.56, matCuero), 0, 0, 0.2, { rz: signo * 0.7 });
+  torso.add(correa(1));
+  torso.add(correa(-1));
+  torso.add(t.en(t.cilindro(0.045, 0.045, 0.028, matPlaca), 0, 0, 0.24, { rx: Math.PI / 2 }));
   t.en(torso, 0, 1.03, 0);
   cuerpo.add(torso);
 
@@ -305,6 +311,14 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   const cabeza = t.grupo("cabeza");
   cabeza.add(t.en(t.esfera(0.17, matPiel), 0, 0, 0));
   cabeza.add(t.en(t.esfera(0.175, t.mat(HEROE.pelo, { rugosidad: 0.95 }), 0.6), 0, 0.06, -0.01));
+  // Ojos siempre visibles: sin ellos la cabeza era una esfera de piel sin rasgo ninguno («la
+  // pastilla»). Van debajo del casco también: si el casco es común (sin visor) se siguen viendo.
+  const matOjo = t.mat(0x1c1410, { rugosidad: 0.25, metal: 0.1 });
+  const matBrilloOjo = t.matLuz(0xffffff, { opacidad: 0.9 });
+  for (const lado of [-1, 1]) {
+    cabeza.add(t.en(t.esfera(0.022, matOjo), lado * 0.065, 0.02, 0.155));
+    cabeza.add(t.en(t.esfera(0.008, matBrilloOjo), lado * 0.065 + lado * 0.01, 0.028, 0.165));
+  }
   if (cas) {
     const matCasco = t.mat(cas.base, { metal: 0.85, rugosidad: 0.25, emision: cas.emision, fuerza: cas.fuerza * 0.6 });
     // El penacho SIEMPRE es rojo, aunque el casco sea de rareza común: es lo que hace
@@ -317,6 +331,9 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
     cabeza.add(t.en(t.caja(0.05, 0.12, 0.4, matCresta), 0, 0.19, 0));
     cabeza.add(t.en(t.cilindro(0.028, 0.028, 0.4, matCresta), 0, 0.25, 0, { rx: Math.PI / 2 }));
     cabeza.add(t.en(t.caja(0.07, 0.13, 0.03, matCasco), 0, 0.02, 0.17)); // nasal
+    // Visor: ranura de ojos iluminada por delante del nasal, para que el casco no quede como un
+    // cubo de metal ciego y se note que hay alguien dentro mirando.
+    cabeza.add(t.en(t.caja(0.2, 0.032, 0.02, t.matLuz(0x8fe3ff, { aditivo: true })), 0, 0.02, 0.19));
   }
   t.en(cabeza, 0, 1.47, 0);
   cuerpo.add(cabeza);

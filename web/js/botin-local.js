@@ -19,7 +19,7 @@ export const CLAVE_EQUIPO_LOCAL = "lootarena:demo:equipo";
 /** Tope de la mochila local: al pasarlo se descarta el objeto no equipado más débil. */
 export const MAX_OBJETOS = 120;
 
-export const DROP_CHANCE = 0.6;
+export const DROP_CHANCE = 0.45;
 /** Probabilidad de que un objeto pertenezca a un conjunto (Gladiador, Coloso o Sombras). */
 export const PROB_CONJUNTO = 0.35;
 const NIVEL_MIN = 1;
@@ -36,10 +36,10 @@ const LISTA_TIPOS = Object.keys(TIPOS);
 
 const b = (nombre, genero) => ({ nombre, genero });
 const BASES = {
-  Espada: [b("Espada", "f"), b("Mandoble", "m"), b("Sable", "m"), b("Cimitarra", "f"), b("Estoque", "m"), b("Katana", "f"), b("Gladio", "m"), b("Claymore", "f")],
+  Espada: [b("Espada", "f"), b("Mandoble", "m"), b("Sable", "m"), b("Cimitarra", "f"), b("Estoque", "m"), b("Katana", "f"), b("Gladio", "m"), b("Claymore", "f"), b("Maza", "f"), b("Daga", "f")],
   Escudo: [b("Escudo", "m"), b("Broquel", "m"), b("Rodela", "f"), b("Pavés", "m"), b("Adarga", "f"), b("Égida", "f"), b("Bastión", "m"), b("Muralla", "f")],
   Casco: [b("Casco", "m"), b("Yelmo", "m"), b("Celada", "f"), b("Morrión", "m"), b("Bacinete", "m"), b("Barbuta", "f"), b("Corona", "f"), b("Máscara", "f")],
-  Armadura: [b("Armadura", "f"), b("Coraza", "f"), b("Cota de Malla", "f"), b("Peto", "m"), b("Loriga", "f"), b("Brigantina", "f"), b("Gambesón", "m"), b("Manto", "m")],
+  Armadura: [b("Armadura", "f"), b("Coraza", "f"), b("Cota de Malla", "f"), b("Peto", "m"), b("Loriga", "f"), b("Brigantina", "f"), b("Gambesón", "m"), b("Manto", "m"), b("Coraza Pesada", "f"), b("Malla Reforzada", "f")],
   Botas: [b("Botas", "fp"), b("Grebas", "fp"), b("Botines", "mp"), b("Escarpes", "mp"), b("Sandalias", "fp"), b("Polainas", "fp"), b("Borceguíes", "mp"), b("Mocasines", "mp")],
 };
 const ADJ_COMUN = ["Oxidado", "Gastado", "Abollado", "Mellado", "Viejo", "Tosco", "Remendado", "de Madera", "de Bronce", "de Hierro", "de Recluta"];
@@ -63,15 +63,17 @@ function concordar(adj, genero) {
 }
 
 /**
- * Probabilidades [Común, Raro, Legendario]: mismas curvas que el servidor.
+ * Probabilidades [Común, Raro, Legendario]. Con jefe, mismas curvas que el servidor; sin jefe,
+ * más bajas que las del servidor para que un Raro o Legendario en combate normal cueste esfuerzo.
  * `bonoLegendario`: multiplicador sobre la parte Legendaria (combat.js: multiplicadorLegendarioPorRacha),
  * modo demo/local únicamente.
  */
 export function probabilidadesRareza(nivel = 1, { jefe = false, sinLegendario = 0, excluirComun = false, bonoLegendario = 1 } = {}) {
   const t = fraccionNivel(nivel);
-  let leg = jefe ? 0.10 + 0.10 * t : 0.05 + 0.09 * t;
+  // Combates normales (sin jefe): tasas reducidas para que un Raro/Legendario cueste esfuerzo real.
+  let leg = jefe ? 0.10 + 0.10 * t : 0.03 + 0.05 * t;
   leg *= Math.max(1, bonoLegendario);
-  let raro = jefe ? 0.35 + 0.09 * t : 0.25 + 0.135 * t;
+  let raro = jefe ? 0.35 + 0.09 * t : 0.16 + 0.09 * t;
   if (sinLegendario >= PITY_UMBRAL) leg = Math.max(leg, Math.min(1, PITY_BASE + PITY_PASO * (sinLegendario - PITY_UMBRAL)));
   leg = Math.min(leg, 1);
   raro = Math.min(raro, 1 - leg);

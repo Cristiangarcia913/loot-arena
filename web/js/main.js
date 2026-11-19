@@ -15,6 +15,7 @@ import * as R from "./router.js";
 import * as ENG from "./enganche.js";
 import * as INV from "./inventario.js";
 import * as MERC from "./mercado.js";
+import * as CJ from "./conjuntos.js";
 import * as P2P from "./mercado-p2p.js";
 import * as HEROE from "./heroe.js";
 import * as GAS from "./gas.js";
@@ -22,7 +23,7 @@ import * as TUT from "./tutorial.js";
 import * as EXP from "./expediciones.js";
 import { reclamarBotin } from "./api.js";
 import { mostrarAnuncioRecompensado } from "./anuncios.js";
-import { catalogoRotativo, semillaDelDia } from "./economy.js";
+import { catalogoRotativo, semillaDelDia, ofertaDelDiaCosmetico } from "./economy.js";
 import * as BL from "./botin-local.js";
 import { CLAVE_HISTORIAL_LOCAL, anadirEntrada, parsearHistorial, serializarHistorial } from "./historial-local.js";
 import { crearContrato, hayCodigo, leerInventario, transferir, enlacesExplorador } from "./chain.js";
@@ -535,7 +536,9 @@ function renderMercadoSec() {
     onVender: (items) => T.venderObjetos(items, "mercado"),
     onComprar: (c) => T.comprarCosmetico(c.id),
     onAbrirCofre: () => T.abrirCofreCosmetico(),
-    catalogo: catalogoRotativo(semillaMercado()),
+    catalogo: catalogoRotativo(semillaMercado(), {
+      excluir: [ofertaDelDiaCosmetico(semillaDelDia())?.id].filter((id) => id != null),
+    }),
     onRenovarCatalogo: renovarCatalogoConAnuncio,
     onCambioPestana: (clave) => { if (clave === "p2p") P2P.refrescarMercadoP2P?.(); },
   });
@@ -586,6 +589,8 @@ function alternarEquipo(item) {
   guardarEquipo();
   if (E.estaEquipado(S.equipo, item.tokenId)) TUT.avanzarTutorial("equipar");
   alCambiarInventario();
+  const conjuntosActivos = CJ.contarConjuntos(equipados()).filter((s) => s.efectoActivo).map((s) => s.id);
+  if (conjuntosActivos.length) ENG.registrarEvento({ tipo: "equipo", conjuntosActivos });
   if (enCurso()) toast("El nuevo equipo se aplicará en el próximo combate.", "info", 3000);
 }
 
@@ -628,9 +633,11 @@ function renderInventario() {
 
 function renderHeroe() {
   const s = statsHeroe();
+  const tope = P.statsHeroeTope(S.progreso, equipados());
   const xp = P.infoXp(S.progreso);
   HEROE.renderHeroe($("#seccion-heroe"), {
     stats: { vida: s.vidaMax, ataque: s.ataque, defensa: s.defensa, critico: s.critico, esquiva: s.esquiva },
+    statsMax: { vida: tope.vidaMax, ataque: tope.ataque, defensa: tope.defensa },
     nivel: xp.nivel, xp: xp.xp, xpSiguiente: xp.necesaria || 1,
     equipo: S.equipo, inventario: S.inventario,
     apariencia: T.aparienciaActual(),

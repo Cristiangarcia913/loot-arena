@@ -174,6 +174,17 @@ export function statsHeroe(p, equipados = []) {
   };
 }
 
+/**
+ * Tope de vida/ataque/defensa que el héroe alcanzaría al nivel 30 con el mismo equipo
+ * (crítico/esquiva no dependen del nivel, solo del equipo, así que su tope ya es el valor actual).
+ * Para la barra "actual / tope" de la pantalla de Héroe.
+ * @param {object} p progreso
+ * @param {Array<{tipo:string, rareza:number, ataque:number, defensa:number}>} equipados
+ */
+export function statsHeroeTope(p, equipados = []) {
+  return statsHeroe({ ...sanearProgreso(p), nivel: NIVEL_HEROE_MAX }, equipados);
+}
+
 /** Datos para la barra de XP. */
 export function infoXp(p) {
   const q = sanearProgreso(p);

@@ -30,7 +30,7 @@ export const ROTACION_Y_MODELOS = Object.freeze({
  * las demás siguen exactamente igual. Vacío a propósito, igual que `ROTACION_Y_MODELOS`.
  */
 export const ALTURA_MODELOS = Object.freeze({
-  dragon: 2.85,
+  dragon: 2.7,
 });
 
 /**

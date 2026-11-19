@@ -7,8 +7,8 @@ const memoria = () => { const m = new Map(); return { getItem: (k) => (m.has(k) 
 const T = 1_800_000_000_000;
 const ids = (r) => r.escalones.map((x) => `${x.id}#${x.n}`);
 
-test("49 logros bien formados: ids únicos, escalones con medalla, metas crecientes y título final", () => {
-  assert.equal(L.LOGROS.length, 49);
+test("51 logros bien formados: ids únicos, escalones con medalla, metas crecientes y título final", () => {
+  assert.equal(L.LOGROS.length, 51);
   assert.equal(new Set(L.LOGROS.map((l) => l.id)).size, L.LOGROS.length);
   assert.equal(new Set(L.LOGROS.map((l) => l.titulo)).size, L.LOGROS.length, "títulos únicos");
   const cats = new Set(L.CATEGORIAS.map((c) => c.id));
@@ -149,7 +149,7 @@ test("constancia: racha diaria, desafíos (racha de victorias), misiones y tempo
 
 test("resumenLogros: total, desbloqueados, por categoría y lo siguiente que puedes conseguir", () => {
   const vacio = L.resumenLogros(null);
-  assert.equal(vacio.total, 49);
+  assert.equal(vacio.total, 51);
   assert.equal(vacio.desbloqueados, 0);
   assert.equal(vacio.completados, 0);
   assert.deepEqual(Object.keys(vacio.porCategoria).sort(), ["coleccion", "combate", "constancia", "economia"]);
@@ -162,13 +162,13 @@ test("resumenLogros: total, desbloqueados, por categoría y lo siguiente que pue
 
   // Un jugador con 10 victorias: "primera_victoria" en escalón 2 → su siguiente está al 10/50 (no 0).
   const { progreso } = L.registrarVarios(null, Array.from({ length: 10 }, () => ({ tipo: "victoria", nivel: 1 })), T);
-  const r = L.resumenLogros(progreso, 49);
-  assert.equal(r.siguientes.length, 49 - r.completados);
+  const r = L.resumenLogros(progreso, L.LOGROS.length);
+  assert.equal(r.siguientes.length, L.LOGROS.length - r.completados);
   const sig = r.siguientes.find((s) => s.id === "primera_victoria");
   assert.deepEqual([sig.progreso, sig.meta, sig.escalon, sig.recompensa.tipo], [10, 50, 3, "xp"]);
   assert.ok(r.desbloqueados >= 1 && r.porCategoria.combate.desbloqueados >= 1);
-  assert.equal(r.porCategoria.combate.total, 20);
-  assert.equal(r.porCategoria.coleccion.total, 12);
+  assert.equal(r.porCategoria.combate.total, 21);
+  assert.equal(r.porCategoria.coleccion.total, 13);
   assert.equal(r.porCategoria.economia.total, 8);
   assert.equal(r.porCategoria.constancia.total, 9);
   // Orden: de más cerca de completar a más lejos.
@@ -177,7 +177,7 @@ test("resumenLogros: total, desbloqueados, por categoría y lo siguiente que pue
   assert.equal(L.resumenLogros(progreso, 3).siguientes.length, 3);
   // Logros completos no aparecen en siguientes.
   const completo = L.registrarVarios(null, Array.from({ length: 200 }, () => ({ tipo: "victoria", nivel: 1 })), T);
-  const rc = L.resumenLogros(completo.progreso, 49);
+  const rc = L.resumenLogros(completo.progreso, L.LOGROS.length);
   assert.equal(rc.siguientes.some((s) => s.id === "primera_victoria"), false);
   assert.equal(rc.porCategoria.combate.completados >= 1, true);
 });
@@ -229,6 +229,51 @@ test("persistencia y datos corruptos", () => {
   assert.equal(s.titulo, null, "no desbloqueado");
   st.setItem(k, "{{");
   assert.deepEqual(L.cargarLogros(k, st), L.logrosNuevos());
+});
+
+test("dragon_pacifista: solo cuenta la victoria contra el jefe dragón sin pociones en ese combate", () => {
+  // Victoria normal contra el dragón pero bebiendo una poción: no cuenta.
+  let r = L.registrar(null, { tipo: "victoria", nivel: 10, clave: "dragon", jefe: true, pocionesUsadas: 1 }, T);
+  assert.ok(!ids(r).includes("dragon_pacifista#1"));
+  // Victoria contra otro jefe sin pociones: tampoco cuenta (tiene que ser el dragón).
+  r = L.registrar(r.progreso, { tipo: "victoria", nivel: 10, clave: "golem", jefe: true, pocionesUsadas: 0 }, T);
+  assert.ok(!ids(r).includes("dragon_pacifista#1"));
+  // Victoria contra el dragón sin pociones: cuenta.
+  r = L.registrar(r.progreso, { tipo: "victoria", nivel: 10, clave: "dragon", jefe: true, pocionesUsadas: 0 }, T);
+  assert.ok(ids(r).includes("dragon_pacifista#1"));
+  assert.equal(r.progreso.c.dragonSinPociones, 1);
+});
+
+test("set_legendario: cuenta conjuntos distintos con las 4 piezas equipadas", () => {
+  let r = L.registrar(null, { tipo: "equipo", conjuntosActivos: ["gladiador"] }, T);
+  assert.ok(ids(r).includes("set_legendario#1"));
+  // Repetir el mismo conjunto no sube de escalón.
+  r = L.registrar(r.progreso, { tipo: "equipo", conjuntosActivos: ["gladiador"] }, T);
+  assert.deepEqual(r.escalones, []);
+  r = L.registrar(r.progreso, { tipo: "equipo", conjuntosActivos: ["coloso", "sombras"] }, T);
+  assert.ok(ids(r).includes("set_legendario#2") && ids(r).includes("set_legendario#3"));
+  assert.deepEqual(r.progreso.c.conjuntosCompletos.sort(), ["coloso", "gladiador", "sombras"]);
+});
+
+test("nivelesDesafio: vitrina de 3 niveles con escalones concretos de LOGROS", () => {
+  const vacio = L.nivelesDesafio(null);
+  assert.deepEqual(vacio.map((n) => n.id), ["iniciacion", "veterano", "maestro"]);
+  for (const nivel of vacio) for (const it of nivel.items) assert.equal(it.conseguido, false);
+  const { progreso } = L.registrarVarios(null, [
+    { tipo: "victoria", nivel: 1 },
+    { tipo: "compra", oro: 10 },
+    { tipo: "racha", valor: 10 },
+    { tipo: "jefe", clave: "golem" },
+  ], T);
+  const r = L.nivelesDesafio(progreso);
+  const porId = (nivelId, logroId) => r.find((n) => n.id === nivelId).items.find((i) => i.id === logroId);
+  assert.equal(porId("iniciacion", "primera_victoria").conseguido, true);
+  assert.equal(porId("iniciacion", "compras").conseguido, true);
+  assert.equal(porId("veterano", "racha").conseguido, true, "racha de 10 alcanza el escalón 3");
+  assert.equal(porId("veterano", "jefes").conseguido, true);
+  assert.equal(porId("maestro", "racha").conseguido, false, "escalón 4 (25) aún no");
+  assert.equal(porId("maestro", "dragon_pacifista").conseguido, false);
+  assert.equal(porId("maestro", "set_legendario").conseguido, false);
 });
 
 test("registrar no falla con eventos inválidos ni con títulos externos sin id", () => {

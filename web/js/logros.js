@@ -1,4 +1,6 @@
-// Logros de Loot Arena (49) agrupados en 4 categorías: combate, colección, economía y constancia.
+// Logros de Loot Arena (51) agrupados en 4 categorías: combate, colección, economía y constancia.
+// Además de las 4 categorías, NIVELES_LOGRO cura una vitrina de 3 niveles de dificultad real
+// (Iniciación/Veterano/Maestro) sobre escalones concretos — ver `nivelesDesafio`.
 // Cada logro es una "familia" con 3–4 escalones: cada escalón tiene su medalla (bronce → diamante).
 // Los escalones intermedios dan XP (`recompensa.tipo === "xp"`); el último da un título
 // (`recompensa.tipo === "titulo"`), que es también el título que el jugador puede llevar.
@@ -8,6 +10,7 @@
 
 import { leerJSON, escribirJSON, claveJugador, normalizarEvento } from "./misiones.js";
 import { BESTIARIO } from "./combat.js";
+import { IDS_CONJUNTO } from "./conjuntos.js";
 
 const TIPOS = ["Espada", "Escudo", "Casco", "Armadura", "Botas"];
 const RAREZAS = [0, 1, 2];
@@ -30,7 +33,7 @@ export function contadoresNuevos() {
     // combate
     victorias: 0, victoriasNivel5: 0, victoriasNivel10: 0, nivelMaxVencido: 0, combates: 0, derrotas: 0, huidas: 0,
     jefes: 0, jefesIntocables: 0, criticos: 0, habilidades: 0, habilidadesDistintas: [], pociones: 0,
-    dano: 0, danoRecibido: 0, intocable: 0, rapidas: 0, rachaMax: 0, nivelHeroe: 1,
+    dano: 0, danoRecibido: 0, intocable: 0, rapidas: 0, rachaMax: 0, nivelHeroe: 1, dragonSinPociones: 0,
     // economía
     ventas: 0, ventaMax: 0, oroVentas: 0, oroAcumulado: 0, compras: 0, gastado: 0, compraMax: 0, cofres: 0,
     // colección
@@ -39,7 +42,7 @@ export function contadoresNuevos() {
     diarios: 0, diarioRachaMax: 0, desafios: 0, desafiosGanados: 0, desafiosRacha: 0, desafiosRachaMax: 0,
     misiones: 0, semanales: 0, paseNivelMax: 0, temporadas: [],
     // listas (conjuntos)
-    tipos: [], distintos: [], bestiario: [], jefesClaves: [],
+    tipos: [], distintos: [], bestiario: [], jefesClaves: [], conjuntosCompletos: [],
   };
 }
 
@@ -65,9 +68,9 @@ const F = (id, categoria, icono, nombre, descripcion, contador, metas, [titulo, 
   });
 };
 
-/** Definición de los 49 logros (4 categorías). */
+/** Definición de los 51 logros (4 categorías). */
 export const LOGROS = Object.freeze([
-  // ── Combate (20)
+  // ── Combate (21)
   // id histórico "primera_victoria": lo usa enganche.test.js y estados guardados.
   F("primera_victoria", "combate", "🏟️", "Gladiador", "Gana combates en la arena.", "victorias", [1, 10, 50, 200], ["leyenda_arena", "Leyenda de la Arena"]),
   F("nivel_5", "combate", "🐗", "Desafiante", "Vence enemigos de nivel 5 o más.", "victoriasNivel5", [1, 10, 30], ["desafiante", "Desafiante"]),
@@ -89,8 +92,9 @@ export const LOGROS = Object.freeze([
   F("derrotas", "combate", "🤕", "Testarudo", "Cae derrotado y sigue luchando.", "derrotas", [1, 10, 50], ["testarudo", "Testarudo"]),
   F("huidas", "combate", "🏃", "Escurridizo", "Huye de combates.", "huidas", [1, 10, 30], ["escurridizo", "Escurridizo"]),
   F("nivel_heroe", "combate", "🧝", "Curtido", "Sube de nivel de héroe.", "nivelHeroe", [5, 10, 20, 30], ["ascendido", "Ascendido"]),
+  F("dragon_pacifista", "combate", "🐉", "Sin pociones ante el dragón", "Vence al Dragón ancestral sin beber pociones en ese combate.", "dragonSinPociones", [1, 3, 10], ["pacifista_dragon", "Pacifista del Dragón"]),
 
-  // ── Colección (13)
+  // ── Colección (14)
   F("tipos", "coleccion", "🧰", "Equipo completo", "Consigue objetos de cada tipo.", len("tipos"), [1, 3, 5], ["equipo_completo", "Equipo Completo"]),
   F("combinaciones", "coleccion", "🗂️", "Coleccionista", "Consigue combinaciones distintas de tipo y rareza.", len("distintos"), [3, 8, 15], ["coleccionista", "Coleccionista"]),
   F("espadas", "coleccion", "⚔️", "Maestro de espadas", "Consigue espadas de distinta rareza.", porTipo("Espada"), [1, 2, 3], ["maestro_espadas", "Maestro de Espadas"]),
@@ -103,6 +107,7 @@ export const LOGROS = Object.freeze([
   F("botin", "coleccion", "💎", "Saqueador", "Consigue objetos de botín.", "botin", [1, 10, 50, 200], ["saqueador", "Saqueador"]),
   F("cosmeticos", "coleccion", "🎩", "Elegante", "Ten cosméticos distintos.", "cosmeticos", [3, 7, 14], ["elegante", "Elegante"]),
   F("bestiario", "coleccion", "📖", "Cazador de bestias", "Vence a criaturas distintas del bestiario.", len("bestiario"), [3, 6, BESTIARIO.length], ["cazador_bestias", "Cazador de Bestias"]),
+  F("set_legendario", "coleccion", "🧩", "Conjunto legendario", "Equipa un set completo (4/4 piezas) para activar su efecto.", len("conjuntosCompletos"), [1, 2, IDS_CONJUNTO.length], ["conjunto_legendario", "Portador de Conjuntos"]),
 
   // ── Economía (8)
   F("ventas", "economia", "💰", "Tendero", "Vende objetos.", "ventas", [1, 10, 50, 200], ["tendero", "Tendero"]),
@@ -188,6 +193,7 @@ function aplicar(c, ev) {
       if (ev.danoRecibido != null) c.danoRecibido += entero(ev.danoRecibido);
       if (ev.danoRecibido === 0) { c.intocable += 1; if (ev.jefe) c.jefesIntocables += 1; }
       if (ev.turnos != null && ev.turnos <= 3) c.rapidas += 1;
+      if (ev.jefe && ev.clave === "dragon" && ev.pocionesUsadas === 0) c.dragonSinPociones += 1;
       c.bestiario = añadir(c.bestiario, ev.clave);
       break;
     }
@@ -245,6 +251,9 @@ function aplicar(c, ev) {
       c.cosmeticos = Math.max(c.cosmeticos, new Set((ev.ids ?? []).map(Number).filter((id) => id !== 14)).size);
       break;
     case "racha": c.rachaMax = Math.max(c.rachaMax, entero(ev.valor)); break;
+    case "equipo":
+      for (const id of ev.conjuntosActivos ?? []) c.conjuntosCompletos = añadir(c.conjuntosCompletos, id);
+      break;
     case "nivel": c.nivelHeroe = Math.max(c.nivelHeroe, entero(ev.valor)); break;
     case "diario":
       c.diarios += 1;
@@ -388,6 +397,50 @@ export function resumenLogros(estado, limite = 5) {
     medallas, totalMedallas, pct: desbloqueados / total, pctMedallas: medallas / totalMedallas,
     porCategoria, siguientes,
   };
+}
+
+/**
+ * Vitrina curada de "desafíos reales" en 3 niveles de dificultad (Iniciación/Veterano/Maestro),
+ * construida a partir de escalones concretos de `LOGROS`. No sustituye a `resumenLogros`
+ * (agrupado por categoría): es otra forma de presentar el mismo progreso en la UI, pensada para
+ * que un logro recién desbloqueado no se confunda con uno que cuesta cientos de combates.
+ */
+export const NIVELES_LOGRO = Object.freeze([
+  Object.freeze({ id: "iniciacion", nombre: "Iniciación", icono: "🌱", destacados: Object.freeze([
+    Object.freeze({ id: "primera_victoria", escalon: 1 }),
+    Object.freeze({ id: "compras", escalon: 1 }),
+  ]) }),
+  Object.freeze({ id: "veterano", nombre: "Veterano", icono: "⚔️", destacados: Object.freeze([
+    Object.freeze({ id: "racha", escalon: 3 }),
+    Object.freeze({ id: "jefes", escalon: 1 }),
+  ]) }),
+  Object.freeze({ id: "maestro", nombre: "Maestro", icono: "👑", destacados: Object.freeze([
+    Object.freeze({ id: "racha", escalon: 4 }),
+    Object.freeze({ id: "dragon_pacifista", escalon: 1 }),
+    Object.freeze({ id: "set_legendario", escalon: 1 }),
+  ]) }),
+]);
+
+/**
+ * Progreso de la vitrina de `NIVELES_LOGRO` para un estado dado.
+ * @returns {Array<{id:string, nombre:string, icono:string, items:Array<{id:string, nombre:string,
+ *   icono:string, texto:string, escalon:number, meta:number, progreso:number, pct:number, conseguido:boolean}>}>}
+ */
+export function nivelesDesafio(estado) {
+  const e = sanearLogros(estado);
+  return NIVELES_LOGRO.map((nivel) => ({
+    id: nivel.id, nombre: nivel.nombre, icono: nivel.icono,
+    items: nivel.destacados.map(({ id, escalon }) => {
+      const l = logro(id);
+      const esc = l.escalones[escalon - 1];
+      const v = valor(l, e.c);
+      return {
+        id: l.id, nombre: l.nombre, icono: l.icono, texto: l.descripcion,
+        escalon, meta: esc.meta, progreso: Math.min(v, esc.meta), pct: Math.min(1, v / esc.meta),
+        conseguido: v >= esc.meta,
+      };
+    }),
+  }));
 }
 
 /** Ids de títulos que el jugador puede llevar (logros completos + externos). */

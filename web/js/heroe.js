@@ -7,6 +7,7 @@
 //   import * as HEROE from "./heroe.js";
 //   HEROE.renderHeroe($("#seccion-heroe"), {
 //     stats:    { vida, ataque, defensa, critico, esquiva },  // critico/esquiva como fracción 0–1 (combat.probCritico/probEsquiva)
+//     statsMax: { vida, ataque, defensa },                    // tope a nivel 30 con el mismo equipo (P.statsHeroeTope) — opcional
 //     nivel:    S.progreso.nivel,
 //     xp:       S.progreso.xp,                  // XP dentro del nivel actual
 //     xpSiguiente: P.xpParaSubir(S.progreso.nivel),
@@ -38,11 +39,29 @@ function pintarRetrato(el, equipados, apariencia) {
   el.innerHTML = spriteHeroe(equipados, apariencia);
 }
 
-function pintarStats(el, stats = {}, nivel, xp, xpSiguiente) {
-  const filas = [
-    ["❤️", "Vida", num(stats.vida)],
-    ["⚔️", "Ataque", num(stats.ataque)],
-    ["🛡️", "Defensa", num(stats.defensa)],
+/** Estadísticas que se muestran como "valor / tope" con barra (dependen del nivel, no solo del equipo). */
+function pintarConTope(ico, lbl, val, tope) {
+  const v = Math.max(0, Number(val) || 0);
+  const m = Math.max(v, Number(tope) || 0, 1);
+  const p = Math.max(0, Math.min(100, (v / m) * 100));
+  return h("div", { class: "stat stat-tope" },
+    h("span", { class: "stat-ico", "aria-hidden": "true" }, ico),
+    h("span", { class: "stat-lbl" }, lbl),
+    h("div", {
+      class: "stat-bar", role: "progressbar", "aria-label": lbl,
+      "aria-valuemin": "0", "aria-valuemax": String(m), "aria-valuenow": String(v),
+    },
+      h("div", { class: "stat-bar-fill", style: { width: `${p}%` } }),
+      h("b", { class: "stat-bar-txt" }, `${num(v)} / ${num(m)}`)));
+}
+
+function pintarStats(el, stats = {}, statsTope = {}, nivel, xp, xpSiguiente) {
+  const conTope = [
+    ["❤️", "Vida", stats.vida, statsTope.vida],
+    ["⚔️", "Ataque", stats.ataque, statsTope.ataque],
+    ["🛡️", "Defensa", stats.defensa, statsTope.defensa],
+  ];
+  const soloPct = [
     ["💥", "Crítico", pct(stats.critico)],
     ["💨", "Esquiva", pct(stats.esquiva)],
   ];
@@ -58,7 +77,8 @@ function pintarStats(el, stats = {}, nivel, xp, xpSiguiente) {
         h("div", { class: "hr-xp-fill", style: { width: `${(actual / meta) * 100}%` } }),
         h("span", { class: "hr-xp-txt" }, `${actual} / ${meta} XP`))),
     h("div", { class: "stats hr-stats" },
-      ...filas.map(([ico, lbl, val]) =>
+      ...conTope.map(([ico, lbl, val, tope]) => pintarConTope(ico, lbl, val, tope)),
+      ...soloPct.map(([ico, lbl, val]) =>
         h("div", { class: "stat" },
           h("span", { class: "stat-ico", "aria-hidden": "true" }, ico),
           h("span", { class: "stat-lbl" }, lbl),
@@ -112,7 +132,7 @@ function pintarVestuario(el, posee, apariencia, { onVestir, probar, quitarPrueba
 /**
  * Pinta la sección Héroe dentro de `contenedor` (normalmente #seccion-heroe).
  * @param {HTMLElement} contenedor
- * @param {{stats?:object, nivel?:number, xp?:number, xpSiguiente?:number, equipo?:Record<string,string>,
+ * @param {{stats?:object, statsMax?:object, nivel?:number, xp?:number, xpSiguiente?:number, equipo?:Record<string,string>,
  *          inventario?:object[], apariencia?:object, cosmeticosPosee?:number[], onVestir?:(id:number|null, ranura:string)=>void}} [o]
  */
 export function renderHeroe(contenedor, o = {}) {
@@ -136,6 +156,6 @@ export function renderHeroe(contenedor, o = {}) {
   };
 
   pintarRetrato(retrato, equipados, apariencia);
-  pintarStats(stats, o.stats, o.nivel ?? 1, o.xp ?? 0, o.xpSiguiente ?? 100);
+  pintarStats(stats, o.stats, o.statsMax ?? o.stats, o.nivel ?? 1, o.xp ?? 0, o.xpSiguiente ?? 100);
   pintarVestuario(vest, o.cosmeticosPosee ?? [], apariencia, { onVestir: o.onVestir, probar, quitarPrueba });
 }

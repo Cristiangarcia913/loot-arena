@@ -21,7 +21,7 @@
 // Todo el texto entra con textContent.
 import {
   CATALOGO, PRECIO_COFRE, RECOMPENSA_ETH, RAREZAS_COSMETICO, NOMBRE_RANURA,
-  precioVentaLocal, estimarEthVenta, formatearEth, semillaDelDia,
+  precioVentaLocal, estimarEthVenta, formatearEth, semillaDelDia, ofertaDelDiaCosmetico,
 } from "./economy.js";
 import { rareza, emojiTipo } from "./equipment.js";
 import { spriteCosmetico } from "./sprites.js";
@@ -184,21 +184,15 @@ function pintarVender(panel, inventario, saldos, onVender, equipados = []) {
   actualizarResumen();
 }
 
-/**
- * Elige el destacado del día entre lo Raro/Legendario del catálogo: misma semilla que el
- * catálogo rotativo (economy.semillaDelDia), así cambia solo una vez al día, no en cada repintado.
- */
-function ofertaDelDia(cosmeticos) {
-  const candidatos = cosmeticos.filter((c) => c.rareza >= 1);
-  return candidatos.length ? candidatos[semillaDelDia() % candidatos.length] : null;
-}
-
 /** Panel «Comprar»: saldo, oferta del día, cofre y catálogo de cosméticos. */
 function pintarComprar(panel, catalogo, saldos, { onComprar, onAbrirCofre, onRenovarCatalogo }) {
   const oro = saldos?.oro == null ? null : Number(saldos.oro);
   const sinOro = (precio) => oro != null && oro < precio;
-  const cosmeticos = (catalogo ?? CATALOGO).filter((c) => c.ranura !== "consumible");
-  const destacado = ofertaDelDia(cosmeticos);
+  // Destacado del día: se elige sobre TODO el catálogo (no el subconjunto rotativo recibido),
+  // así cambia una vez al día y nunca se pinta dos veces: se descarta del catálogo normal abajo
+  // aunque coincida con él por casualidad.
+  const destacado = ofertaDelDiaCosmetico(semillaDelDia());
+  const cosmeticos = (catalogo ?? CATALOGO).filter((c) => c.ranura !== "consumible" && c.id !== destacado?.id);
 
   const ofertaDia = destacado ? (() => {
     const r = RAREZAS_COSMETICO[destacado.rareza] ?? RAREZAS_COSMETICO[0];

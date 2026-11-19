@@ -103,7 +103,7 @@ export function eventosDeCombate(combate) {
   const e = combate.enemigo ?? {};
   const ev = [];
   if (combate.fase === "victoria") {
-    ev.push({ tipo: "victoria", nivel: e.nivel, jefe: !!e.jefe, clave: e.clave, danoRecibido: r.danoRecibido ?? 0, turnos: r.turnos ?? 0 });
+    ev.push({ tipo: "victoria", nivel: e.nivel, jefe: !!e.jefe, clave: e.clave, danoRecibido: r.danoRecibido ?? 0, turnos: r.turnos ?? 0, pocionesUsadas: r.pocionesUsadas ?? 0 });
     if (e.jefe) ev.push({ tipo: "jefe", nivel: e.nivel, clave: e.clave });
   } else if (combate.fase === "derrota") ev.push({ tipo: "derrota", nivel: e.nivel, clave: e.clave });
   else if (combate.fase === "huida") ev.push({ tipo: "huida", nivel: e.nivel, clave: e.clave });

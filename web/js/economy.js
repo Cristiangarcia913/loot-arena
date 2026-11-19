@@ -126,11 +126,15 @@ function prng(semilla) {
 /**
  * Selección de `n` cosméticos (sin consumibles) a partir de una semilla, con al menos uno raro o mejor
  * si el catálogo lo permite. Conserva el orden del catálogo. Determinista.
+ * `excluir`: ids a descartar antes de elegir (p. ej. el destacado de `ofertaDelDiaCosmetico`, para
+ * que la Oferta del Día nunca se repita dentro del catálogo normal).
  * @param {number} semilla
- * @param {{catalogo?: ReadonlyArray<object>, n?: number}} [o]
+ * @param {{catalogo?: ReadonlyArray<object>, n?: number, excluir?: Iterable<number>}} [o]
  */
-export function catalogoRotativo(semilla, { catalogo = CATALOGO, n = TAM_CATALOGO_ROTATIVO } = {}) {
-  const pool = catalogo.filter((x) => x.ranura !== "consumible");
+export function catalogoRotativo(semilla, { catalogo = CATALOGO, n = TAM_CATALOGO_ROTATIVO, excluir = null } = {}) {
+  const descartados = excluir ? new Set([...excluir].map(Number)) : null;
+  const base = descartados ? catalogo.filter((x) => !descartados.has(x.id)) : catalogo;
+  const pool = base.filter((x) => x.ranura !== "consumible");
   if (pool.length <= n) return [...pool];
   const rng = prng(semilla);
   const barajado = [...pool];
@@ -145,6 +149,21 @@ export function catalogoRotativo(semilla, { catalogo = CATALOGO, n = TAM_CATALOG
   }
   const ids = new Set(elegidos.map((x) => x.id));
   return pool.filter((x) => ids.has(x.id));
+}
+
+/**
+ * Cosmético destacado de la "Oferta del día": Raro o Legendario elegido con la misma semilla
+ * que `catalogoRotativo` pero sobre TODO el catálogo (no solo el rotativo), así nunca coincide
+ * por construcción con el catálogo normal si se excluye su id con `catalogoRotativo(..., {excluir})`.
+ * @param {number} semilla
+ * @param {{catalogo?: ReadonlyArray<object>}} [o]
+ * @returns {typeof CATALOGO[number] | null}
+ */
+export function ofertaDelDiaCosmetico(semilla, { catalogo = CATALOGO } = {}) {
+  const candidatos = catalogo.filter((x) => x.ranura !== "consumible" && x.rareza >= 1);
+  if (!candidatos.length) return null;
+  const rng = prng(semilla + 1); // +1: evita correlación trivial con el barajado del rotativo
+  return candidatos[Math.floor(rng() * candidatos.length)];
 }
 
 // ───────────────────────── Precio de venta ─────────────────────────
