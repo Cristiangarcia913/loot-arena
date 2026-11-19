@@ -1889,6 +1889,6 @@ export {
   // Enganche: logros, recompensas, pase, racha
   celebrarLogro, celebrarRecompensa, subirNivelPase, mostrarRachaDias,
   // HUD fuera de la arena e inventario
-  actualizarXP, actualizarRacha, actualizarJefeEn, actualizarModificadoresArena, decorarCarta,
+  actualizarXP, actualizarRacha, actualizarJefeEn, actualizarModificadoresArena, actualizarFuria, decorarCarta,
   aplicarFiltrosInventario, previsualizarCosmetico,
 } from "../fx.js";

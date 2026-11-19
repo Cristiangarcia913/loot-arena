@@ -143,6 +143,10 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
 }
 .btn-skill.legendaria { background: linear-gradient(180deg, #fbbf24, #b45309); color: #2a1a06; border-color: #fde68a; box-shadow: 0 0 14px rgba(245, 158, 11, .6); }
 
+/* Remate Definitivo (⚡): botón que solo se enciende con la Furia al 100 % (ver `.furia.lista`). */
+.btn-rematar { background: linear-gradient(180deg, #fde68a, var(--oro-2)); color: #2a1a06; border-color: #fff3c4; text-shadow: 0 1px 0 rgba(255, 255, 255, .35); }
+.btn-rematar.lista:not(:disabled) { animation: latido 1.2s ease-in-out infinite; }
+
 /* ── Banner ── */
 .banner {
   margin: 16px clamp(16px, 4vw, 40px) 0; padding: 12px 16px; border-radius: 10px;
@@ -241,6 +245,15 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
 .fighter.jefe .f-name::before { content: "👑 "; }
 @keyframes aura { 50% { transform: translateX(-50%) scale(1.12); opacity: .7; } }
 
+/* Fase Enfurecida del jefe (combat.js: JEFE.furiaFase2): "sus ojos brillan" al entrar en fase 2. */
+.jefe-furioso .avatar, .jefe-furioso .sprite {
+  filter: drop-shadow(0 0 10px #ff3b30) drop-shadow(0 0 4px #fbbf24);
+  animation: furioso-brillo 1.4s ease-in-out infinite;
+}
+@keyframes furioso-brillo {
+  50% { filter: drop-shadow(0 0 16px #ff3b30) drop-shadow(0 0 8px #fbbf24); }
+}
+
 /* Animaciones idle de los sprites (dentro del SVG) */
 .sp-cuerpo { transform-box: fill-box; transform-origin: 50% 100%; animation: respirar 2.8s ease-in-out infinite; }
 .enemy .sp-cuerpo { animation-duration: 2.4s; animation-delay: -1.1s; }
@@ -316,6 +329,16 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
 .hp.hp-dano { animation: hp-flash .35s ease-out; }
 @keyframes hp-flash { 0% { box-shadow: 0 0 0 2px #fff, 0 0 14px #ef4444; } 100% { box-shadow: 0 0 0 1px rgba(232, 183, 90, .25); } }
 @keyframes hp-baja { 50% { filter: brightness(1.35); } }
+
+/* Barra de Furia (bajo la vida del héroe): se llena con cada golpe asestado o recibido */
+.furia {
+  position: relative; height: 8px; margin-top: 3px; border-radius: 999px; overflow: hidden;
+  background: rgba(0, 0, 0, .65); border: 1px solid #000; box-shadow: 0 0 0 1px rgba(232, 183, 90, .18);
+}
+.furia-fill { height: 100%; width: 0%; background: linear-gradient(180deg, #fde68a, var(--oro-2)); transition: width .25s ease-out; }
+.furia.lista { box-shadow: 0 0 0 1px var(--oro), 0 0 12px rgba(232, 183, 90, .8); animation: furia-lista 1s ease-in-out infinite; }
+.furia.lista .furia-fill { background: linear-gradient(180deg, #fff3c4, var(--oro) 50%, var(--oro-2)); }
+@keyframes furia-lista { 50% { box-shadow: 0 0 0 1px var(--oro), 0 0 20px rgba(232, 183, 90, 1); } }
 
 /* Compatibilidad con ui.flotar() de main.js */
 .fighter.golpe { animation: sacudir .35s; }

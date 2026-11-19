@@ -426,7 +426,7 @@ function guardarEquipo() {
 
 /** Tira el botín local del modo demo, lo guarda y devuelve el objeto (o null si no cae nada). */
 function tirarBotinDemo(enemigo) {
-  const { estado, item } = BL.tirarBotinLocal(leerBotinLocal(), { ...enemigo, excluirComun: !!enemigo?.jefeDeRacha }, Math.random, { equipados: Object.values(S.equipo) });
+  const { estado, item } = BL.tirarBotinLocal(leerBotinLocal(), { ...enemigo, excluirComun: !!enemigo?.jefeDeRacha, bonoLegendario: C.multiplicadorLegendarioPorRacha(S.progreso.racha) }, Math.random, { equipados: Object.values(S.equipo) });
   if (item) guardar(BL.CLAVE_BOTIN_LOCAL, BL.serializarEstado(estado));
   return item;
 }
@@ -676,11 +676,12 @@ function pintarHud(el, { nombre, extra, vida, vidaMax, stats, vacio }) {
 function renderLuchadores() {
   const c = S.combate;
   const s = statsHeroe();
-  const j = c && c.fase !== "huida" ? c.jugador : { vida: s.vidaMax, vidaMax: s.vidaMax, ataque: s.ataque, defensa: s.defensa };
+  const j = c && c.fase !== "huida" ? c.jugador : { vida: s.vidaMax, vidaMax: s.vidaMax, ataque: s.ataque, defensa: s.defensa, furia: 0 };
   pintarHud($("#f-jugador"), {
     nombre: "Tu héroe", extra: h("span", { class: "nv" }, ` Nv. ${P.infoXp(S.progreso).nivel}`),
     vida: j.vida, vidaMax: j.vidaMax, stats: `⚔️ ${j.ataque} · 🛡️ ${j.defensa}`,
   });
+  FX.actualizarFuria(j.furia ?? 0);
   const en = c?.enemigo;
   const fEn = $("#f-enemigo");
   if (!en || c.fase === "huida") {
@@ -724,6 +725,14 @@ function renderBotones() {
     }, `${hb.icono} ${hb.nombre}`, i < 7 ? tecla(String(i + 3)) : null);
     return b;
   }));
+
+  const remBtn = $("#btn-rematar");
+  if (remBtn) {
+    const lista = lucha && S.combate.jugador.furia >= C.FURIA_MAX;
+    remBtn.hidden = !lucha;
+    remBtn.disabled = !libre || !lista;
+    remBtn.classList.toggle("lista", lista);
+  }
 }
 
 /** Etiqueta `[N]` en la esquina de un botón, para que se vea qué tecla lo activa. */
@@ -747,11 +756,12 @@ function aplicarSnapshot(ev, c) {
     FX.mostrarEstado("heroe", ev.estados.jugador ?? []);
     FX.mostrarEstado("enemigo", ev.estados.enemigo ?? []);
   }
+  if (ev.furia != null) FX.actualizarFuria(ev.furia);
 }
 
 /** Anima un evento del motor de combate con la capa de efectos. */
 async function animarEvento(ev, c) {
-  const golpe = ev.dano != null && ev.objetivo && ["ataque", "habilidad", "contraataque", "reflejo", "robo"].includes(ev.tipo);
+  const golpe = ev.dano != null && ev.objetivo && ["ataque", "habilidad", "contraataque", "reflejo", "robo", "remate"].includes(ev.tipo);
   if (golpe && ev.actor !== "sistema" && ev.actor !== ev.objetivo) {
     // `animacion` le dice al motor 3D qué gesto toca (morder, embestir, escupir fuego, conjurar…).
     // El motor 2D ignora la propiedad, y el 3D sabe apañárselas sin ella: si no llega, cada
@@ -772,7 +782,12 @@ async function animarEvento(ev, c) {
   if (defensa) await FX.animarDefensa(quienFx(ev.actor));
   aplicarSnapshot(ev, c);
   añadirLog([ev]);
-  if (ev.tipo === "fase") FX.anunciar("¡FASE 2!", c.enemigo.nombre, "anuncio-jefe");
+  if (ev.remate) { FX.sonar("remate"); FX.sacudir(18, 500); }
+  if (ev.tipo === "fase") {
+    FX.anunciar("¡FASE 2!", c.enemigo.nombre, "anuncio-jefe");
+    FX.sonar("rugido");
+    $("#f-enemigo .retrato")?.classList.add("jefe-furioso");
+  }
   if (ev.tipo === "victoria") FX.animarMuerte("enemigo");
   if (ev.tipo === "derrota") FX.animarMuerte("heroe");
   if (!golpe && ev.dano == null && !ev.curacion && !defensa) await esperar(FX.reducido() ? 80 : 260);
@@ -821,6 +836,7 @@ function explorar() {
   FX.actualizarHeroe(equipados());
   FX.mostrarEstado("heroe", []);
   FX.mostrarEnemigo(enemigo);
+  $("#f-enemigo .retrato")?.classList.remove("jefe-furioso");
   FX.mostrarIntencion(C.intencionEnemigo(S.combate));
   renderLuchadores();
   renderBotones();
@@ -1268,6 +1284,7 @@ async function iniciar() {
   $("#btn-atacar").addEventListener("click", () => accion("atacar"));
   $("#btn-defender").addEventListener("click", () => accion("defender"));
   $("#btn-pocion").addEventListener("click", () => accion("pocion"));
+  $("#btn-rematar")?.addEventListener("click", () => accion("rematar"));
   $("#btn-huir").addEventListener("click", huir);
   // Micro-animación de pulsación en cualquier botón de la arena (atacar, defender, poción,
   // habilidades…), venga de un clic o de un atajo de teclado: un solo oyente delegado en vez de

@@ -138,9 +138,18 @@ export const CRITICO_ENEMIGO = 0.05;
 export const MULT_DEFENDER = 0.5;
 export const MULT_BLOQUEO = 0.2;
 /** Jefes: multiplicadores de stats, tope de esquiva y turnos entre definitivas por fase. */
-export const JEFE = Object.freeze({ vida: 1.8, ataque: 1.2, defensa: 1.05, esquivaMax: 0.12, umbralFase2: 0.5, furiaFase2: 1.2, cadaFase1: 5, cadaFase2: 3, multDefinitiva: 3 });
+export const JEFE = Object.freeze({ vida: 1.8, ataque: 1.2, defensa: 1.05, esquivaMax: 0.12, umbralFase2: 0.5, furiaFase2: 1.25, cadaFase1: 5, cadaFase2: 3, multDefinitiva: 3 });
 /** Estado `fragil`: fracción de defensa que pierde quien lo sufre (lo aplica Rompearmaduras). */
 export const FRAGIL_DEFECTO = 0.35;
+
+/** Furia del héroe: 0–100. Sube con cada golpe asestado o recibido (nunca baja sola) y, al
+ * llegar a FURIA_MAX, habilita la acción "rematar" (Remate Definitivo): la consume entera y
+ * multiplica el daño del golpe por MULT_REMATE. Distinto del estado `{tipo:"furia"}` de
+ * `estados` (un buff de ataque temporal que ya existe): esto es un recurso 0-100 propio del héroe. */
+export const FURIA_MAX = 100;
+export const FURIA_POR_GOLPE = 15;
+export const FURIA_POR_DANO_RECIBIDO = 10;
+export const MULT_REMATE = 2.5;
 
 // ───────────────────── Contrato con el motor 3D ─────────────────────
 // El motor 3D construye cada enemigo con geometrías (no hay modelos descargados), así que
@@ -443,6 +452,14 @@ export function escalarPorRacha(enemigo, racha, { jefeDeRacha = false } = {}) {
   };
 }
 
+/** Bonus de probabilidad de botín Legendario por racha de victorias consecutivas (Riesgo vs
+ * Recompensa, modo demo/local): +25 % por victoria, sin techo. El objeto más valioso también
+ * se vende por más ORO, así que esto empuja ambas cosas con un solo mecanismo. */
+export const BONO_RACHA_LEGENDARIO = 0.25;
+export function multiplicadorLegendarioPorRacha(racha) {
+  return 1 + BONO_RACHA_LEGENDARIO * Math.max(0, Math.floor(Number(racha) || 0));
+}
+
 /** Nivel del próximo enemigo: nivel de arena ±1, acotado a 1..10. */
 export function nivelEnemigo(nivelDeArena, rng = Math.random) {
   return clampNivel(clampNivel(nivelDeArena) + randInt(-1, 1, rng));
@@ -605,6 +622,7 @@ export function crearCombate(heroe, enemigo, rng = Math.random) {
     efectosConjunto: Array.isArray(heroe.efectosConjunto) ? heroe.efectosConjunto.map(String) : [],
     escudoSetUsado: false,
     criticoSombra: false,
+    furia: 0,
   };
   jugador.pociones = jugador.pocionesBase + jugador.pocionesExtra;
   const en = {
@@ -659,6 +677,9 @@ export function jugadorAturdido(combate) {
 export function validarAccion(combate, accion) {
   if (combate.fase !== "en_curso") return { ok: false, motivo: "El combate ya ha terminado" };
   if (accion === "atacar" || accion === "defender") return { ok: true };
+  if (accion === "rematar") {
+    return combate.jugador.furia >= FURIA_MAX ? { ok: true } : { ok: false, motivo: "Necesitas la Furia al 100 % para el Remate Definitivo" };
+  }
   if (accion === "pocion") return combate.jugador.pociones > 0 ? { ok: true } : { ok: false, motivo: "No te quedan pociones" };
   if (accion && typeof accion === "object" && typeof accion.habilidad === "string") {
     const h = combate.jugador.habilidades.find((x) => x.id === accion.habilidad);
@@ -672,7 +693,7 @@ export function validarAccion(combate, accion) {
 /**
  * Resuelve una ronda: actúa el héroe y, si el enemigo sigue vivo, el enemigo.
  * @param {object} combate estado devuelto por crearCombate / turnoJugador (no se muta)
- * @param {"atacar"|"defender"|"pocion"|{habilidad:string}} accion
+ * @param {"atacar"|"defender"|"pocion"|"rematar"|{habilidad:string}} accion
  * @param {() => number} [rng]
  * @returns {{combate:object, eventos:Array<Evento>, fin:null|"victoria"|"derrota"|"huida"}}
  * @throws si el combate terminó, la acción es desconocida, no hay pociones o la habilidad está en enfriamiento
@@ -691,6 +712,7 @@ export function validarAccion(combate, accion) {
  * @property {boolean} [fallo] el héroe falló su propio golpe (Modificador de Arena, dano 0)
  * @property {number} [absorbido] daño absorbido por escudo
  * @property {boolean} [brutal] golpe fuerte (para sacudir la pantalla)
+ * @property {boolean} [remate] Remate Definitivo (Furia al 100 %): sacudida y sonido más fuertes
  * @property {boolean} [definitiva] definitiva de jefe
  * @property {{tipo:string, turnos:number, valor?:number}} [estado] estado aplicado (o que hace daño en dano_estado)
  * @property {number} [curacion]
@@ -818,6 +840,7 @@ function snap(c, e) {
     ...e,
     vidas: { jugador: c.jugador.vida, enemigo: c.enemigo.vida },
     estados: { jugador: c.jugador.estados.map((x) => ({ ...x })), enemigo: c.enemigo.estados.map((x) => ({ ...x })) },
+    furia: c.jugador.furia,
   };
 }
 
@@ -954,6 +977,11 @@ function golpear({ c, rng }, de, opts = {}) {
   ob.vida = Math.max(0, ob.vida - dano);
   if (de === "jugador") { c.resumen.danoHecho += dano; if (critico) c.resumen.criticos += 1; }
   else c.resumen.danoRecibido += dano;
+  // Barra de Furia (solo del héroe): un golpe asestado suma FURIA_POR_GOLPE; uno recibido,
+  // FURIA_POR_DANO_RECIBIDO. Al 100 % se habilita el Remate Definitivo (ver accionJugador).
+  if (dano > 0) {
+    c.jugador.furia = Math.min(FURIA_MAX, c.jugador.furia + (de === "jugador" ? FURIA_POR_GOLPE : FURIA_POR_DANO_RECIBIDO));
+  }
   return { dano, bruto, critico, bloqueado, absorbido, esquivado: false, golpeSombra: sombra };
 }
 
@@ -1056,6 +1084,15 @@ function accionJugador(ctx, accion) {
   if (accion === "defender") {
     j.defendiendo = true;
     emit({ actor: "jugador", tipo: "defensa", id: "defender", nombre: "Defender", texto: "Alzas la guardia: recibirás la mitad de daño (y bloquearás hechizos)." });
+    return;
+  }
+  if (accion === "rematar") {
+    j.furia = 0;
+    const r = golpear(ctx, "jugador", { mult: MULT_REMATE });
+    emit({ actor: "jugador", objetivo: "enemigo", tipo: "remate", id: "rematar", nombre: "Remate Definitivo", icono: "⚡",
+      ...resultado(r), brutal: true, remate: true,
+      texto: `⚡ ¡REMATE DEFINITIVO! ${textoGolpe(c, "jugador", "Remate Definitivo", r)}` });
+    trasGolpeJugador(ctx, r);
     return;
   }
   if (accion === "pocion") {

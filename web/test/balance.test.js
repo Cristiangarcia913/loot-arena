@@ -24,12 +24,16 @@ test("balance: con equipo medio los jefes siguen siendo un reto", () => {
   const r = C.mulberry32(2026);
   const nh = (arena) => ({ ...P.progresoNuevo(), nivel: nivelHeroeEsperado(arena) });
   const jefe = (arena) => simular(P.statsHeroe(nh(arena), EQUIPO_MEDIO), arena, { jefe: true, pociones: 3, n: 500, r }).pct;
-  // El jefe del 10 es el reto de verdad (~25 %). Los de la mitad de la tabla quedaron más
-  // asequibles al suavizar la curva de los niveles bajos: es el precio del recibimiento.
+  // El jefe del 10 es el reto de verdad (~12 %, bajó desde el ~25 % de antes: la Fase Enfurecida
+  // ahora pega un +25 % en vez de un +20 %, JEFE.furiaFase2 en combat.js). Esta `iaJugador` simple
+  // tampoco conoce el Remate Definitivo (combat.js: `rematar`), así que un jugador de verdad que
+  // lo use y defienda a tiempo lo telegrafiado debería sacar bastante más que esta cifra. Los de
+  // la mitad de la tabla quedaron más asequibles al suavizar la curva de los niveles bajos: es el
+  // precio del recibimiento.
   const j7 = jefe(7);
   const j10 = jefe(10);
   assert.ok(j7 > 45, `jefe nivel 7: ${j7}`);
-  assert.ok(j10 > 15 && j10 < 55, `jefe nivel 10: ${j10}`);
+  assert.ok(j10 > 8 && j10 < 55, `jefe nivel 10: ${j10}`);
   assert.ok(j7 > j10, `el jefe del 10 tiene que ser más duro que el del 7: ${j7} vs ${j10}`);
 });
 

@@ -792,6 +792,21 @@ export function actualizarVida(quien, vida, vidaMax) {
 }
 
 /**
+ * Barra de Furia del héroe (bajo su vida): se llena con cada golpe asestado o recibido y, al
+ * 100 %, se marca `.lista` para que el CSS la ilumine en dorado (el botón de Remate hace lo mismo).
+ * @param {number} furia 0–100
+ */
+export function actualizarFuria(furia = 0) {
+  const barra = document.querySelector("#f-jugador .furia");
+  if (!barra) return;
+  const pct = Math.max(0, Math.min(100, furia));
+  const fill = barra.querySelector(".furia-fill");
+  if (fill) fill.style.width = `${pct}%`;
+  barra.classList.toggle("lista", pct >= 100);
+  barra.setAttribute("aria-valuenow", String(Math.round(pct)));
+}
+
+/**
  * Barra de experiencia (#hero-xp) y nivel (#hero-nivel).
  * @param {{xp:number, xpSiguiente:number, nivel:number}} p xp = experiencia dentro del nivel actual
  */

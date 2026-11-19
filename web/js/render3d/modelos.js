@@ -39,15 +39,16 @@ export const ALTURA_MODELOS = Object.freeze({
  * permite subir algún canal por encima de 1 a propósito, para que NO se quede más oscuro al
  * multiplicarse con una textura ya oscura); `emissive`/`emissiveIntensity` suman brillo propio, que
  * no depende de la textura y por eso separa ojos/fauces/escamas del fondo aunque no haya luz
- * directa encima. Vacío a propósito, igual que `ROTACION_Y_MODELOS`.
+ * directa encima.
+ *
+ * Vacío a propósito: el dragón llevaba aquí un tinte escarlata plano + brillo emisivo general que
+ * tapaba la textura real de `dragon.glb` (sus escamas, cuernos, garras y ojos, con su sombreado 3D
+ * propio). Para destacarlo contra el fondo oscuro de la arena basta con el rim light potente
+ * (`recorte`, en `escenario.js`) que ya recorta la silueta con luz, SIN pintar la malla; si algún
+ * modelo nuevo necesita tinte porque su textura es plana y se pierde, añádelo aquí, pero antes
+ * prueba si el rim light ya existente alcanza.
  */
-export const TINTE_MODELOS = Object.freeze({
-  // Dragón de fuego: la textura del `.glb` es un marrón oscuro liso que se pierde en la arena de
-  // noche. Un solo material cubre todo el cuerpo (sin separación por piezas), así que el tinte es
-  // uniforme: escarlata/carmesí con el rojo empujado por encima de 1 para que contraste de verdad,
-  // y un brillo naranja/rojo fuego sutil encima.
-  dragon: { colorRGB: [2.4, 0.42, 0.34], emissive: 0xff5a1f, emissiveIntensity: 0.35 },
-});
+export const TINTE_MODELOS = Object.freeze({});
 
 const urlAddon = (archivo) => `https://cdn.jsdelivr.net/npm/three@${TRES_VERSION}/examples/jsm/${archivo}`;
 

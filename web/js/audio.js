@@ -10,7 +10,7 @@ const K_MUSICA = "lootarena:musica";
 export const SONIDOS = Object.freeze([
   "golpe", "critico", "bloqueo", "curacion", "nivel", "victoria", "derrota", "cofre", "legendario",
   "raro", "ataque", "muerte", "esquiva", "estado", "click", "aparicion",
-  "logro", "monedas", "pase", "racha", "menu",
+  "logro", "monedas", "pase", "racha", "menu", "remate", "rugido",
 ]);
 
 const leer = (k, def) => { try { const v = localStorage.getItem(k); return v == null ? def : v === "1"; } catch { return def; } };
@@ -178,6 +178,17 @@ const RECETAS = {
   aparicion() {
     tono({ tipo: "sine", f0: 70, f1: 50, dur: 0.6, vol: 0.4 });
     ruido({ dur: 0.5, vol: 0.12, f: 400, f1: 1600 });
+  },
+  remate() {
+    ruido({ dur: 0.35, vol: 0.85, f: 4000, f1: 150 });
+    tono({ tipo: "sawtooth", f0: 90, f1: 30, dur: 0.5, vol: 0.9, filtro: { f: 1200 } });
+    [55, 59, 62, 67].forEach((n, i) => tono({ tipo: "square", f0: nota(n), t: 0.05 + i * 0.05, dur: 0.3, vol: 0.14, filtro: { f: 2200 } }));
+    tono({ tipo: "triangle", f0: nota(79), t: 0.25, dur: 0.6, vol: 0.1 });
+  },
+  rugido() {
+    ruido({ dur: 0.7, vol: 0.5, tipo: "lowpass", f: 900, f1: 180, q: 1.2 });
+    tono({ tipo: "sawtooth", f0: 85, f1: 38, dur: 0.75, vol: 0.5, filtro: { f: 700 } });
+    tono({ tipo: "sine", f0: 50, f1: 28, dur: 0.9, vol: 0.4 });
   },
 };
 

@@ -218,6 +218,8 @@ export function construirEscenario(T, o = {}) {
       // 26 sobreexponía: el héroe dorado salía blanco. Con 16 se ve el color del metal.
       luz = new T.PointLight(ARENA.llama, 16, 14, 2);
       luz.position.set(x, 3.1, z);
+      // Solo la luz direccional `clave` (más abajo) proyecta sombra: explícito y no por defecto.
+      luz.castShadow = false;
       raiz.add(luz);
     }
     antorchas.push({ luz, llama, base: luz ? luz.intensity : 0, fase: Math.random() * 6.28 });

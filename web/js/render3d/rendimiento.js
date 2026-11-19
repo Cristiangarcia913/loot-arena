@@ -14,8 +14,8 @@
  * demo (pequeña) y el juego a pantalla completa.
  */
 export const CALIDADES = Object.freeze({
-  alto:  Object.freeze({ dpr: 2,    maxPixeles: 1300000, sombras: true,  muestras: true,  polvo: 220, antorchas: 4, segmentos: 24, luzPorAntorcha: true }),
-  medio: Object.freeze({ dpr: 1.5,  maxPixeles:  850000, sombras: false, muestras: true,  polvo: 120, antorchas: 4, segmentos: 16, luzPorAntorcha: true }),
+  alto:  Object.freeze({ dpr: 2,    maxPixeles: 1300000, sombras: true,  muestras: true,  polvo: 40,  antorchas: 4, segmentos: 24, luzPorAntorcha: true }),
+  medio: Object.freeze({ dpr: 1.5,  maxPixeles:  850000, sombras: false, muestras: true,  polvo: 35,  antorchas: 4, segmentos: 16, luzPorAntorcha: true }),
   bajo:  Object.freeze({ dpr: 1,    maxPixeles:  480000, sombras: false, muestras: false, polvo: 0,   antorchas: 2, segmentos: 10, luzPorAntorcha: false }),
 });
 
