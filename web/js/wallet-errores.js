@@ -26,6 +26,9 @@ const ERRORES_CONOCIDOS = Object.freeze([
   "NoEresDueno", "ERC721IncorrectOwner", "ERC721NonexistentToken", "NoALaVenta", "CosmeticoInexistente",
   "CofreVacio", "YaReclamada", "CantidadCero", "ListaVacia", "RarezaInvalida", "SaldoEthInsuficiente",
   "ERC1155InsufficientBalance", "SoloRecompensas",
+  // Mercado P2P (MercadoP2P.sol): el jugador fija el precio, no el contrato.
+  "YaListado", "NoListado", "CompradorEsVendedor", "PrecioSubio", "OroInsuficiente", "SinAprobacionOro",
+  "PrecioCero", "PrecioExcesivo", "MismoPrecio",
 ]);
 
 /** Revert por nombre → [código, texto, acción]. */
@@ -46,6 +49,15 @@ const POR_REVERT = Object.freeze({
   RarezaInvalida: ["argumentos", "La rareza de ese objeto no es válida.", null],
   SaldoEthInsuficiente: ["caja-vacia", "La caja de ETH del Mercado no tiene fondos para ese pago.", null],
   ERC1155InsufficientBalance: ["sin-objetos", "No tienes unidades suficientes de ese objeto.", "refrescar"],
+  YaListado: ["ya-listado", "Ese objeto ya está a la venta en el Mercado P2P.", "refrescar"],
+  NoListado: ["no-listado", "Esa oferta ya no existe: puede que se haya vendido o que el vendedor la haya retirado.", "refrescar"],
+  CompradorEsVendedor: ["propia-oferta", "No puedes comprar tu propia oferta.", null],
+  PrecioSubio: ["precio-subio", "El vendedor subió el precio justo antes de tu compra: no se te ha cobrado de más. Vuelve a intentarlo si te sigue interesando.", "refrescar"],
+  OroInsuficiente: ["sin-oro", "No tienes ORO suficiente para esta compra.", "refrescar"],
+  SinAprobacionOro: ["sin-permiso", "El Mercado P2P no tiene permiso para mover tu ORO. Vuelve a intentarlo y acepta el permiso.", "reintentar"],
+  PrecioCero: ["argumentos", "El precio tiene que ser mayor que 0.", null],
+  PrecioExcesivo: ["argumentos", "Ese precio es demasiado alto.", null],
+  MismoPrecio: ["argumentos", "Ese ya es el precio actual.", null],
 });
 
 /** Texto legible de un error (mensaje corto + razón + mensaje largo), para buscar patrones. */

@@ -18,6 +18,8 @@ import {
 } from "./economy.js";
 import { mensajeErrorTransaccion, evaluarGas, hastaQue } from "./wallet-errores.js";
 import { asegurarGas, GAS_ESPERA_MAX_MS } from "./gas.js";
+import { leer, guardar } from "./storage.js";
+import { CLAVE_HISTORIAL_LOCAL, anadirEntrada, parsearHistorial, serializarHistorial } from "./historial-local.js";
 
 export { CATALOGO } from "./economy.js";
 
@@ -676,6 +678,17 @@ function enlaceTx(hash) {
   return base && S.modo === "chain" ? enlace(`${base}/tx/${hash}`, "ver transacción") : null;
 }
 
+/**
+ * Apunta una compra, venta o recompensa reclamada en el historial local (localStorage), para
+ * que «Tus transacciones» (cadena/vista.js) tenga algo limpio que enseñar cuando el RPC público
+ * no tiene eventos recientes. Es un extra: si falla (almacenamiento bloqueado…) no debe romper
+ * una compra o venta que sí se hizo de verdad.
+ */
+function registrarActividad(entrada) {
+  try { guardar(CLAVE_HISTORIAL_LOCAL, serializarHistorial(anadirEntrada(parsearHistorial(leer(CLAVE_HISTORIAL_LOCAL)), entrada))); }
+  catch { /* el historial local es un extra */ }
+}
+
 function aviso(contenido, tipo = "info", ms = 5000) {
   let cont = document.getElementById("toasts");
   if (!cont) {
@@ -867,6 +880,12 @@ export async function venderObjetos(items, origen) {
     const ganado = { oro, eth };
     volarMonedas(origen, { oro: oroEntero(oro), eth: eth ?? 0n });
     aviso(`💰 ¡Vendido! +${formatearOro(oro)} ORO${eth ? ` y +${formatearEth(eth)} ETH` : eth === 0n ? " (solo ORO esta vez)" : ""}`, "ok", 6000);
+    registrarActividad({
+      tipo: "venta",
+      titulo: items.length === 1 ? `Vendiste «${items[0].nombre || `#${items[0].tokenId}`}»` : `Vendiste ${items.length} objetos`,
+      detalle: [`${items.length} objeto(s) enviado(s) al Mercado (van a 0x…dEaD)`],
+      oro, eth,
+    });
     S.inventario = S.inventario.filter((it) => !ids.includes(String(it.tokenId)));
     for (const id of ids) { S.seleccion.delete(id); S.precios.delete(id); S.recompensas.delete(id); }
     for (const reg of [...S.botones]) if (ids.includes(String(reg.item.tokenId))) { reg.btn.remove(); S.botones.delete(reg); }
@@ -892,6 +911,11 @@ async function comprar(id, btn) {
     if (!ok || !S) return;
     volarMonedas(null, { oro: -precio, hacia: btn });
     aviso(`✨ ¡${cos.nombre} es tuyo!`, "ok");
+    registrarActividad({
+      tipo: "compra", titulo: `Compraste «${cos.nombre}» en el Mercado`,
+      detalle: [`${NOMBRE_RANURA[cos.ranura] ?? ""} · ${rarezaCos(cos.rareza).nombre}`],
+      oro: -aUnidades(precio),
+    });
     await Promise.allSettled([releerOroHasta(oroAntes), refrescarCosmeticos()]);
     if (cos.ranura !== "consumible" && S.apariencia[cos.ranura] == null) cambiarApariencia(equiparCosmetico(S.apariencia, id));
   } finally {
@@ -911,6 +935,7 @@ async function reclamarBienvenida(btn) {
       S.bienvenida = true;
       volarMonedas(btn, { oro: ORO_BIENVENIDA });
       aviso(`🎁 ¡+${ORO_BIENVENIDA} ORO de bienvenida!`, "ok");
+      registrarActividad({ tipo: "recompensa", titulo: "Reclamaste el bono de bienvenida", oro: aUnidades(ORO_BIENVENIDA) });
       await releerOroHasta(oroAntes);
     } else {
       S.bienvenida = await S.eco.bienvenidaReclamada();
@@ -947,6 +972,11 @@ async function abrirCofre() {
     });
     if (!S) { ov.cerrar(); return; }
     if (id === false) { ov.cerrar(); return; }
+    registrarActividad({
+      tipo: "compra",
+      titulo: typeof id === "number" ? `Abriste un cofre: «${cosmetico(id)?.nombre ?? `cosmético #${id}`}»` : "Abriste un cofre cosmético",
+      oro: -aUnidades(S.precioCofre),
+    });
     await releerOroHasta(oroAntes);
     if (typeof id !== "number") {
       ov.cerrar();

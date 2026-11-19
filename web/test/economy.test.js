@@ -102,6 +102,14 @@ test("parseo y formato de saldos ORO/ETH", () => {
   assert.equal(E.normalizarPrecio("0x" + (54n * UNO).toString(16)), 54);
   assert.equal(E.aBigInt({ toString: () => "42" }), 42n);
   assert.throws(() => E.aBigInt("hola"));
+  // aUnidadesDesdeTexto: los decimales que manda el servidor (formatEther/formatUnits),
+  // no enteros en crudo. BigInt("0.0") lanza, así que esto no puede delegar en BigInt().
+  assert.equal(E.aUnidadesDesdeTexto("0.0"), 0n);
+  assert.equal(E.aUnidadesDesdeTexto("1.25"), UNO + 25n * 10n ** 16n);
+  assert.equal(E.aUnidadesDesdeTexto("13500.0"), 13500n * UNO);
+  assert.equal(E.aUnidadesDesdeTexto("-0.5"), -(UNO / 2n));
+  assert.equal(E.aUnidadesDesdeTexto("3"), 3n * UNO);
+  assert.throws(() => E.aUnidadesDesdeTexto("no"));
   // balanceOfBatch → mapa id→cantidad (sin ceros)
   assert.deepEqual(E.parsearSaldos([1, 2, 14], [0n, 1n, 3n]), { 2: 1, 14: 3 });
   assert.deepEqual(E.parsearSaldos([], []), {});

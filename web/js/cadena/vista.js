@@ -106,73 +106,56 @@ export function pintarCartera(cartera, { net, red, chainId, comparacion, conecta
 
 // ───────────────────────── E1.2 Tus transacciones ─────────────────────────
 
-export function pintarTransacciones(txs, {
-  net, recortado, fallos, bloqueDespliegue, bloqueActual,
-  limitadoPorRpc = false, desdeDisponible = null, completo = true, onCargarTodo = null,
-}) {
-  const caja = h("div", { class: "cad-bloque" });
-  const leidoDesde = desdeDisponible ?? bloqueDespliegue;
-  caja.append(titulo("Tus transacciones en el juego",
-    `Reconstruidas de los eventos de nuestros contratos con getLogs, del bloque ${leidoDesde ?? "?"} al ${bloqueActual ?? "?"}. Sin API de pago ni claves.`));
+/** Una fila de la lista, válida tanto para una tx real de la cadena como para una entrada local. */
+function filaActividad(tx, e, { local = false } = {}) {
+  const neto = [];
+  if (tx.oro) neto.push(h("span", { class: `cad-neto ${tx.oro > 0n ? "pos" : "neg"}` }, `${tx.oro > 0n ? "+" : "−"}${ORO(tx.oro < 0n ? -tx.oro : tx.oro)}`));
+  if (tx.eth) neto.push(h("span", { class: `cad-neto ${tx.eth > 0n ? "pos" : "neg"}` }, `${tx.eth > 0n ? "+" : "−"}${ETH(tx.eth < 0n ? -tx.eth : tx.eth)}`));
+  return h("li", { class: `cad-tx${local ? " cad-tx-local" : ""}` },
+    h("div", { class: "cad-tx-fila" },
+      h("span", { class: "cad-tx-titulo" }, tx.titulo),
+      h("span", { class: "cad-tx-neto" }, neto)),
+    h("div", { class: "cad-tx-meta" },
+      h("span", {}, fechaTexto(tx.fecha)),
+      tx.bloque != null ? h("span", {}, `bloque ${tx.bloque}`) : null,
+      tx.hash ? enlaceExt(e.tx(tx.hash), "ver en el explorador")
+        : local ? h("span", { class: "cad-chip cad-chip-tenue" }, "guardado en este navegador") : null),
+    tx.detalle?.length ? h("details", { class: "cad-tx-detalle" },
+      h("summary", {}, "Qué movió exactamente"),
+      h("ul", {}, tx.detalle.map((d) => h("li", {}, d)))) : null);
+}
 
-  // Lo importante que hay que decir sin adornos: el RPC público de Sepolia solo conserva los
-  // logs de las últimas ~10 000 bloques (unas 33 horas). Más atrás no es que falle: es que
-  // no los tiene. Fingir que el historial está completo sería mentir.
-  if (limitadoPorRpc) {
-    const faltan = leidoDesde != null && bloqueDespliegue != null ? leidoDesde - bloqueDespliegue : null;
-    const horas = faltan && faltan > 0 ? Math.round((faltan * 12) / 3600) : null;
-    const caja2 = h("div", { class: "cad-discrepancia" },
-      h("strong", {}, "Esto no es todo tu historial."),
-      h("p", { class: "cad-parrafo" },
-        `El RPC público de Sepolia solo guarda los eventos recientes: se ha podido leer desde el bloque ${leidoDesde}`,
-        faltan && faltan > 0
-          ? `, así que se quedan fuera los ${faltan.toLocaleString("es-ES")} bloques que van desde el despliegue del contrato (${bloqueDespliegue}) hasta ahí, unas ${horas} horas de juego`
-          : "",
-        ". No es un fallo del juego ni de tu conexión: ese nodo no conserva los logs antiguos, y el proyecto no usa servicios de pago con clave de API."),
-      h("p", { class: "cad-parrafo" },
-        "Para el historial completo hace falta un indexador: el servidor del juego sí puede guardar los eventos según ocurren. Mientras tanto, cada transacción suelta se puede comprobar por su hash en el explorador público, que sí tiene toda la historia."));
-    if (onCargarTodo) {
-      caja2.append(h("button", {
-        class: "btn btn-small btn-ghost", type: "button",
-        onclick: (ev) => { ev.currentTarget.disabled = true; onCargarTodo(); },
-      }, "Intentarlo igualmente desde el despliegue"));
-    }
-    caja.append(caja2);
-  } else if (completo) {
-    caja.append(aviso(`Historial completo: leído desde el bloque del despliegue (${bloqueDespliegue}).`, "ok"));
+/**
+ * «Tus transacciones»: si el RPC devuelve eventos recientes se enseñan tal cual; si no, se
+ * enseña el historial local del navegador (compras, botines de jefe, recompensas reclamadas)
+ * en vez de explicar por qué el RPC público no tiene más. El enlace a Etherscan siempre está
+ * ahí para quien quiera el historial completo de verdad.
+ * @param {Array} txs   transacciones leídas de los eventos de la cadena
+ * @param {{net:object, cuenta:string|null, local?:Array}} o  `local`: historial local (más reciente primero)
+ */
+export function pintarTransacciones(txs, { net, cuenta, local = [] }) {
+  const caja = h("div", { class: "cad-bloque" });
+  caja.append(titulo("Tus transacciones en el juego", "Lo que has comprado, vendido y ganado, de un vistazo."));
+
+  const e = enlaces(net);
+  const dirEtherscan = cuenta ? e.dir(cuenta) : null;
+  if (dirEtherscan) {
+    caja.append(h("p", { class: "cad-mini" },
+      enlaceExt(dirEtherscan, "Ver historial completo en Sepolia Etherscan ↗", "cad-enlace cad-enlace-etherscan")));
   }
 
-  if (recortado) caja.append(aviso("El rango de bloques era demasiado grande para el RPC público: se muestran los más recientes.", "info"));
-  if (fallos > 0) caja.append(aviso(`${fallos} tramo(s) de bloques no respondieron (fallo pasajero del RPC): puede faltar algo. Prueba a volver a leer.`, "aviso"));
-
-  if (!txs.length) {
-    caja.append(aviso(
-      limitadoPorRpc
-        ? "No hay transacciones de esta dirección en el tramo que el RPC conserva. Puede que las haya más atrás."
-        : "No hay ninguna transacción de esta dirección en nuestros contratos. Si has jugado en modo demo, no hay nada en la cadena todavía.",
-      "info"));
+  if (txs.length) {
+    caja.append(h("ol", { class: "cad-historial" }, txs.map((tx) => filaActividad(tx, e))));
     return caja;
   }
 
-  const e = enlaces(net);
-  const lista = h("ol", { class: "cad-historial" });
-  for (const tx of txs) {
-    const neto = [];
-    if (tx.oro !== 0n) neto.push(h("span", { class: `cad-neto ${tx.oro > 0n ? "pos" : "neg"}` }, `${tx.oro > 0n ? "+" : "−"}${ORO(tx.oro < 0n ? -tx.oro : tx.oro)}`));
-    if (tx.eth !== 0n) neto.push(h("span", { class: `cad-neto ${tx.eth > 0n ? "pos" : "neg"}` }, `${tx.eth > 0n ? "+" : "−"}${ETH(tx.eth < 0n ? -tx.eth : tx.eth)}`));
-    lista.append(h("li", { class: "cad-tx" },
-      h("div", { class: "cad-tx-fila" },
-        h("span", { class: "cad-tx-titulo" }, tx.titulo),
-        h("span", { class: "cad-tx-neto" }, neto)),
-      h("div", { class: "cad-tx-meta" },
-        h("span", {}, fechaTexto(tx.fecha)),
-        h("span", {}, `bloque ${tx.bloque}`),
-        enlaceExt(e.tx(tx.hash), "ver en el explorador")),
-      h("details", { class: "cad-tx-detalle" },
-        h("summary", {}, "Qué movió exactamente"),
-        h("ul", {}, tx.detalle.map((d) => h("li", {}, d))))));
+  if (local.length) {
+    caja.append(aviso("Todavía no hay eventos recientes en la cadena: esto es lo último que hiciste, guardado en este navegador.", "info"));
+    caja.append(h("ol", { class: "cad-historial" }, local.map((tx) => filaActividad(tx, e, { local: true }))));
+    return caja;
   }
-  caja.append(lista);
+
+  caja.append(aviso("Todavía no hay ninguna actividad que mostrar. Juega, compra o vende algo y aparecerá aquí.", "info"));
   return caja;
 }
 
@@ -228,6 +211,9 @@ export function pintarTesoreria(t, { net, cuenta, permiso, onRetirar }) {
         t.oroQuemado?.alcance === "completo" ? "total desde el despliegue"
           : t.oroQuemado?.alcance === "parcial" ? `solo desde el bloque ${t.oroQuemado.desdeBloque}` : "hace falta el servidor")),
     t.oroQuemadoP2P != null ? dato("ORO quemado en comisiones P2P", ORO(t.oroQuemadoP2P), h("span", { class: "cad-fuente" }, "MercadoP2P.oroQuemado(), exacto")) : null,
+    t.mercadoP2P ? dato("Volumen de transacciones (Mercado P2P)",
+      `${ORO(t.mercadoP2P.volumen)} · ${t.mercadoP2P.ventas} venta(s)`,
+      h("span", { class: "cad-fuente" }, "MercadoP2P.mercadoTotal()")) : null,
     dato("Objetos destruidos", t.objetosDestruidos ?? "—", h("span", { class: "cad-fuente" }, "NFT que están en 0x…dEaD")),
     dato("Objetos acuñados", t.objetosAcunados ?? "—", h("span", { class: "cad-fuente" }, "GameItem.totalMinted()"))));
 

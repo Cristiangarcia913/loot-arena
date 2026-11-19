@@ -416,6 +416,16 @@
   margin-top: .5rem;
 }
 
+/* Entrada del historial local (no es un evento de la cadena: se marca sutilmente distinta). */
+.cad-tx-local {
+  border-style: dashed;
+  background: rgba(0, 0, 0, .1);
+}
+
+.cad-enlace-etherscan {
+  font-weight: 600;
+}
+
 .cad-verificacion:not(:empty) {
   margin-top: .6rem;
   padding-top: .6rem;

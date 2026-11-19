@@ -212,3 +212,54 @@
 /* Mercado: cabecera del catálogo con el botón de renovar (anuncio recompensado) */
 .merc-cat-cabecera { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .merc-cat-cabecera .merc-sub { margin-bottom: 0; }
+
+/* Mercado: tu bolsa (encabezado de la sección, con el saldo de ORO siempre a la vista) */
+.merc-bolsa { margin: 2px 0 10px; }
+.merc-bolsa-txt { margin: 0; font: 700 1.05rem var(--titulo); color: var(--texto); }
+.merc-bolsa-txt b { font-size: 1.15rem; }
+
+/* Mercado: filtros rápidos por categoría */
+.merc-filtros { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.merc-filtro {
+  font: 600 .85rem var(--cuerpo); color: var(--tenue); background: rgba(0, 0, 0, .25);
+  border: 1px solid var(--borde-suave); border-radius: 999px; padding: 6px 14px; cursor: pointer; min-height: 34px;
+}
+.merc-filtro:hover { color: var(--texto); border-color: var(--borde); }
+.merc-filtro.on { color: #2a1a06; background: linear-gradient(180deg, #f6d27c, var(--oro-2)); border-color: #f6d58b; }
+
+/* Mercado: comparador de stats contra lo que llevas puesto */
+.merc-cmp { display: block; font-size: .74rem; font-weight: 700; margin-top: 2px; }
+.cmp-mejor { color: var(--verde, #4ade80); }
+.cmp-peor { color: var(--rojo, #f87171); }
+.cmp-igual { color: var(--tenue); }
+
+/* Mercado: oferta del día */
+.merc-oferta-dia {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px; margin-bottom: 12px;
+  border-radius: 14px; position: relative; overflow: hidden;
+  background: radial-gradient(circle at 0% 50%, color-mix(in srgb, var(--rar) 25%, transparent), transparent 65%), rgba(0, 0, 0, .3);
+  border: 1px solid color-mix(in srgb, var(--rar) 70%, #000);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--rar) 30%, transparent);
+}
+.merc-oferta-dia-badge {
+  position: absolute; top: 10px; right: 12px; font: 700 .72rem var(--cuerpo); letter-spacing: .03em;
+  color: var(--oro); text-transform: uppercase;
+}
+.merc-oferta-dia-txt { flex: 1 1 160px; min-width: 0; }
+.merc-oferta-dia .merc-icono { width: 56px; height: 56px; font-size: 2rem; }
+.merc-oferta-dia .btn { min-height: 42px; }
+
+/* Mercado P2P */
+.merc-p2p-seccion { margin-bottom: 18px; }
+.merc-p2p-listar { display: flex; align-items: center; gap: 8px; flex: none; }
+.merc-p2p-precio-campo {
+  width: 110px; background: #120e0b; color: var(--texto); border: 1px solid var(--borde);
+  border-radius: 8px; padding: 6px 8px; font: .88rem var(--cuerpo);
+}
+.merc-p2p-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.merc-p2p-carta .merc-meta { flex: none; }
+.merc-p2p-cmp { display: block; font-size: .72rem; font-weight: 700; margin: 2px 0; }
+.merc-p2p-cmp.cmp-mejor { color: var(--verde, #4ade80); }
+.merc-p2p-cmp.cmp-peor { color: var(--rojo, #f87171); }
+.merc-p2p-cmp.cmp-igual { color: var(--tenue); }
+.merc-p2p-vendedor { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .72rem; }

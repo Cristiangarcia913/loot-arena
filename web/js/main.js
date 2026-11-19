@@ -15,6 +15,7 @@ import * as R from "./router.js";
 import * as ENG from "./enganche.js";
 import * as INV from "./inventario.js";
 import * as MERC from "./mercado.js";
+import * as P2P from "./mercado-p2p.js";
 import * as HEROE from "./heroe.js";
 import * as GAS from "./gas.js";
 import * as TUT from "./tutorial.js";
@@ -23,6 +24,7 @@ import { reclamarBotin } from "./api.js";
 import { mostrarAnuncioRecompensado } from "./anuncios.js";
 import { catalogoRotativo, semillaDelDia } from "./economy.js";
 import * as BL from "./botin-local.js";
+import { CLAVE_HISTORIAL_LOCAL, anadirEntrada, parsearHistorial, serializarHistorial } from "./historial-local.js";
 import { crearContrato, hayCodigo, leerInventario, transferir, enlacesExplorador } from "./chain.js";
 import { $, h, enlace, acortar, toast, esperar } from "./ui.js";
 import { leer, guardar } from "./storage.js";
@@ -334,6 +336,22 @@ async function montarEconomia() {
     console.warn("[economía]", e);
   }
   if (id !== montajeEco) return;
+  try {
+    await P2P.montarMercadoP2P({
+      provider: signer ? S.provider : null,
+      signer,
+      cuenta: signer ? S.cuenta : null,
+      cfg: S.cfg,
+      ethers: S.ethers ?? undefined,
+      inventario: inventarioConEquipo().filter((it) => !it.local),
+      getEquipados: equipados,
+      raiz: { panel: $("#merc-p2p") },
+      onComprado: () => cargarInventario(),
+    });
+  } catch (e) {
+    console.warn("[mercado-p2p]", e);
+  }
+  if (id !== montajeEco) return;
   FX.actualizarHeroe(equipados(), T.aparienciaGuardada(S.cuenta));
   renderInventario();
   renderMercadoSec();
@@ -415,6 +433,16 @@ function jugarDesafio(desafio, ayuda) {
 const enModoDemo = () => !S.cuenta;
 const claveEquipoActual = () => (enModoDemo() ? BL.CLAVE_EQUIPO_LOCAL : E.claveEquipo(S.cuenta, S.chainId));
 const leerBotinLocal = () => BL.parsearEstado(leer(BL.CLAVE_BOTIN_LOCAL));
+
+// ───────────────────────── Historial local de actividad ─────────────────────────
+// Para «Tus transacciones» (cadena/vista.js) cuando el RPC público no tiene eventos recientes.
+// Las compras/ventas de la tienda se registran en tienda.js; aquí solo lo que decide main.js:
+// el botín de jefe (sobre todo en modo demo, donde nunca llega a la cadena).
+const leerHistorialLocal = () => parsearHistorial(leer(CLAVE_HISTORIAL_LOCAL));
+function registrarHistorialLocal(entrada) {
+  try { guardar(CLAVE_HISTORIAL_LOCAL, serializarHistorial(anadirEntrada(leerHistorialLocal(), entrada))); }
+  catch { /* el historial local es un extra */ }
+}
 
 function cargarEquipo() {
   S.equipo = E.parsearEquipo(leer(claveEquipoActual()));
@@ -502,12 +530,14 @@ function renderMercadoSec() {
   if (!sec) return;
   MERC.renderMercado(sec, {
     inventario: inventarioConEquipo().filter((it) => !it.equipado && !it.local),
+    equipados: equipados(),
     saldos: { oro: S.saldoOro ?? 0, cajaEth: undefined, restanteHoyEth: undefined },
     onVender: (items) => T.venderObjetos(items, "mercado"),
     onComprar: (c) => T.comprarCosmetico(c.id),
     onAbrirCofre: () => T.abrirCofreCosmetico(),
     catalogo: catalogoRotativo(semillaMercado()),
     onRenovarCatalogo: renovarCatalogoConAnuncio,
+    onCambioPestana: (clave) => { if (clave === "p2p") P2P.refrescarMercadoP2P?.(); },
   });
 }
 
@@ -543,6 +573,7 @@ function renovarCatalogoConAnuncio() {
 
 function alCambiarInventario() {
   T.actualizarInventario(inventarioConEquipo().filter((it) => !it.local));
+  P2P.actualizarInventarioP2P(inventarioConEquipo().filter((it) => !it.local));
   renderMercadoSec();
   ENG.registrarEvento({ tipo: "inventario", items: S.inventario });
   FX.actualizarHeroe(equipados());
@@ -1172,6 +1203,12 @@ async function mostrarBotin(r, eleccionPrevia) {
         h("div", {}, h("strong", {}, "🎁 ¡Botín! "), `«${r.item.nombre}», ${E.rareza(r.item.rareza).nombre.toLowerCase()}. Ya es tuyo en la blockchain.`),
         urlTx ? h("div", { class: "res-links" }, enlace(urlTx, "Ver transacción de minteo ↗")) : null));
       ENG.registrarEvento({ tipo: "botin", item: r.item });
+      if (enemigo?.jefe) {
+        registrarHistorialLocal({
+          tipo: "botin", titulo: `Botín de jefe: «${r.item.nombre}»`,
+          detalle: [E.rareza(r.item.rareza).nombre], hash: r.txHash ?? null,
+        });
+      }
       eleccion = await FX.revelarBotin(r.item);
       TUT.avanzarTutorial("botin");
       await cargarInventario();
@@ -1188,6 +1225,9 @@ async function mostrarBotin(r, eleccionPrevia) {
           ? ["Conecta tu wallet en Sepolia para que el botín sea un NFT de verdad. ", h("button", { class: "btn btn-small btn-gold", type: "button", onclick: () => conectar() }, "🦊 Conectar")]
           : ["Instala ", enlace("https://metamask.io/download/", "MetaMask"), " para que el botín sea un NFT que puedas vender por ORO."])));
       ENG.registrarEvento({ tipo: "botin", item: r.item });
+      if (enemigo?.jefe) {
+        registrarHistorialLocal({ tipo: "botin", titulo: `Botín de jefe: «${r.item.nombre}»`, detalle: [E.rareza(r.item.rareza).nombre, "modo demo: guardado en este navegador"] });
+      }
       eleccion = await FX.revelarBotin(r.item);
       TUT.avanzarTutorial("botin");
       await cargarInventario();
@@ -1230,6 +1270,8 @@ const ctxCadena = () => ({
   toast,
   // Para que «Tu cartera» pueda decir si la cadena y el juego cuadran (fase E1 del plan).
   local: () => ({ oro: S.saldoOro ?? null, objetos: S.inventario?.length ?? null }),
+  // Para «Tus transacciones» cuando el RPC no tiene eventos recientes que mostrar.
+  historialLocal: () => leerHistorialLocal(),
 });
 
 async function montarSeccionCadena() {

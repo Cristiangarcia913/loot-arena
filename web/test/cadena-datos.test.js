@@ -164,7 +164,7 @@ function contratosTesoreria() {
     oro: { async totalSupply() { return 1000n * UNO; } },
     recompensas: { async operador() { return OPERADOR; } },
     gameItem: { async balanceOf(d) { return d === DEAD ? 12n : 0n; }, async totalMinted() { return 40n; } },
-    mercadoP2P: { async oroQuemado() { return 85n * UNO; } },
+    mercadoP2P: { async oroQuemado() { return 85n * UNO; }, async mercadoTotal() { return [400n * UNO, 7n, 0n, 85n * UNO]; } },
   };
 }
 
@@ -181,19 +181,36 @@ test("leerTesoreria lee la caja, el dueño, el operador y los totales del RPC", 
   assert.equal(t.objetosDestruidos, 12);
   assert.equal(t.objetosAcunados, 40);
   assert.equal(t.oroQuemadoP2P, 85n * UNO, "el acumulador del P2P es exacto y vale tal cual");
+  assert.deepEqual(t.mercadoP2P, { volumen: 400n * UNO, ventas: 7 }, "volumen de transacciones del Mercado P2P");
 });
 
 test("leerTesoreria prefiere el resumen del servidor cuando responde", async () => {
   const lector = lectorFalso({ contratos: contratosTesoreria(), saldos: { [OPERADOR]: 2n * UNO } });
   const fetchImpl = async (url) => {
     assert.match(String(url), /\/tesoreria\?red=sepolia$/);
-    return { ok: true, json: async () => ({ cajaEth: "7000000000000000000", oroQuemado: "500000000000000000000" }) };
+    // El servidor sirve decimales humanos (formatEther/formatUnits), no wei en crudo: así es
+    // como `server/src/tesoreria.js` los da de verdad, incluido el caso límite "0.0".
+    return { ok: true, json: async () => ({ cajaEth: "7.0", oroQuemado: "500.0" }) };
   };
   const t = await DT.leerTesoreria(lector, { serverUrl: "https://s.example/", red: "sepolia", fetchImpl });
   assert.equal(t.fuente, "servidor");
   assert.equal(t.cajaEth, 7n * UNO, "manda la cifra del servidor");
   assert.equal(t.oroQuemado.valor, 500n * UNO);
   assert.equal(t.oroQuemado.alcance, "completo");
+});
+
+test("leerTesoreria no se cuelga con '0.0': el servidor formatea con decimales, no en wei", async () => {
+  // Bug real: BigInt("0.0") lanza "Cannot convert 0.0 to a BigInt". El servidor manda
+  // exactamente ese texto cuando la caja está vacía (`formatEther(0n) === "0.0"`).
+  const lector = lectorFalso({ contratos: contratosTesoreria(), saldos: { [OPERADOR]: 2n * UNO } });
+  const fetchImpl = async () => ({
+    ok: true,
+    json: async () => ({ cajaEth: "0.0", ethOperador: "0.0", oroCirculacion: "0.0" }),
+  });
+  const t = await DT.leerTesoreria(lector, { serverUrl: "https://s.example/", fetchImpl });
+  assert.equal(t.cajaEth, 0n);
+  assert.equal(t.ethOperador, 0n);
+  assert.equal(t.oroCirculacion, 0n);
 });
 
 test("si el servidor falla, la tesorería sigue saliendo por RPC", async () => {
@@ -253,6 +270,16 @@ test("si falla el RPC al leer el ORO quemado reciente, el resto de la tesorería
   assert.equal(t.owner, OWNER);
   assert.equal(t.oroQuemado.valor, 0n);
   assert.ok(t.avisos.some((a) => /ORO quemado reciente/.test(a)));
+});
+
+test("leerTesoreria no se cae si el MercadoP2P no tiene mercadoTotal (ABI antigua o parcial)", async () => {
+  const lector = lectorFalso({
+    contratos: { ...contratosTesoreria(), mercadoP2P: { async oroQuemado() { return 1n * UNO; } } },
+    saldos: { [OPERADOR]: UNO },
+  });
+  const t = await DT.leerTesoreria(lector, { serverUrl: null, conQuemado: false });
+  assert.equal(t.mercadoP2P, null);
+  assert.equal(t.oroQuemadoP2P, 1n * UNO, "lo demás del P2P se sigue leyendo bien");
 });
 
 test("leerTesoreria avisa si faltan contratos en vez de enseñar ceros", async () => {

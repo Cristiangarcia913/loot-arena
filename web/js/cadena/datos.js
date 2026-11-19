@@ -5,7 +5,7 @@
 // Los contratos entran ya construidos (`lector.contratos`), así que los tests pasan dobles con
 // los métodos de vista que haga falta.
 
-import { IDS_CATALOGO, aBigInt, cosmetico, direccionValida, parsearSaldos } from "../economy.js";
+import { IDS_CATALOGO, aBigInt, aUnidadesDesdeTexto, cosmetico, direccionValida, parsearSaldos } from "../economy.js";
 import { CERO, DEAD, mismaDir } from "./lectura.js";
 import { rarezaTexto } from "./eventos.js";
 
@@ -155,6 +155,7 @@ export function compararConLocal(cadena, local) {
  * @property {bigint|null} oroCirculacion totalSupply de ORO
  * @property {{valor:bigint, alcance:"completo"|"parcial"|null, desdeBloque:number|null}} oroQuemado
  * @property {bigint|null} oroQuemadoP2P  exacto, del acumulador del MercadoP2P (si está desplegado)
+ * @property {{volumen:bigint, ventas:number}|null} mercadoP2P  volumen y nº de ventas entre jugadores (si está desplegado)
  * @property {number|null} objetosDestruidos  NFT que están en 0x…dEaD
  * @property {number|null} objetosAcunados
  * @property {"servidor"|"rpc"} fuente
@@ -174,7 +175,7 @@ export async function leerTesoreria(lector, { serverUrl = null, red = null, fetc
   const { mercado, oro, gameItem, recompensas, mercadoP2P } = lector.contratos ?? {};
   const avisos = [];
 
-  const [cajaEth, owner, operador, oroCirculacion, destruidos, acunados, quemadoP2P] = await Promise.all([
+  const [cajaEth, owner, operador, oroCirculacion, destruidos, acunados, quemadoP2P, totalP2P] = await Promise.all([
     mercado ? nada(mercado.cajaEth().then(aBigInt)) : null,
     mercado ? nada(mercado.owner()) : null,
     recompensas ? nada(recompensas.operador()) : null,
@@ -182,6 +183,12 @@ export async function leerTesoreria(lector, { serverUrl = null, red = null, fetc
     gameItem ? nada(gameItem.balanceOf(DEAD).then((v) => Number(aBigInt(v)))) : null,
     gameItem ? nada(gameItem.totalMinted().then((v) => Number(aBigInt(v)))) : null,
     mercadoP2P ? nada(mercadoP2P.oroQuemado().then(aBigInt)) : null,
+    // Volumen de transacciones entre jugadores: lo único que se puede dar sin indexador propio
+    // (el Mercado del Herrero no lleva un contador así; ver MOTIVO_SIN_QUEMADO en el servidor).
+    mercadoP2P ? nada((async () => {
+      const r = await mercadoP2P.mercadoTotal();
+      return { volumen: aBigInt(r[0]), ventas: Number(r[1]) };
+    })()) : null,
   ]);
 
   const ethOperador = direccionValida(operador) ? await lector.saldoEth(operador) : null;
@@ -193,7 +200,7 @@ export async function leerTesoreria(lector, { serverUrl = null, red = null, fetc
   // su cifra; si no, se barre una ventana reciente y se dice que es parcial.
   let oroQuemado = { valor: 0n, alcance: null, desdeBloque: null };
   if (delServidor?.oroQuemado != null) {
-    oroQuemado = { valor: aBigInt(delServidor.oroQuemado), alcance: "completo", desdeBloque: lector.bloqueDespliegue ?? null };
+    oroQuemado = { valor: aUnidadesDesdeTexto(delServidor.oroQuemado), alcance: "completo", desdeBloque: lector.bloqueDespliegue ?? null };
   } else if (conQuemado && oro) {
     // Un fallo de red aquí (p. ej. `getBlockNumber` o `getLogs` caídos) no puede tirar abajo
     // el resto de la tesorería: la caja, los totales y quién manda ya se leyeron cada uno por
@@ -210,13 +217,14 @@ export async function leerTesoreria(lector, { serverUrl = null, red = null, fetc
   }
 
   return {
-    cajaEth: delServidor?.cajaEth != null ? aBigInt(delServidor.cajaEth) : cajaEth,
+    cajaEth: delServidor?.cajaEth != null ? aUnidadesDesdeTexto(delServidor.cajaEth) : cajaEth,
     owner,
     operador,
-    ethOperador: delServidor?.ethOperador != null ? aBigInt(delServidor.ethOperador) : ethOperador,
-    oroCirculacion: delServidor?.oroCirculacion != null ? aBigInt(delServidor.oroCirculacion) : oroCirculacion,
+    ethOperador: delServidor?.ethOperador != null ? aUnidadesDesdeTexto(delServidor.ethOperador) : ethOperador,
+    oroCirculacion: delServidor?.oroCirculacion != null ? aUnidadesDesdeTexto(delServidor.oroCirculacion) : oroCirculacion,
     oroQuemado,
     oroQuemadoP2P: quemadoP2P,
+    mercadoP2P: totalP2P,
     objetosDestruidos: destruidos,
     objetosAcunados: acunados,
     fuente: delServidor ? "servidor" : "rpc",

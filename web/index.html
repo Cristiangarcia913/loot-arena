@@ -179,14 +179,17 @@
       <section id="seccion-mercado" class="seccion" data-seccion="mercado" aria-labelledby="t-mercado" tabindex="-1" hidden>
         <div class="seccion-head">
           <h2 id="t-mercado">Mercado</h2>
-          <p class="seccion-sub">Vende tus objetos por ORO (y ETH) o compra cosméticos para tu héroe.</p>
+          <p class="seccion-sub">Vende tus objetos por ORO (y ETH), compra cosméticos al Herrero, o comercia con otros jugadores.</p>
         </div>
-        <div class="merc-tabs" role="tablist" aria-label="Vender o comprar">
-          <button id="merc-tab-vender" class="merc-tab on" role="tab" type="button" aria-selected="true" aria-controls="merc-vender">💰 Vender</button>
-          <button id="merc-tab-comprar" class="merc-tab" role="tab" type="button" aria-selected="false" aria-controls="merc-comprar" tabindex="-1">🛍️ Comprar</button>
+        <div id="merc-bolsa" class="merc-bolsa" aria-live="polite"></div>
+        <div class="merc-tabs" role="tablist" aria-label="Comprar, vender o comerciar con otros jugadores">
+          <button id="merc-tab-comprar" class="merc-tab on" role="tab" type="button" aria-selected="true" aria-controls="merc-comprar">🛠️ Comprar (Herrero)</button>
+          <button id="merc-tab-vender" class="merc-tab" role="tab" type="button" aria-selected="false" aria-controls="merc-vender" tabindex="-1">💰 Vender (Tu equipo)</button>
+          <button id="merc-tab-p2p" class="merc-tab" role="tab" type="button" aria-selected="false" aria-controls="merc-p2p" tabindex="-1">🤝 Mercado P2P (Otros jugadores)</button>
         </div>
-        <div id="merc-vender" class="merc-panel" role="tabpanel" aria-labelledby="merc-tab-vender"></div>
-        <div id="merc-comprar" class="merc-panel" role="tabpanel" aria-labelledby="merc-tab-comprar" hidden></div>
+        <div id="merc-comprar" class="merc-panel" role="tabpanel" aria-labelledby="merc-tab-comprar"></div>
+        <div id="merc-vender" class="merc-panel" role="tabpanel" aria-labelledby="merc-tab-vender" hidden></div>
+        <div id="merc-p2p" class="merc-panel" role="tabpanel" aria-labelledby="merc-tab-p2p" hidden></div>
       </section>
 
       <!-- 📜 Misiones -->

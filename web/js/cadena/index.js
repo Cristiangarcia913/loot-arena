@@ -44,7 +44,6 @@ const S = {
   objetivo: null,      // dirección que se está explorando
   cache: new Map(),    // id de pestaña → nodo ya pintado
   clave: "",           // red|cuenta: si cambia, se tira todo
-  historialCompleto: false, // el jugador pidió intentar todo el historial pese al límite del RPC
   owner: null,         // Mercado.owner(), para poner nombre a las direcciones
   operador: null,      // Recompensas.operador(), ídem
   // tokenId → desglose anunciado antes de firmar. Si luego se comprueba el recibo de esa
@@ -229,25 +228,15 @@ async function panelTransacciones() {
       V.titulo("Tus transacciones en el juego"),
       V.aviso("Conecta la cartera o escribe una dirección arriba para ver su historial en nuestros contratos.", "info"));
   }
-  // Si el RPC falla justo en esta llamada, no por eso se rompe toda la pestaña: se sigue
-  // sin saber el bloque actual (los textos ya manejan `null` con un "?").
-  const alto = await S.lector.bloqueActual().catch(() => null);
-  // `todo` solo se pone a true si el jugador pulsa «intentarlo igualmente»: por defecto no se
-  // le pide al RPC público lo que ya sabemos que no guarda (ver la cabecera de lectura.js).
-  const { sucesos, recortado, fallos, limitadoPorRpc, desdeDisponible, completo } =
-    await S.lector.barrerVarios(peticionesHistorial(objetivo, topicoDireccion), { todo: S.historialCompleto });
+  // No se le pide al RPC público lo que ya sabemos que no guarda (ver la cabecera de
+  // lectura.js): solo el tramo reciente. Si no hay nada ahí, la vista cae al historial local.
+  const { sucesos } = await S.lector.barrerVarios(peticionesHistorial(objetivo, topicoDireccion), {});
   const conFecha = await S.lector.conFechas(sinRepetidos(ordenar(sucesos)));
   const ctxTexto = contextoTexto(objetivo);
   const txs = agruparPorTx(interpretarTodos(conFecha, ctxTexto));
 
   const nodo = V.pintarTransacciones(txs, {
-    net: cfg.net, recortado, fallos, limitadoPorRpc, desdeDisponible, completo,
-    bloqueDespliegue: S.lector.bloqueDespliegue, bloqueActual: alto,
-    onCargarTodo: S.historialCompleto ? null : () => {
-      S.historialCompleto = true;
-      S.ctx.toast?.("Pidiendo todo el historial al RPC público; puede tardar o quedarse corto.", "info");
-      mostrar("transacciones", { forzar: true });
-    },
+    net: cfg.net, cuenta: objetivo, local: S.ctx.historialLocal?.() ?? [],
   });
   // Cada fila puede comprobarse contra su recibo real: es la verificación de la fase E2.
   for (const [i, li] of [...nodo.querySelectorAll(".cad-tx")].entries()) {

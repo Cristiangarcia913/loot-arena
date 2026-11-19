@@ -245,6 +245,24 @@ export function aUnidades(oro) {
   return aBigInt(oro) * UNIDAD;
 }
 
+/**
+ * Convierte un decimal en texto (el que devuelven `formatEther`/`formatUnits` del servidor,
+ * p. ej. "0.0" o "1.25") a unidades base. `BigInt("0.0")` lanza `SyntaxError: Cannot convert
+ * 0.0 to a BigInt`: no acepta punto decimal, así que aquí se separa a mano la parte entera
+ * de la fraccionaria en vez de dárselo entero a `BigInt()`.
+ * @param {string|number} texto
+ * @param {number} [decimales] por defecto 18 (coincide con ORO y con ETH en este proyecto)
+ * @returns {bigint}
+ */
+export function aUnidadesDesdeTexto(texto, decimales = DECIMALES_ORO) {
+  const m = /^(-?)(\d+)(?:\.(\d*))?$/.exec(String(texto).trim());
+  if (!m) throw new TypeError(`No es un decimal: ${texto}`);
+  const [, signo, entero, frac = ""] = m;
+  const fraccion = (frac + "0".repeat(decimales)).slice(0, decimales);
+  const v = BigInt(entero) * 10n ** BigInt(decimales) + BigInt(fraccion || "0");
+  return signo ? -v : v;
+}
+
 /** Unidades base → ORO entero (trunca decimales). */
 export function oroEntero(unidades) {
   return Number(aBigInt(unidades) / UNIDAD);
@@ -416,6 +434,8 @@ export const ABI_ORO = Object.freeze([
   "function balanceOf(address cuenta) view returns (uint256)",
   "function decimals() view returns (uint8)",
   "function symbol() view returns (string)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function approve(address spender, uint256 cantidad) returns (bool)",
   "event Transfer(address indexed from, address indexed to, uint256 value)",
 ]);
 export const ABI_COSMETICOS = Object.freeze([
@@ -452,6 +472,32 @@ export const ABI_GAMEITEM_APROBACION = Object.freeze([
   "function isApprovedForAll(address owner, address operator) view returns (bool)",
   "function setApprovalForAll(address operator, bool approved)",
 ]);
+/** ABI mínimo del Mercado P2P (MercadoP2P.sol §"Mercado entre jugadores"). */
+export const ABI_MERCADO_P2P = Object.freeze([
+  "function listar(uint256 tokenId, uint256 precioOro)",
+  "function cambiarPrecio(uint256 tokenId, uint256 nuevo)",
+  "function cancelar(uint256 tokenId)",
+  "function comprarHasta(uint256 tokenId, uint256 precioMaximo) returns (uint256 precio, uint256 comision)",
+  "function listado(uint256 tokenId) view returns (tuple(address vendedor, uint8 rareza, uint64 creado, uint256 precio))",
+  "function estaListado(uint256 tokenId) view returns (bool)",
+  "function totalListados() view returns (uint256)",
+  "function listados(uint256 desde, uint256 cuantos) view returns (tuple(uint256 tokenId, address vendedor, uint8 rareza, uint64 creado, uint256 precio)[])",
+  "function listadosDe(address vendedor) view returns (tuple(uint256 tokenId, address vendedor, uint8 rareza, uint64 creado, uint256 precio)[])",
+  "function comisionBps() view returns (uint256)",
+  "function mercadoTotal() view returns (uint256 volumen, uint256 ventas, uint256 medio, uint256 quemado)",
+  "event Listado(uint256 indexed tokenId, address indexed vendedor, uint8 indexed rareza, uint256 precio)",
+  "event Vendido(uint256 indexed tokenId, address indexed vendedor, address indexed comprador, uint256 precio, uint256 comision, uint8 rareza)",
+  "event Cancelado(uint256 indexed tokenId, address indexed vendedor)",
+  "event PrecioCambiado(uint256 indexed tokenId, address indexed vendedor, uint256 anterior, uint256 nuevo)",
+  "error NoEresDueno(uint256 tokenId, address dueno)",
+  "error NoEresVendedor(uint256 tokenId, address vendedor)",
+  "error YaListado(uint256 tokenId)",
+  "error NoListado(uint256 tokenId)",
+  "error CompradorEsVendedor(uint256 tokenId)",
+  "error PrecioSubio(uint256 precio, uint256 maximo)",
+  "error OroInsuficiente(uint256 tienes, uint256 necesitas)",
+  "error SinAprobacionOro(uint256 aprobado, uint256 necesitas)",
+]);
 
 const RE_DIR = /^0x[0-9a-fA-F]{40}$/;
 /** ¿Dirección con formato válido y distinta de 0x000…0? */
@@ -467,7 +513,11 @@ export function direccionesDe(deployments, red) {
   const d = deployments?.[red];
   if (!d) return null;
   const dir = { oro: d.oro, cosmeticos: d.cosmeticos, mercado: d.mercado };
-  return Object.values(dir).every(direccionValida) ? dir : null;
+  if (!Object.values(dir).every(direccionValida)) return null;
+  // mercadoP2P es opcional: no todas las redes lo tienen desplegado todavía (ver
+  // contracts/scripts/deploy-p2p.js). Su ausencia no debe invalidar el resto de la economía.
+  if (direccionValida(d.mercadoP2P)) dir.mercadoP2P = d.mercadoP2P;
+  return dir;
 }
 
 /**
@@ -531,6 +581,22 @@ export async function cargarAbis({ fetch: f = globalThis.fetch, base = import.me
     mercado: unirAbi(mer, ABI_MERCADO),
     completos: { oro: !!oro, cosmeticos: !!cos, mercado: !!mer },
   };
+}
+
+/**
+ * ABI del Mercado P2P (función separada de `cargarAbis`: ese contrato es opcional según la red,
+ * ver `direccionesDe`, y no debe cambiar la forma de lo que ya devuelve `cargarAbis`).
+ * @returns {Promise<{abi:any[], completo:boolean}>}
+ */
+export async function cargarAbiMercadoP2P({ fetch: f = globalThis.fetch, base = import.meta.url } = {}) {
+  if (!f) return { abi: [...ABI_MERCADO_P2P], completo: false };
+  for (const ruta of ["../config/MercadoP2P.abi.json", "../../shared/MercadoP2P.abi.json"]) {
+    try {
+      const res = await f(new URL(ruta, base), { cache: "no-cache" });
+      if (res.ok) { const abi = abiDe(await res.json()); if (abi) return { abi: unirAbi(abi, ABI_MERCADO_P2P), completo: true }; }
+    } catch { /* siguiente ruta */ }
+  }
+  return { abi: [...ABI_MERCADO_P2P], completo: false };
 }
 
 // ───────────────────────── 3. Economías ─────────────────────────
