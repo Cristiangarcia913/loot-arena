@@ -868,6 +868,7 @@ function reconstruirHeroe() {
  */
 const RETROCESO_Z_ENEMIGO = Object.freeze({
   dragon: -1.2,
+  quimera: -1.4,
 });
 
 function aplicarEnemigo() {

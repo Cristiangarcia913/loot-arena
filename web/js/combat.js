@@ -362,7 +362,9 @@ export const BESTIARIO = Object.freeze([
     mods: { vida: 1, ataque: 1.1, defensa: 1 }, esquiva: 0.1, rasgo: "Sorbe tu alma para curarse y se rodea de una barrera de hueso.",
     patron: [{ mov: "barrera_hueso", prob: 0.22, cond: sinEscudo }, { mov: "sorbo_de_alma", prob: 0.3 }] },
   { clave: "quimera", nombre: "Quimera de tres cabezas", emoji: "🦁", titulo: "Aberración del Foso", definitiva: "Tres fauces",
-    familia: "bestia", silueta: "cuadrupedo", altura: 1.8, color: "#a16207", colorSecundario: "#7f1d1d", emision: null, ataque3d: "mordisco",
+    // `altura` en 1,8 medía 3,24 m en combate (1,8 × ALTO_HEROE) y se comía la pantalla; 1,22 la
+    // deja en ~2,2 m, bajada de ~30 % que mantiene la silueta de bestia grande sin tapar la cámara.
+    familia: "bestia", silueta: "cuadrupedo", altura: 1.22, color: "#a16207", colorSecundario: "#7f1d1d", emision: null, ataque3d: "mordisco",
     mods: { vida: 1, ataque: 1.02, defensa: 1 }, esquiva: 0.06, rasgo: "Tres cabezas muerden a la vez y su rugido la enfurece.",
     patron: [{ mov: "tres_cabezas", prob: 0.3 }, { mov: "rugido_triple", prob: 0.15, cond: sinFuria }] },
   { clave: "dragon", nombre: "Dragón ancestral", emoji: "🐉", titulo: "Devorador de Reinos", definitiva: "Cataclismo",
@@ -496,28 +498,57 @@ export function statsEnemigo(nivel) {
 }
 
 /**
- * Genera un enemigo del nivel dado, eligiendo criatura acorde al nivel.
+ * Las criaturas "grandes jefe" del bestiario: las únicas con silueta y presencia propias de un
+ * combate de Jefe de Arena de verdad (corona, aura, 2 fases). `generarEnemigo` las prioriza fuerte
+ * cuando `jefe` es true, en vez de dejar que la ventana de `claveDeNivel` decida (ver más abajo).
+ * No es una lista exclusiva: cualquier criatura sigue pudiendo salir coronada alguna vez (el logro
+ * «Señor de señores» exige vencer al jefe de CADA criatura), solo que estas tres son con mucho las
+ * más probables.
+ */
+export const CLAVES_JEFE_ARENA = Object.freeze(["quimera", "golem", "dragon"]);
+
+/** Probabilidad de que un combate de Jefe elija una de `CLAVES_JEFE_ARENA` en vez de la ventana normal. */
+const PROB_JEFE_ICONICO = 0.75;
+
+/**
+ * Genera un enemigo del nivel dado, eligiendo criatura acorde al nivel (o, si es un combate de
+ * Jefe, con preferencia fuerte por los grandes jefes de `CLAVES_JEFE_ARENA`).
  * @param {number} nivel 1..10
  * @param {() => number} [rng]
  * @param {{jefe?: boolean}} [opciones] jefe: versión jefe (más vida, 2 fases, definitiva)
  * @returns {{clave:string, nombre:string, emoji:string, nivel:number, jefe:boolean, vidaMax:number, ataque:number, defensa:number, esquiva:number, rasgo:string, definitiva:string|null}}
  */
 export function generarEnemigo(nivel, rng = Math.random, { jefe = false } = {}) {
-  return generarEnemigoDe(claveDeNivel(nivel, rng).clave, clampNivel(nivel), { jefe });
+  const clave = jefe && rng() < PROB_JEFE_ICONICO
+    ? CLAVES_JEFE_ARENA[randInt(0, CLAVES_JEFE_ARENA.length - 1, rng)]
+    : claveDeNivel(nivel, rng).clave;
+  return generarEnemigoDe(clave, clampNivel(nivel), { jefe });
 }
 
 /**
- * Criatura que puede salir en un nivel de arena: ventana de 3 del bestiario centrada en el nivel.
- * Con 20 criaturas y 10 niveles la ventana avanza ~2 por nivel, así que toda criatura puede
- * aparecer (y ser jefe) en algún nivel. Consume un valor de `rng`.
+ * Criatura que puede salir en un nivel de arena: ventana del bestiario centrada en el nivel.
+ *
+ * El ancho es `ANCHO_VENTANA` (5, no 3): con ventana de 3 los niveles de los extremos (1 y 10, los
+ * que más se juegan: el de entrada y el tope donde se queda cualquiera que ya subió) se recortaban
+ * a solo 2 criaturas en vez de desplazarse para seguir teniendo 3, y encima el nivel 10 caía justo
+ * en quimera+dragón: SIEMPRE esas dos, nunca otra cosa, que era justo lo que hacía parecer sesgada
+ * la arena. Con 5 y desplazando la ventana entera (no solo recortándola) cuando toca un borde, el
+ * nivel 10 reparte entre 5 criaturas (quimera y dragón solo 2 de esas 5) y ningún nivel se queda
+ * con menos candidatos que los demás. Consume un valor de `rng`.
  * @param {number} nivel 1..10
  * @param {() => number} [rng]
  */
+const ANCHO_VENTANA = 5;
 export function claveDeNivel(nivel, rng = Math.random) {
   const n = clampNivel(nivel);
   const centro = Math.round(((n - 1) * (BESTIARIO.length - 1)) / (NIVEL_MAX - 1));
-  const lo = Math.max(0, centro - 1);
-  const hi = Math.min(BESTIARIO.length - 1, centro + 1);
+  const medio = Math.floor(ANCHO_VENTANA / 2);
+  let lo = centro - medio;
+  let hi = centro + medio;
+  if (lo < 0) { hi -= lo; lo = 0; } // se desplaza entera hacia dentro, no se recorta
+  if (hi > BESTIARIO.length - 1) { lo -= hi - (BESTIARIO.length - 1); hi = BESTIARIO.length - 1; }
+  lo = Math.max(0, lo);
+  hi = Math.min(BESTIARIO.length - 1, hi);
   return BESTIARIO[randInt(lo, hi, rng)];
 }
 
