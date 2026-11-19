@@ -36,14 +36,15 @@
 /* El aura de jefe del 2D es un `::before` del retrato; en 3D el aura ya está en la escena. */
 .escena-3d .fighter.jefe .retrato::before { display: none; }
 
-/* El retrato ya no dibuja nada: solo sostiene la burbuja de intención sobre la criatura. */
+/* El retrato ya no dibuja nada: solo deja hueco para encuadrar a la criatura. La burbuja de
+   intención vive en `.f-hud` (fila propia debajo de la barra de vida, ver style.css), no aquí
+   encima del retrato, para que nunca quede montada sobre el nombre. */
 .escena-3d .retrato {
   /* El HUD ahora flota en `position:absolute` (ver `.escena-3d .f-hud`), así que el retrato ya no
      tiene que dejarle hueco en el flujo: usa TODA la altura del luchador para encuadrar al bicho. */
   min-height: clamp(160px, 30vh, 280px);
   pointer-events: none;
 }
-.escena-3d .intencion { pointer-events: auto; }
 
 /* El HUD necesita fondo propio: debajo ya no hay un fondo plano, hay una arena con antorchas.
    SIN desenfoque, y a propósito. `style.css` le pone `backdrop-filter: blur(2px)` al `.f-hud`, que

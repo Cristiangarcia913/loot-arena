@@ -67,6 +67,17 @@ test("generarEnemigo escala con el nivel, trae clave y elige criatura del bestia
   assert.equal(C.generarEnemigo(1, () => 0).nombre, "Rata gigante");
 });
 
+test("generarEnemigo con evitarClave nunca repite la clave del rival anterior", () => {
+  const rng = C.mulberry32(7);
+  for (let i = 0; i < 200; i++) {
+    const previo = C.generarEnemigo(5, rng).clave;
+    const siguiente = C.generarEnemigo(5, rng, { evitarClave: previo });
+    assert.notEqual(siguiente.clave, previo);
+  }
+  // Sin evitarClave, el comportamiento (y el consumo de rng) no cambia.
+  assert.deepEqual(C.generarEnemigo(5, () => 0.5), C.generarEnemigo(5, () => 0.5, { evitarClave: null }));
+});
+
 test("todas las criaturas tienen patrón, rasgo y definitiva; sus movimientos existen", () => {
   // Sin número fijo: el bestiario crece con el contenido nuevo.
   assert.ok(C.BESTIARIO.length >= 20, `criaturas: ${C.BESTIARIO.length}`);

@@ -315,10 +315,12 @@ function asegurarLuchador(raiz, quien) {
   if (!ret) { ret = el("div", "retrato"); const av = f.querySelector(".avatar"); if (av) av.before(ret); else f.append(ret); if (av) ret.append(av); }
   if (!ret.querySelector(".sprite")) ret.prepend(el("div", "sprite"));
   if (!f.querySelector(".estados")) (f.querySelector(".f-hud") ?? f).append(Object.assign(el("div", "estados"), { role: "list" }));
+  // Fila propia del HUD, justo debajo de la barra de vida: NUNCA dentro de `.retrato`, donde se
+  // montaba encima del nombre (ver nota en style.css sobre `.intencion`).
   if (quien === "enemigo" && !f.querySelector(".intencion")) {
     const it = el("div", "intencion");
     it.hidden = true; it.setAttribute("aria-live", "polite");
-    ret.prepend(it);
+    (f.querySelector(".hp") ?? f.querySelector(".f-hud") ?? f).after(it);
   }
   // Barra de vida con daño retardado
   const hp = f.querySelector(".hp");
@@ -485,12 +487,19 @@ function chispas(quien, opciones) {
 }
 
 /**
- * Ataque: el sprite toma impulso y embiste hacia el rival.
+ * Ataque: el sprite toma impulso y embiste hacia el rival, con una estela de corte brillante
+ * a mitad de swing y un retroceso elástico (un pelín de rebote más allá del reposo) a la vuelta.
+ * `golpe_poderoso` y `desangrar` tienen coreografía propia (ver `animarSalto`/`animarTajoCruzado`):
+ * esta función solo hace el embate genérico que usa el ataque básico y el resto de habilidades.
  * @param {"heroe"|"enemigo"} quien
- * @param {{critico?:boolean, brutal?:boolean}} [o] brutal: carga más larga, resplandor rojo y sacudida
+ * @param {{critico?:boolean, brutal?:boolean, animacion?:string|null}} [o] brutal: carga más
+ *   larga, resplandor rojo y sacudida. `animacion`: valor de `combat.VALORES_3D.ataque` (el motor
+ *   2D solo distingue `golpe_descendente` y `tajo_cruzado`; el resto usa este embate genérico).
  * @returns {Promise<void>} se resuelve en el instante del impacto (la vuelta sigue animándose)
  */
-export function animarAtaque(quien, { critico = false, brutal = false } = {}) {
+export function animarAtaque(quien, { critico = false, brutal = false, animacion = null } = {}) {
+  if (animacion === "golpe_descendente") return animarSalto(quien, { brutal, critico });
+  if (animacion === "tajo_cruzado") return animarTajoCruzado(quien, { critico });
   const s = spriteDe(quien), otro = spriteDe(lado(quien) === "heroe" ? "enemigo" : "heroe");
   sonar("ataque");
   if (!s || !otro || reducido()) return esperar(reducido() ? 60 : 0);
@@ -503,10 +512,87 @@ export function animarAtaque(quien, { critico = false, brutal = false } = {}) {
     { transform: `translateX(${-dir * 14}px) rotate(${-dir * 4}deg) scale(1.02)`, offset: imp * 0.55, ...(brutal ? { filter: "drop-shadow(0 0 14px #ef4444) brightness(1.3)" } : {}) },
     { transform: `translateX(${dx}px) rotate(${dir * 6}deg) scale(1.06)`, offset: imp },
     { transform: `translateX(${dx * 0.9}px)`, offset: imp + 0.08 },
+    // Retroceso elástico: un pequeño rebote MÁS ALLÁ del reposo antes de asentarse, en vez de
+    // frenar en seco justo en "none" (que se notaba rígido, sobre todo en el ataque básico).
+    { transform: `translateX(${-dir * 5}px) rotate(${-dir * 1.5}deg) scale(.99)`, offset: imp + (1 - imp) * 0.62 },
     { transform: "none" },
   ], { duration: dur, easing: "cubic-bezier(.5,0,.3,1)" });
+  // Estela de corte: un destello breve y brillante justo antes del impacto, en el propio atacante,
+  // disparado hacia donde viaja el golpe (el 3D ya tiene su `estelaDeTajo` con el mismo propósito).
+  const angCorte = dir > 0 ? 0 : Math.PI;
+  setTimeout(() => chispas(quien, {
+    n: brutal ? 18 : 12, colores: ["#fff", "#e5e7eb", brutal ? "#fecaca" : "#93c5fd"],
+    vel: [50, 190], forma: "chispa", g: 30, vida: [0.14, 0.28], tam: [1.5, 2.5], ang: [angCorte - 0.3, angCorte + 0.3],
+  }), dur * imp * 0.88);
   if (brutal) setTimeout(() => { sacudir(14, 480); destello("#ef4444", 0.35); }, dur * imp);
   else if (critico) setTimeout(() => sacudir(9, 360), dur * imp);
+  return esperar(dur * imp);
+}
+
+/**
+ * Golpe Poderoso: salto ascendente y mazazo descendente. No se lanza hacia el rival como el
+ * ataque básico (por eso no necesita `otro`): sube, se comprime en el aire y cae con todo el
+ * peso justo cuando golpea, con sacudida de cámara y polvo de impacto en el suelo.
+ * @param {"heroe"|"enemigo"} quien @param {{critico?:boolean, brutal?:boolean}} [o]
+ */
+function animarSalto(quien, { critico = false, brutal = false } = {}) {
+  const s = spriteDe(quien);
+  sonar("ataque");
+  if (!s || reducido()) return esperar(60);
+  const dir = lado(quien) === "heroe" ? 1 : -1;
+  const dur = 640;
+  const subida = 0.42; // fracción del tiempo en el aire antes de caer
+  const impacto = subida + 0.1;
+  s.animate([
+    { transform: "none", offset: 0 },
+    { transform: `translateY(-10px) scale(1.03,.97)`, offset: subida * 0.35 },
+    { transform: `translateY(-38px) rotate(${-dir * 5}deg) scale(1.07,.93)`, offset: subida * 0.75 },
+    { transform: `translateY(-42px) rotate(${-dir * 7}deg) scale(1.1,.9)`, offset: subida },
+    { transform: `translateY(5px) rotate(${dir * 4}deg) scale(1.14,.8)`, offset: impacto },
+    { transform: `translateY(0) scale(1.03,.98)`, offset: impacto + 0.14 },
+    { transform: "none", offset: 1 },
+  ], { duration: dur, easing: "cubic-bezier(.33,0,.2,1)" });
+  const tImpacto = dur * impacto;
+  setTimeout(() => {
+    sacudir(16, 480);
+    destello("#ef4444", brutal ? 0.4 : 0.3);
+    chispas(quien, {
+      n: 28, colores: ["#d6d3d1", "#a8a29e", "#fff"], vel: [50, 210], forma: "circulo",
+      g: 90, vida: [0.3, 0.6], tam: [2, 5], ang: [Math.PI * 0.08, Math.PI * 0.92],
+    });
+  }, tImpacto);
+  if (critico) setTimeout(() => sacudir(4, 220), tImpacto + 40);
+  return esperar(tImpacto);
+}
+
+/**
+ * Desangrar: doble tajo rápido en cruz, con partículas cortantes rojas en vez del chispazo
+ * blanco genérico. Dos lances cortos en direcciones opuestas en vez de un único embate.
+ * @param {"heroe"|"enemigo"} quien @param {{critico?:boolean}} [o]
+ */
+function animarTajoCruzado(quien, { critico = false } = {}) {
+  const s = spriteDe(quien), otro = spriteDe(lado(quien) === "heroe" ? "enemigo" : "heroe");
+  sonar("ataque");
+  if (!s || !otro || reducido()) return esperar(reducido() ? 60 : 0);
+  const dx = (centro(otro, E.raiz).x - centro(s, E.raiz).x) * 0.32;
+  const dir = Math.sign(dx) || 1;
+  const dur = critico ? 540 : 420;
+  const imp = 0.74; // el segundo tajo, el que de verdad conecta
+  s.animate([
+    { transform: "none" },
+    { transform: `translateX(${dx * 0.55}px) rotate(${-dir * 16}deg)`, offset: 0.24 },
+    { transform: `translateX(${dx * 0.8}px) rotate(${dir * 18}deg)`, offset: 0.42 },
+    { transform: `translateX(${dx * 0.62}px) rotate(${-dir * 10}deg)`, offset: 0.56 },
+    { transform: `translateX(${dx}px) rotate(${dir * 14}deg) scale(1.04)`, offset: imp },
+    { transform: `translateX(${dx * 0.85}px) rotate(${-dir * 2}deg)`, offset: imp + 0.1 },
+    { transform: "none" },
+  ], { duration: dur, easing: "cubic-bezier(.45,0,.25,1)" });
+  setTimeout(() => chispas(quien, {
+    n: 10, colores: ["#fecaca", "#fff"], vel: [50, 160], forma: "chispa", g: 20, vida: [0.1, 0.2], tam: [1.5, 2],
+  }), dur * 0.42);
+  setTimeout(() => chispas(quien, {
+    n: 10, colores: ["#fecaca", "#fff"], vel: [50, 160], forma: "chispa", g: 20, vida: [0.1, 0.2], tam: [1.5, 2],
+  }), dur * imp);
   return esperar(dur * imp);
 }
 
@@ -553,6 +639,72 @@ export async function animarGolpe(quien, dano, { critico = false, bloqueado = fa
   }
   await parada;
   return esperar(260);
+}
+
+/** Anillo expansivo transitorio sobre el luchador: la "onda" de `animarDefensa`. */
+function onda(quien, color = "#60a5fa") {
+  const f = luchador(quien);
+  if (!f || reducido()) return;
+  const o = el("div");
+  Object.assign(o.style, {
+    position: "absolute", left: "50%", top: "58%", width: "64px", height: "64px",
+    marginLeft: "-32px", marginTop: "-32px", borderRadius: "50%", border: `2px solid ${color}`,
+    boxShadow: `0 0 14px ${color}`, pointerEvents: "none", zIndex: "3",
+  });
+  f.append(o);
+  const a = o.animate([{ transform: "scale(.3)", opacity: 0.9 }, { transform: "scale(2.2)", opacity: 0 }], { duration: 460, easing: "ease-out" });
+  a.onfinish = () => o.remove();
+}
+
+/**
+ * Defender: el héroe (o el enemigo, con `finta`/`guardia_piedra`) se agacha y adelanta el
+ * escudo; al momento, una onda azulada se abre a su alrededor con chispas de bloqueo metálico
+ * (mismo color que usa `animarGolpe` cuando el golpe se bloquea, para que se lea como el mismo
+ * material). El 3D tiene su propia versión con geometría real (ver `animarDefensa` de escena3d.js);
+ * esta es la que usa el motor 2D, que antes no tenía ninguna (se limitaba a la espera genérica).
+ * @param {"heroe"|"enemigo"} quien @returns {Promise<void>}
+ */
+export function animarDefensa(quien) {
+  const s = spriteDe(quien);
+  sonar("bloqueo");
+  if (!s || reducido()) return esperar(260);
+  const dur = 420;
+  s.animate([
+    { transform: "none" },
+    { transform: "translateY(5px) scale(.96,.92)", offset: 0.5 },
+    { transform: "translateY(3px) scale(.98,.95)", offset: 0.78 },
+    { transform: "none" },
+  ], { duration: dur, easing: "ease-out" });
+  setTimeout(() => {
+    onda(quien);
+    chispas(quien, { n: 24, colores: ["#bfdbfe", "#60a5fa", "#fff"], vel: [110, 300], forma: "chispa", g: 220, vida: [0.25, 0.5], tam: [2, 3] });
+  }, dur * 0.5);
+  return esperar(dur * 0.6);
+}
+
+/**
+ * Habilidad que el actor se aplica a sí mismo (Grito de guerra y cualquier otro buff puro, sin
+ * `dano`): un pulso de tamaño y brillo en el color del estado que se aplica, con chispas que
+ * suben. `main.js` decide el color (dorado para Grito de guerra; si no, el de `.est-*` en
+ * style.css para que combine con el icono de estado que va a aparecer justo después).
+ * @param {"heroe"|"enemigo"} quien @param {{color?:string}} [o]
+ * @returns {Promise<void>}
+ */
+export function animarApoyo(quien, { color = "#f6d27c" } = {}) {
+  const s = spriteDe(quien);
+  sonar("estado");
+  if (!s || reducido()) return esperar(160);
+  const dur = 620;
+  s.animate([
+    { filter: "none", transform: "none" },
+    { filter: `drop-shadow(0 0 16px ${color}) brightness(1.25)`, transform: "scale(1.08)", offset: 0.5 },
+    { filter: `drop-shadow(0 0 7px ${color})`, transform: "scale(1.02)", offset: 0.8 },
+    { filter: "none", transform: "none" },
+  ], { duration: dur, easing: "ease-out" });
+  const c = centro(s, E.raiz);
+  if (E.part) E.part.emitir(c.x, c.y, { n: 26, colores: [color, "#fff7cc"], vel: [30, 120], g: -70, vida: [0.5, 0.9], tam: [2, 4], forma: "estrella", area: [c.w * 0.6, c.h * 0.3] });
+  destello(color, 0.16, 420);
+  return esperar(dur * 0.55);
 }
 
 /**

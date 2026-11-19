@@ -301,14 +301,13 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
 .est-veneno { border-color: #65d837; } .est-sangrado { border-color: #dc2626; } .est-aturdido { border-color: #fde047; }
 .est-escudo { border-color: #3b82f6; } .est-furia { border-color: #f97316; } .est-reflejo { border-color: #a78bfa; } .est-evasion { border-color: #5eead4; }
 
-/* Intención del enemigo */
+/* Intención del enemigo: fila propia del HUD, debajo de la barra de vida (nunca superpuesta
+   al nombre: ver nota en `asegurarLuchador` de fx.js/escena3d.js sobre por qué vive en `.f-hud`). */
 .intencion {
-  position: absolute; top: -2px; left: 50%; transform: translateX(-50%); z-index: 3;
-  display: flex; align-items: center; gap: 5px; max-width: 100%;
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%; margin-top: 6px;
   padding: 4px 10px 4px 6px; border-radius: 999px; font-size: .78rem; font-weight: 700; white-space: nowrap;
   background: rgba(10, 7, 5, .88); border: 1px solid rgba(255, 255, 255, .25); box-shadow: 0 4px 12px rgba(0, 0, 0, .5);
 }
-.intencion::after { content: ""; position: absolute; bottom: -6px; left: 50%; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: rgba(10, 7, 5, .88); }
 .intencion .ico { width: 20px; height: 20px; flex: none; }
 .int-texto { overflow: hidden; text-overflow: ellipsis; }
 .int-atacar { border-color: rgba(248, 113, 113, .6); }

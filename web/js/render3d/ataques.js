@@ -12,7 +12,7 @@
 //
 // Módulo puro: solo describe números. Quien los convierte en movimiento es `escena3d.js`.
 
-/** Los diez valores del contrato. Si `combat.js` añade uno, `sinDescriptor()` lo denuncia. */
+/** Los valores del contrato (`VALORES_3D.ataque`). Si `combat.js` añade uno, `sinDescriptor()` lo denuncia. */
 export const ANIMACIONES = Object.freeze({
   /** Golpe con arma: el que había, y el de más de la mitad de los movimientos. */
   arma: Object.freeze({
@@ -86,6 +86,43 @@ export const ANIMACIONES = Object.freeze({
     avance: 0, impulso: 0, alzar: 0.2, inclinar: -0.18, giro: 0,
     arma: -0.9, cabeza: -0.25, ms: 620, impacto: 0.5, sacude: 0,
     proyectil: null, chorro: null, anillo: Object.freeze({ ms: 520 }), defensivo: true,
+  }),
+
+  /**
+   * Golpe Poderoso (habilidad del héroe): no es un gesto de criatura, es SU remate con peso.
+   * Salta (`alzar` alto) mientras se prepara y cae justo en el instante del impacto (el motor ya
+   * hace que la curva de altura toque 0 en `impacto`, ver `animarAtaque`), con una inclinación
+   * fuerte hacia delante que vende el mazazo descendente y una sacudida de cámara grande al
+   * aterrizar. `avance` por encima de 0,1 también activa el polvo de pisada y el plano de embestida.
+   */
+  golpe_descendente: Object.freeze({
+    avance: 0.18, impulso: 0.3, alzar: 0.58, inclinar: 0.55, giro: 0,
+    arma: 1.9, cabeza: 0.15, ms: 700, impacto: 0.66, sacude: 16,
+    proyectil: null, chorro: null, anillo: null, defensivo: false,
+  }),
+
+  /**
+   * Desangrar (habilidad del héroe): doble tajo rápido en cruz. El motor dibuja el tajo especial
+   * (ver `estelaCruzada` en escena3d.js) en vez del arco genérico cuando ve este nombre, así que
+   * aquí basta con un gesto corto y vivo: poco avance, giro marcado (el cruce de las dos hojas) y
+   * mitad de duración que un golpe con arma normal.
+   */
+  tajo_cruzado: Object.freeze({
+    avance: 0.22, impulso: 0.22, alzar: 0.06, inclinar: 0.16, giro: 0.42,
+    arma: 1.7, cabeza: 0, ms: 420, impacto: 0.5, sacude: 4,
+    proyectil: null, chorro: null, anillo: null, defensivo: false,
+  }),
+
+  /**
+   * Grito de guerra (habilidad del héroe): tampoco es un ataque. Variante de `apoyo` (mismo
+   * anillo expansivo, aquí teñido de oro por `anilloDeConjuro`) pero con el pecho más adelantado
+   * y un pulso de escala sutil (ver el caso especial en `animarAtaque`) que vende el envión de
+   * tamaño sin convertirlo en un cambio de silueta permanente.
+   */
+  grito: Object.freeze({
+    avance: 0, impulso: 0, alzar: 0.22, inclinar: -0.24, giro: 0,
+    arma: -0.3, cabeza: -0.1, ms: 640, impacto: 0.55, sacude: 0,
+    proyectil: null, chorro: null, anillo: Object.freeze({ ms: 560 }), defensivo: true,
   }),
 });
 

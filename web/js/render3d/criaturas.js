@@ -1135,7 +1135,7 @@ const RECETAS = {
     return { raiz, cuerpo, cabeza, nucleo, lenguas, ...brazos, alto: 1.7, radio: 0.62, flota: true };
   },
 
-  /** Liche de la torre: calavera con corona, túnica hueca y un orbe de conjuro. Flota. */
+  /** Liche del Coliseo: calavera con corona, túnica hueca y un orbe de conjuro. Flota. */
   liche(t, c) {
     const tela = t.mat(c.base, { rugosidad: 0.9, doble: true });
     const telaOsc = t.mat(c.osc, { rugosidad: 0.95, doble: true });

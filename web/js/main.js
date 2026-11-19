@@ -47,6 +47,7 @@ const S = {
   expedicion: null, // { pociones, pocionesExtra, extraGastadas }
   reclamando: false,
   desafio: null, // { rng } mientras se juega el desafío diario
+  ultimoEnemigoClave: null, // clave del último rival (anti-repetición: ver explorar())
   // Modificadores de Arena activos (ids de combat.MODIFICADORES_ARENA): se eligen cada
   // MODIFICADOR_ARENA_CADA victorias consecutivas y duran hasta vencer al siguiente Jefe de Arena.
   // No se guardan en el progreso persistente: una racha rota o un Jefe vencido los vacía.
@@ -797,13 +798,19 @@ function aplicarSnapshot(ev, c) {
   if (ev.furia != null) FX.actualizarFuria(ev.furia);
 }
 
+/** Color del pulso de `FX.animarApoyo` según el estado que se aplica (mismo código que `.est-*`
+ * en style.css, para que combine con el icono de estado que aparece justo después). */
+const COLOR_ESTADO_FX = {
+  veneno: "#65d837", sangrado: "#dc2626", aturdido: "#fde047",
+  escudo: "#3b82f6", furia: "#f97316", reflejo: "#a78bfa", evasion: "#5eead4",
+};
+
 /** Anima un evento del motor de combate con la capa de efectos. */
 async function animarEvento(ev, c) {
   const golpe = ev.dano != null && ev.objetivo && ["ataque", "habilidad", "contraataque", "reflejo", "robo", "remate"].includes(ev.tipo);
   if (golpe && ev.actor !== "sistema" && ev.actor !== ev.objetivo) {
-    // `animacion` le dice al motor 3D qué gesto toca (morder, embestir, escupir fuego, conjurar…).
-    // El motor 2D ignora la propiedad, y el 3D sabe apañárselas sin ella: si no llega, cada
-    // criatura usa el gesto que declara su ficha del bestiario.
+    // `animacion` le dice a cada motor qué gesto toca (morder, embestir, escupir fuego, conjurar,
+    // saltar y machacar, el doble tajo en cruz…); si no lo reconoce, usa el embate genérico.
     await FX.animarAtaque(quienFx(ev.actor), {
       critico: !!ev.critico,
       brutal: !!(ev.brutal || ev.definitiva),
@@ -814,10 +821,18 @@ async function animarEvento(ev, c) {
     await FX.animarGolpe(quienFx(ev.objetivo), ev.dano, { critico: !!ev.critico, bloqueado: !!ev.bloqueado, esquivado: !!ev.esquivado, fallo: !!ev.fallo });
   }
   if (ev.curacion) FX.animarCuracion(quienFx(ev.objetivo ?? ev.actor), ev.curacion);
-  // `animarDefensa` solo existe en el motor 3D (el 2D no tenía gesto propio para defender): si no
-  // está, se cae en la espera genérica de abajo, igual que siempre.
   const defensa = ev.tipo === "defensa" && typeof FX.animarDefensa === "function";
   if (defensa) await FX.animarDefensa(quienFx(ev.actor));
+  // Habilidad que el actor se aplica a sí mismo (Grito de guerra y cualquier otro buff puro): no
+  // trae `dano` ni `curacion`, así que sin esto caía en la espera genérica de abajo sin animarse.
+  const apoyo = !golpe && ev.dano == null && !ev.curacion && !defensa
+    && ev.actor === ev.objetivo && !!ev.estado && typeof FX.animarApoyo === "function";
+  if (apoyo) {
+    await FX.animarApoyo(quienFx(ev.actor), {
+      animacion: C.animacion3d(ev.id),
+      color: ev.id === "grito_guerra" ? "#f6d27c" : (COLOR_ESTADO_FX[ev.estado.tipo] ?? "#f6d27c"),
+    });
+  }
   aplicarSnapshot(ev, c);
   añadirLog([ev]);
   if (ev.remate) { FX.sonar("remate"); FX.sacudir(18, 500); }
@@ -828,7 +843,7 @@ async function animarEvento(ev, c) {
   }
   if (ev.tipo === "victoria") FX.animarMuerte("enemigo");
   if (ev.tipo === "derrota") FX.animarMuerte("heroe");
-  if (!golpe && ev.dano == null && !ev.curacion && !defensa) await esperar(FX.reducido() ? 80 : 260);
+  if (!golpe && ev.dano == null && !ev.curacion && !defensa && !apoyo) await esperar(FX.reducido() ? 80 : 260);
 }
 
 // ───────────────────────── Combate: flujo ─────────────────────────
@@ -861,7 +876,9 @@ function explorar() {
   const nivelA = C.nivelArena(v);
   // Los dos primeros combates son de nivel 1 para que el jugador nuevo aprenda sin frustrarse.
   const nivel = jefe || v < 2 ? nivelA : C.nivelEnemigo(nivelA);
-  const base = TUT.tutorialActivo() ? TUT.combateTutorial() : C.generarEnemigo(nivel, Math.random, { jefe });
+  const base = TUT.tutorialActivo() ? TUT.combateTutorial()
+    : C.generarEnemigo(nivel, Math.random, { jefe, evitarClave: S.ultimoEnemigoClave });
+  S.ultimoEnemigoClave = base.clave;
   // A mayor racha, más duro el rival (vida, ataque y potencia de sus estados), sin techo.
   const enemigo = C.escalarPorRacha(base, racha, { jefeDeRacha });
   const heroeBase = { ...statsHeroe(), pociones: S.expedicion.pociones, pocionesExtra: S.expedicion.pocionesExtra };

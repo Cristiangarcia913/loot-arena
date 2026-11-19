@@ -29,17 +29,17 @@ export const HABILIDADES = Object.freeze({
   golpe_poderoso: Object.freeze({
     id: "golpe_poderoso", nombre: "Golpe Poderoso", icono: "💥", enfriamiento: 3,
     descripcion: "Un golpe devastador: ×1,8 de daño.",
-    mult: 1.8, animacion3d: "arma",
+    mult: 1.8, animacion3d: "golpe_descendente",
   }),
   desangrar: Object.freeze({
     id: "desangrar", nombre: "Desangrar", icono: "🩸", enfriamiento: 3,
     descripcion: "Tajo ×0,8 que provoca sangrado 3 turnos.",
-    mult: 0.8, estadoEnemigo: Object.freeze({ tipo: "sangrado", turnos: 3, pct: 0.3 }), animacion3d: "arma",
+    mult: 0.8, estadoEnemigo: Object.freeze({ tipo: "sangrado", turnos: 3, pct: 0.3 }), animacion3d: "tajo_cruzado",
   }),
   grito_guerra: Object.freeze({
     id: "grito_guerra", nombre: "Grito de guerra", icono: "📯", enfriamiento: 4,
     descripcion: "+40 % de ataque durante 2 turnos (no ataca este turno).",
-    estadosPropios: Object.freeze([Object.freeze({ tipo: "furia", turnos: 2, valor: 0.4 })]), animacion3d: "apoyo",
+    estadosPropios: Object.freeze([Object.freeze({ tipo: "furia", turnos: 2, valor: 0.4 })]), animacion3d: "grito",
   }),
   // ── Por nivel de héroe (ver NIVEL_HABILIDAD) ──
   estocada_precisa: Object.freeze({

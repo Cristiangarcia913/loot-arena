@@ -162,8 +162,13 @@ export const VALORES_3D = Object.freeze({
   familia: Object.freeze(["bestia", "insecto", "humanoide", "no-muerto", "espectro", "constructo", "elemental", "dragon"]),
   /** Cómo se apoya y se mueve: decide el esqueleto y la animación de reposo/desplazamiento. */
   silueta: Object.freeze(["cuadrupedo", "bipedo", "aracnido", "reptante", "alado", "flotante"]),
-  /** Animación de ataque. `guardia` y `apoyo` solo aparecen en movimientos/habilidades, nunca como `ataque3d` de una criatura. */
-  ataque: Object.freeze(["mordisco", "garra", "arma", "proyectil", "aliento", "embestida", "conjuro", "guardia", "apoyo", "coletazo"]),
+  /** Animación de ataque. `guardia`, `apoyo`, `golpe_descendente`, `tajo_cruzado` y `grito` solo
+   * aparecen en movimientos/habilidades (las tres últimas, de hecho, solo en habilidades del
+   * héroe: ningún enemigo las usa como `ataque3d`), nunca como `ataque3d` de una criatura. */
+  ataque: Object.freeze([
+    "mordisco", "garra", "arma", "proyectil", "aliento", "embestida", "conjuro", "guardia", "apoyo", "coletazo",
+    "golpe_descendente", "tajo_cruzado", "grito",
+  ]),
   /** `altura` es relativa: 1 = la altura del héroe. Siempre dentro de este rango. */
   altura: Object.freeze({ min: 0.5, max: 2.8 }),
 });
@@ -357,7 +362,7 @@ export const BESTIARIO = Object.freeze([
     familia: "elemental", silueta: "flotante", altura: 1.4, color: "#f97316", colorSecundario: "#7c2d12", emision: "#fde047", ataque3d: "aliento",
     mods: { vida: 0.85, ataque: 1.38, defensa: 0.9 }, esquiva: 0.08, rasgo: "Aviva sus llamas para arrasarte y se reaviva para pegar más fuerte.",
     patron: [{ mov: "avivar_llamas", prob: 0.14 }, { mov: "reavivarse", prob: 0.18, cond: sinFuria }] },
-  { clave: "liche", nombre: "Liche de la torre", emoji: "☠️", titulo: "Guardián de los Grimorios", definitiva: "Sentencia de hueso",
+  { clave: "liche", nombre: "Liche del Coliseo", emoji: "☠️", titulo: "Guardián de los Grimorios", definitiva: "Sentencia de hueso",
     familia: "no-muerto", silueta: "flotante", altura: 1.3, color: "#3b2f4a", colorSecundario: "#86efac", emision: "#4ade80", ataque3d: "conjuro",
     mods: { vida: 1, ataque: 1.1, defensa: 1 }, esquiva: 0.1, rasgo: "Sorbe tu alma para curarse y se rodea de una barrera de hueso.",
     patron: [{ mov: "barrera_hueso", prob: 0.22, cond: sinEscudo }, { mov: "sorbo_de_alma", prob: 0.3 }] },
@@ -515,13 +520,21 @@ const PROB_JEFE_ICONICO = 0.75;
  * Jefe, con preferencia fuerte por los grandes jefes de `CLAVES_JEFE_ARENA`).
  * @param {number} nivel 1..10
  * @param {() => number} [rng]
- * @param {{jefe?: boolean}} [opciones] jefe: versión jefe (más vida, 2 fases, definitiva)
+ * @param {{jefe?: boolean, evitarClave?: string|null}} [opciones] jefe: versión jefe (más vida, 2
+ *   fases, definitiva). evitarClave: si la elección cae en esa clave, fuerza otra distinta dentro
+ *   del mismo abanico de candidatos (ventana de nivel, o `CLAVES_JEFE_ARENA` si es jefe) para que
+ *   la arena no repita el mismo rival dos combates seguidos.
  * @returns {{clave:string, nombre:string, emoji:string, nivel:number, jefe:boolean, vidaMax:number, ataque:number, defensa:number, esquiva:number, rasgo:string, definitiva:string|null}}
  */
-export function generarEnemigo(nivel, rng = Math.random, { jefe = false } = {}) {
-  const clave = jefe && rng() < PROB_JEFE_ICONICO
+export function generarEnemigo(nivel, rng = Math.random, { jefe = false, evitarClave = null } = {}) {
+  let clave = jefe && rng() < PROB_JEFE_ICONICO
     ? CLAVES_JEFE_ARENA[randInt(0, CLAVES_JEFE_ARENA.length - 1, rng)]
     : claveDeNivel(nivel, rng).clave;
+  if (evitarClave && clave === evitarClave) {
+    const alternativas = (jefe ? CLAVES_JEFE_ARENA : ventanaDeNivel(nivel).map((b) => b.clave))
+      .filter((c) => c !== evitarClave);
+    if (alternativas.length) clave = alternativas[randInt(0, alternativas.length - 1, rng)];
+  }
   return generarEnemigoDe(clave, clampNivel(nivel), { jefe });
 }
 
@@ -539,7 +552,8 @@ export function generarEnemigo(nivel, rng = Math.random, { jefe = false } = {}) 
  * @param {() => number} [rng]
  */
 const ANCHO_VENTANA = 5;
-export function claveDeNivel(nivel, rng = Math.random) {
+/** Las criaturas candidatas al nivel dado, misma ventana que usa `claveDeNivel` (no consume rng). */
+function ventanaDeNivel(nivel) {
   const n = clampNivel(nivel);
   const centro = Math.round(((n - 1) * (BESTIARIO.length - 1)) / (NIVEL_MAX - 1));
   const medio = Math.floor(ANCHO_VENTANA / 2);
@@ -549,7 +563,11 @@ export function claveDeNivel(nivel, rng = Math.random) {
   if (hi > BESTIARIO.length - 1) { lo -= hi - (BESTIARIO.length - 1); hi = BESTIARIO.length - 1; }
   lo = Math.max(0, lo);
   hi = Math.min(BESTIARIO.length - 1, hi);
-  return BESTIARIO[randInt(lo, hi, rng)];
+  return BESTIARIO.slice(lo, hi + 1);
+}
+export function claveDeNivel(nivel, rng = Math.random) {
+  const ventana = ventanaDeNivel(nivel);
+  return ventana[randInt(0, ventana.length - 1, rng)];
 }
 
 /**

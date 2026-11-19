@@ -304,13 +304,15 @@ function asegurarLuchador(raiz, quien) {
       barra.setAttribute("aria-label", quien === "heroe" ? "Vida del héroe" : "Vida del enemigo");
     }
   }
-  const ret = f.querySelector(".retrato") ?? f.appendChild(el("div", "retrato"));
+  f.querySelector(".retrato") ?? f.appendChild(el("div", "retrato"));
   if (!f.querySelector(".estados")) (f.querySelector(".f-hud") ?? f).append(Object.assign(el("div", "estados"), { role: "list" }));
+  // Fila propia del HUD, justo debajo de la barra de vida: NUNCA dentro de `.retrato`, donde se
+  // montaba encima del nombre (ver nota en style.css sobre `.intencion`).
   if (quien === "enemigo" && !f.querySelector(".intencion")) {
     const it = el("div", "intencion");
     it.hidden = true;
     it.setAttribute("aria-live", "polite");
-    ret.prepend(it);
+    (f.querySelector(".hp") ?? f.querySelector(".f-hud") ?? f).after(it);
   }
   return f;
 }
@@ -1286,8 +1288,16 @@ export function animarAtaque(quien, { critico = false, brutal = false, animacion
   if (d.proyectil) setTimeout(() => lanzarProyectil(q, d, ms * (1 - imp) * 0.9), ms * imp * 0.55);
   if (d.anillo) setTimeout(() => anilloDeConjuro(q, d), ms * imp * 0.7);
   // Tajo: arma, mordisco, garra y embestida son golpes de cuerpo a cuerpo (lo que NO viaja desde
-  // lejos). El aliento, el proyectil y el conjuro ya tienen su propio efecto de salida.
-  if (!d.chorro && !d.proyectil && !d.anillo) setTimeout(() => estelaDeTajo(q, critico || brutal), ms * imp);
+  // lejos). El aliento, el proyectil y el conjuro ya tienen su propio efecto de salida. Desangrar
+  // (`tajo_cruzado`) pide su propio tajo doble en rojo en vez del arco genérico. Y un gesto
+  // `defensivo` (guardia, apoyo, grito…) NUNCA dibuja un tajo: no hay rival al que cortar, son
+  // habilidades que el actor se aplica a sí mismo (ver `animarApoyo`).
+  if (!d.chorro && !d.proyectil && !d.anillo && !d.defensivo) {
+    if (d.nombre === "tajo_cruzado") setTimeout(() => estelaCruzada(q), ms * imp);
+    else setTimeout(() => estelaDeTajo(q, critico || brutal), ms * imp);
+  }
+  // Grito de guerra: el envión de tamaño que vende el aumento sutil, además del anillo dorado.
+  const pulsoDeGrito = d.nombre === "grito";
 
   return animar({
     ms, lado: q, cumplirEn: imp,
@@ -1305,6 +1315,7 @@ export function animarAtaque(quien, { critico = false, brutal = false, animacion
       else if (raizExterna) raizExterna.rotation.x = raizPitchBase + (d.inclinar + d.cabeza * 0.5) * Math.max(0, k);
       if (cabeza && d.cabeza) cabeza.rotation.x = cabezaBase + d.cabeza * Math.max(0, k);
       if (arma && d.arma) arma.rotation.x = armaBase - d.arma * k;
+      if (pulsoDeGrito) L.mov.scale.setScalar(1 + 0.07 * Math.sin(Math.max(0, Math.min(1, k)) * Math.PI));
       E.director?.juntando(Math.max(0, k) * (d.avance > 0 ? 1 : 0));
     },
     fin: () => {
@@ -1312,6 +1323,7 @@ export function animarAtaque(quien, { critico = false, brutal = false, animacion
       L.ancla.position.x = miX;
       L.mov.position.set(0, 0, 0);
       L.mov.rotation.y = 0;
+      if (pulsoDeGrito) L.mov.scale.setScalar(1);
       if (arma) arma.rotation.x = armaBase;
       if (cabeza) cabeza.rotation.x = cabezaBase;
       if (cuerpo) cuerpo.rotation.x = cuerpoBase;
@@ -1382,12 +1394,14 @@ function lanzarProyectil(q, d, msVuelo) {
   });
 }
 
-/** Anillo que se abre desde quien conjura: se ve de lejos y no ensucia el centro de la arena. */
+/** Anillo que se abre desde quien conjura: se ve de lejos y no ensucia el centro de la arena.
+ * El Grito de guerra (`d.nombre === "grito"`) lo quiere siempre dorado: es un aura de ánimo, no
+ * el color de conjuro de quien lo lanza. */
 function anilloDeConjuro(q, d) {
   const L = E.lados[q];
   if (!L?.criatura || !E.listo) return;
   const T = E.T;
-  const col = L.criatura.colores?.emision || L.criatura.colores?.acento || 0xa78bfa;
+  const col = d.nombre === "grito" ? 0xf6d27c : (L.criatura.colores?.emision || L.criatura.colores?.acento || 0xa78bfa);
   const geo = new T.TorusGeometry(0.4, 0.045, 8, 26);
   const mat = new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, blending: T.AdditiveBlending, depthWrite: false });
   const aro = new T.Mesh(geo, mat);
@@ -1441,6 +1455,56 @@ function estelaDeTajo(atacante, grande = false) {
     },
     fin: () => { E.escena.remove(tajo); geo.dispose(); mat.dispose(); },
   });
+}
+
+/**
+ * Doble tajo en cruz de Desangrar: dos arcos rojos, el segundo girado para cruzar al primero con
+ * un pelín de retraso (se nota como DOS cortes, no un golpe más grande), más un estallido de
+ * partículas cortantes rojas en el punto de impacto. Variante de `estelaDeTajo` para un solo
+ * valor de la lista cerrada (`tajo_cruzado`), así que vive aparte en vez de llenar de banderas esa.
+ * @param {"heroe"|"enemigo"} atacante
+ */
+function estelaCruzada(atacante) {
+  const blanco = otroLado(atacante);
+  const L = E.lados[blanco];
+  if (!E.listo || !L?.criatura || !L.vivo) return;
+  const T = E.T;
+  const rojo = 0xef4444;
+  const centro = puntoImpacto(blanco);
+  const fuera = Math.sign(L.baseX ?? L.ancla.position.x) || 1;
+  const trazo = (signo, retraso) => setTimeout(() => {
+    if (!E.listo) return;
+    const geo = new T.TorusGeometry(0.46, 0.04, 6, 20, Math.PI * 1.1);
+    const mat = new T.MeshBasicMaterial({ color: rojo, transparent: true, opacity: 0.92, blending: T.AdditiveBlending, depthWrite: false });
+    const tajo = new T.Mesh(geo, mat);
+    tajo.rotation.z = signo * 0.6;
+    tajo.rotation.y = azar(-0.15, 0.15);
+    tajo.position.copy(centro);
+    tajo.position.x -= fuera * 0.18;
+    tajo.scale.setScalar(0.45);
+    E.escena.add(tajo);
+    animar({
+      ms: dur(200),
+      al: (p) => { const k = salida(p); tajo.scale.setScalar(0.45 + k * 0.8); mat.opacity = 0.92 * (1 - p * p); },
+      fin: () => { E.escena.remove(tajo); geo.dispose(); mat.dispose(); },
+    });
+  }, dur(retraso));
+  // Dos hojas cruzadas: una de abajo-izq a arriba-der, la otra al revés, con un pequeño desfase.
+  trazo(-1, 0);
+  trazo(1, 70);
+  particulas(centro, { n: 30, color: rojo, vel: 2.6, g: -4.2, ms: 480, tam: 0.055 });
+}
+
+/**
+ * Habilidad que el actor se aplica a sí mismo (Grito de guerra y cualquier otro buff puro: sin
+ * `dano`, nunca contra el rival). `animarAtaque` ya sabe animar gestos que no viajan («apoyo»,
+ * «grito»: `avance` 0), así que esto solo le pasa el nombre de la animación; no llama a
+ * `animarGolpe` después porque no hay nadie que reciba el golpe.
+ * @param {"heroe"|"enemigo"} quien @param {{animacion?: string|null}} [o]
+ * @returns {Promise<void>}
+ */
+export function animarApoyo(quien, { animacion = null } = {}) {
+  return animarAtaque(quien, { animacion: animacion ?? "apoyo" });
 }
 
 /**
