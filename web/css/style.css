@@ -366,8 +366,9 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
 .flot-critico { font-size: 2.5rem; color: #ffe08a; text-shadow: 0 3px 0 #7c2d12, 0 0 20px rgba(253, 224, 71, .9); }
 .flot-critico::before { content: "CRÍTICO"; display: block; font-size: .8rem; letter-spacing: .25em; color: #fff; text-align: center; -webkit-text-stroke: 0; }
 .flot-cura { color: #86efac; text-shadow: 0 3px 0 #14532d, 0 0 14px rgba(74, 222, 128, .7); }
-.flot-bloqueo { color: #bfdbfe; font-size: 1.3rem; }
-.flot-esquiva { color: #a5f3fc; font-size: 1.3rem; font-style: italic; }
+.flot-bloqueo { color: #bfdbfe; font-size: 1.6rem; text-shadow: 0 3px 0 #1e3a8a, 0 0 16px rgba(96, 165, 250, .8); }
+.flot-esquiva { color: #6ee89a; font-size: 1.6rem; text-shadow: 0 3px 0 #14532d, 0 0 16px rgba(110, 232, 154, .8); }
+.flot-fallas { color: #a5f3fc; font-size: 1.3rem; font-style: italic; }
 .flot-estado, .flot-info { color: #fde68a; font-size: 1rem; letter-spacing: .05em; }
 
 .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 16px; }

@@ -451,13 +451,20 @@ test("combatesHastaJefeDeRacha cuenta hacia atrás hasta 0 y reinicia tras el je
 test("escalarPorRacha: más vida/ataque y estados más potentes a más racha; sin racha no cambia nada", () => {
   const base = C.generarEnemigoDe("rata", 3);
   const sinRacha = C.escalarPorRacha(base, 0);
-  assert.deepEqual(sinRacha, { ...base, jefeDeRacha: false, multEstados: 1 });
+  assert.deepEqual(sinRacha, { ...base, jefeDeRacha: false, multEstados: 1, tacticaAvanzada: false });
   const con10 = C.escalarPorRacha(base, 10);
   assert.ok(con10.vidaMax > base.vidaMax);
   assert.ok(con10.ataque > base.ataque);
   assert.ok(con10.multEstados > 1);
+  assert.equal(con10.tacticaAvanzada, true, "con racha > RACHA_TACTICA el rival ya juega táctico");
   const con20 = C.escalarPorRacha(base, 20);
   assert.ok(con20.vidaMax > con10.vidaMax, "la dificultad sigue subiendo, sin techo");
+});
+
+test("escalarPorRacha: tacticaAvanzada solo a partir de RACHA_TACTICA", () => {
+  const base = C.generarEnemigoDe("rata", 3);
+  assert.equal(C.escalarPorRacha(base, C.RACHA_TACTICA).tacticaAvanzada, false);
+  assert.equal(C.escalarPorRacha(base, C.RACHA_TACTICA + 1).tacticaAvanzada, true);
 });
 
 test("escalarPorRacha etiqueta jefeDeRacha sin tocar las stats por sí sola (eso ya lo hace generarEnemigo({jefe:true}))", () => {
@@ -465,6 +472,86 @@ test("escalarPorRacha etiqueta jefeDeRacha sin tocar las stats por sí sola (eso
   const e = C.escalarPorRacha(jefe, 5, { jefeDeRacha: true });
   assert.equal(e.jefeDeRacha, true);
   assert.equal(e.jefe, true);
+});
+
+// ───────── Racha táctica: profundidad de combate más allá de "pegar" (RACHA_TACTICA) ─────────
+
+test("racha táctica: a una criatura sin carga ni defensa propias se le presta una genérica", () => {
+  const base = C.generarEnemigoDe("rata", 3); // la rata solo tiene "roer" (sin carga ni escudo)
+  const normal = C.escalarPorRacha(base, 0);
+  const tactico = C.escalarPorRacha(base, C.RACHA_TACTICA + 1);
+  // 0,4 cae fuera de "roer" (prob 0,3): sin racha táctica no hay nada más que ofrecer.
+  let c = C.crearCombate(HEROE, normal, () => 0.4);
+  assert.equal(C.intencionEnemigo(c).id, "ataque");
+  // En racha táctica, el hueco de 0,3 a 0,46 lo cubre la carga genérica prestada.
+  c = C.crearCombate(HEROE, tactico, () => 0.4);
+  assert.equal(C.intencionEnemigo(c).id, "carga_de_racha");
+});
+
+test("racha táctica: una criatura CON su propia carga o defensa no recibe la genérica encima", () => {
+  const base = C.generarEnemigoDe("hechicero", 3); // ya tiene "concentrar" (carga propia)
+  const tactico = C.escalarPorRacha(base, C.RACHA_TACTICA + 1);
+  // Si se le hubiera añadido el patrón genérico, "carga_de_racha" caería en algún hueco; en vez de
+  // eso comprobamos que ninguna intención generada en 50 tiradas es una de las genéricas de racha.
+  for (let i = 0; i < 50; i++) {
+    const c = C.crearCombate(HEROE, tactico, () => i / 50);
+    assert.notEqual(C.intencionEnemigo(c).id, "carga_de_racha");
+    assert.notEqual(C.intencionEnemigo(c).id, "velo_de_racha");
+  }
+});
+
+test("racha táctica: el rival deja de respetar sinVeneno y puede reaplicar picadura con el veneno ya puesto", () => {
+  const base = C.generarEnemigoDe("arana", 3);
+  // 0,25 cae dentro del rango de "picadura" (prob 0,4) pero fuera del de "telaraña" (prob 0,15),
+  // así que al bloquearse "picadura" por sinVeneno el patrón cae en "ataque", no en otra cosa.
+  const rng = () => 0.25;
+  const normal = C.escalarPorRacha(base, 0);
+  let c = C.crearCombate(HEROE, normal, rng);
+  assert.equal(C.intencionEnemigo(c).id, "picadura");
+  let r = C.turnoJugador(c, "defender", rng);
+  assert.equal(C.intencionEnemigo(r.combate).id, "ataque", "con el veneno ya puesto, sinVeneno frena una segunda picadura");
+
+  const tactico = C.escalarPorRacha(base, C.RACHA_TACTICA + 1);
+  c = C.crearCombate(HEROE, tactico, rng);
+  assert.equal(C.intencionEnemigo(c).id, "picadura");
+  r = C.turnoJugador(c, "defender", rng);
+  assert.equal(C.intencionEnemigo(r.combate).id, "picadura", "en racha táctica, sinVeneno ya no frena una segunda picadura");
+});
+
+test("estados: veneno y sangrado se ACUMULAN con cada aplicación, hasta el tope de TOPE_ACUMULACION_ESTADO", () => {
+  const rata = { ...C.generarEnemigoDe("rata", 3), ataque: 10 };
+  // rng=0 selecciona siempre "roer" (prob 0,3, sin condición que lo bloquee).
+  let c = C.crearCombate(HEROE, rata, () => 0);
+  let r = C.turnoJugador(c, "defender", () => 0);
+  c = r.combate;
+  const valorBase = c.jugador.estados.find((e) => e.tipo === "sangrado")?.valor;
+  assert.ok(valorBase > 0, "la rata debería haber sangrado al jugador");
+
+  r = C.turnoJugador(c, "defender", () => 0);
+  c = r.combate;
+  assert.equal(c.jugador.estados.find((e) => e.tipo === "sangrado").valor, valorBase * 2,
+    "la segunda aplicación debe SUMAR, no solo refrescar");
+
+  r = C.turnoJugador(c, "defender", () => 0);
+  c = r.combate;
+  assert.equal(c.jugador.estados.find((e) => e.tipo === "sangrado").valor, valorBase * C.TOPE_ACUMULACION_ESTADO,
+    "la tercera llega justo al tope");
+
+  r = C.turnoJugador(c, "defender", () => 0);
+  c = r.combate;
+  assert.equal(c.jugador.estados.find((e) => e.tipo === "sangrado").valor, valorBase * C.TOPE_ACUMULACION_ESTADO,
+    "la cuarta no debe superar el tope");
+});
+
+test("estados: el escudo (no acumulable) sigue refrescándose al mayor valor, no sumando", () => {
+  // esquiva: 1 → el enemigo falla su golpe de este turno y no consume nada del escudo recién
+  // puesto, así se puede comprobar el valor del escudo justo después de aplicarlo.
+  let c = C.crearCombate({ ...HEROE, habilidades: ["muro_de_fe"], esquiva: 1 }, dummy({ vidaMax: 999 }), neutro);
+  c = { ...c, jugador: { ...c.jugador, estados: [{ tipo: "escudo", turnos: 1, valor: 5 }] } };
+  c = C.turnoJugador(c, { habilidad: "muro_de_fe" }, neutro).combate;
+  // muro_de_fe pone un escudo del 30% de la vida máxima del héroe (100) = 30, que es mayor que 5.
+  const esc = c.jugador.estados.find((e) => e.tipo === "escudo");
+  assert.equal(esc.valor, 30, "debe quedarse con el mayor de los dos, no sumarlos (35)");
 });
 
 // ───────── Revivir en la Arena (anuncio recompensado) ─────────

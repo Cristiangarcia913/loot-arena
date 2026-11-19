@@ -704,16 +704,23 @@ const RECETAS = {
 
   hechicero(t, c) {
     const m = t.mat(c.base, { rugosidad: 0.8, doble: true }), mo = t.mat(c.osc, { rugosidad: 0.85, doble: true });
+    // Nada de cara a la vista: el cráneo bajo la capucha se pinta con un tono mucho más oscuro que
+    // el resto del cuerpo, así que la cuenca entera queda en sombra y solo los ojos brillan dentro.
+    const mSombra = t.mat(oscurecer(c.osc, 0.55), { rugosidad: 0.95, doble: true });
     const raiz = t.grupo("hechicero");
     const cuerpo = t.grupo("cuerpo");
     cuerpo.add(t.en(t.cono(0.44, 1.2, m), 0, 0, 0)); // túnica larga
     cuerpo.add(t.en(t.toro(0.2, 0.04, t.mat(c.acento, { emision: c.acento, fuerza: 0.6, rugosidad: 0.4 })), 0, 0.42, 0, { rx: Math.PI / 2 })); // collar
+    // Capucha profunda: sustituye el sombrero de pico + barba de antes, que dejaba la cara entera a
+    // la vista y no se leía como un Archimago imponente. Una capucha de verdad (cráneo en sombra +
+    // pico alto + vuelo por detrás + cuello) oculta el rostro y deja que solo los ojos asomen.
     const cabeza = t.grupo("cabeza");
-    cabeza.add(t.en(t.esfera(0.18, t.mat(0xcbb79a, { rugosidad: 0.85 })), 0, 0, 0));
-    cabeza.add(t.en(t.cono(0.3, 0.65, mo), 0, 0.42, -0.02, { rx: -0.12 })); // sombrero de pico
-    cabeza.add(t.en(t.cilindro(0.3, 0.3, 0.03, mo), 0, 0.12, -0.01)); // ala del sombrero
-    cabeza.add(t.en(t.esfera(0.21, t.mat(0xe5e7eb, { rugosidad: 0.95 }), 1.6), 0, -0.14, -0.06)); // barba
-    cabeza.add(ojos(t, c.acento, { r: 0.03, x: 0.07, y: 0.02, z: 0.16 }));
+    cabeza.add(t.en(t.esfera(0.19, mSombra, 0.95), 0, 0, -0.01)); // cráneo, en sombra: no es carne a la vista
+    cabeza.add(t.en(t.cono(0.28, 0.58, mo), 0, 0.26, -0.03, { rx: -0.1 })); // pico de la capucha, alto y amenazante
+    cabeza.add(t.en(t.esfera(0.24, mo, 1.05), 0, -0.02, -0.08)); // vuelo de la tela por detrás y los lados
+    cabeza.add(t.en(t.toro(0.21, 0.045, mo), 0, -0.17, -0.01, { rx: Math.PI / 2 })); // cuello de la capucha
+    // Ojos púrpura: lo ÚNICO que se ve de la cara, brillando en el hueco oscuro de la capucha.
+    cabeza.add(ojos(t, c.acento, { r: 0.04, x: 0.065, y: 0.01, z: 0.17 }));
     t.en(cabeza, 0, 0.78, 0);
     cuerpo.add(cabeza);
     const brazos = {};
@@ -724,18 +731,39 @@ const RECETAS = {
       brazos[s < 0 ? "brazoIzq" : "brazoDer"] = b;
       cuerpo.add(b);
     }
-    // Bastón con orbe: la fuente de luz del bicho
+    // Báculo con gema FLOTANTE: un engarce abierto (toro) sostiene el hueco donde la gema flota sin
+    // tocarlo, con un halo ancho y tenue alrededor (además del brillo propio) para que se note desde
+    // lejos sin sobreexponer la gema. `p?.orbe` ya la hace latir en `escena3d.js` (sin tocar nada ahí).
     const arma = t.grupo("arma");
     arma.add(t.en(t.cilindro(0.03, 0.035, 1.5, t.mat(0x4a3526, { rugosidad: 0.95 })), 0, 0.35, 0));
-    const orbe = t.esfera(0.13, t.matLuz(c.acento, { aditivo: true, opacidad: 0.95 }));
-    arma.add(t.en(orbe, 0, 1.14, 0));
-    arma.add(t.en(t.toro(0.19, 0.02, t.mat(c.acento, { emision: c.acento, fuerza: 1, rugosidad: 0.3 })), 0, 1.14, 0, { rx: 1.1 }));
+    arma.add(t.en(t.toro(0.1, 0.018, mo), 0, 1.03, 0, { rx: Math.PI / 2 })); // engarce: la gema flota justo encima, sin tocarlo
+    const halo = t.esfera(0.25, t.matLuz(c.acento, { aditivo: true, opacidad: 0.2 }));
+    arma.add(t.en(halo, 0, 1.22, 0));
+    const orbe = t.esfera(0.14, t.matLuz(c.acento, { aditivo: true, opacidad: 0.95 }));
+    arma.add(t.en(orbe, 0, 1.22, 0));
+    arma.add(t.en(t.toro(0.2, 0.02, t.mat(c.acento, { emision: c.acento, fuerza: 1, rugosidad: 0.3 })), 0, 1.22, 0, { rx: 1.1 }));
     t.en(arma, 0, -0.34, 0.05, { rx: -0.1 });
     brazos.brazoDer.add(arma);
     t.en(cuerpo, 0, 0.6, 0);
     raiz.add(cuerpo);
     raiz.add(t.en(t.disco(0.55, t.matLuz(0x000000, { opacidad: 0.35 })), 0, 0.012, 0));
-    return { raiz, cuerpo, cabeza, ...brazos, arma, orbe, alto: 1.9, radio: 0.5 };
+
+    // Aura de magia oscura: motas moradas en anillo a la altura del pecho. Se llama "aura" a
+    // propósito: `escena3d.js` ya gira cualquier pieza con ese nombre (igual que la del jefe), así
+    // que orbita sola sin tocar el bucle de animación.
+    const aura = t.grupo("aura");
+    const nMotas = 8;
+    for (let i = 0; i < nMotas; i++) {
+      const ang = (i / nMotas) * Math.PI * 2;
+      const radioMota = 0.46 + (i % 2) * 0.09;
+      const mota = t.esfera(0.026, t.matLuz(c.acento, { aditivo: true, opacidad: 0.8 }));
+      t.en(mota, Math.cos(ang) * radioMota, Math.sin(ang) * radioMota, ((i % 3) - 1) * 0.1);
+      aura.add(mota);
+    }
+    t.en(aura, 0, 0.95, 0, { rx: Math.PI / 2 }); // tumbada: gira como un anillo horizontal, no como una rueda
+    raiz.add(aura);
+
+    return { raiz, cuerpo, cabeza, ...brazos, arma, orbe, aura, alto: 1.9, radio: 0.5 };
   },
 
   dragon(t, c) {

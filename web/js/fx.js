@@ -459,7 +459,7 @@ export async function hitStop(ms = 80) {
 /**
  * Texto flotante sobre un luchador.
  * @param {"heroe"|"enemigo"} quien @param {string} texto
- * @param {string} [clase] "dano" | "critico" | "cura" | "bloqueo" | "esquiva" | "info" | "estado"
+ * @param {string} [clase] "dano" | "critico" | "cura" | "bloqueo" | "esquiva" | "fallas" | "info" | "estado"
  */
 export function numeroFlotante(quien, texto, clase = "dano") {
   const s = spriteDe(quien);
@@ -599,10 +599,11 @@ function animarTajoCruzado(quien, { critico = false } = {}) {
 /**
  * Recibir un golpe: hit-stop, parpadeo blanco, retroceso, chispas, número flotante y sonido.
  * @param {"heroe"|"enemigo"} quien el que RECIBE el golpe
- * @param {number|string} dano cantidad (0 o "esquiva" muestra «¡Esquiva!»)
+ * @param {number|string} dano cantidad (0 o "esquiva" muestra «¡ESQUIVADO!»)
  * @param {{critico?:boolean, bloqueado?:boolean, esquivado?:boolean, fallo?:boolean}} [o] `fallo`:
  *   el héroe ha fallado su propio golpe (Modificador de Arena «Viento Huracanado»); se anima
- *   como una esquiva, con el rótulo «¡Fallas!» en vez de «¡Esquiva!».
+ *   como una esquiva (mismo retroceso y sonido) pero con su propio rótulo «¡Fallas!», para no
+ *   hacer pasar un fallo propio por una esquiva de verdad del rival.
  * @returns {Promise<void>} cuando termina el retroceso
  */
 export async function animarGolpe(quien, dano, { critico = false, bloqueado = false, esquivado = false, fallo = false } = {}) {
@@ -610,7 +611,7 @@ export async function animarGolpe(quien, dano, { critico = false, bloqueado = fa
   const esq = esquivado || fallo || dano === "esquiva";
   if (esq) {
     sonar("esquiva");
-    numeroFlotante(quien, fallo ? "¡Fallas!" : "¡Esquiva!", "esquiva");
+    numeroFlotante(quien, fallo ? "¡Fallas!" : "¡ESQUIVADO!", fallo ? "fallas" : "esquiva");
     s?.animate([{ transform: "none" }, { transform: `translateX(${lado(quien) === "heroe" ? -26 : 26}px) skewX(-8deg)`, opacity: 0.5 }, { transform: "none" }], { duration: 380, easing: "ease-out" });
     return esperar(380);
   }
@@ -629,7 +630,7 @@ export async function animarGolpe(quien, dano, { critico = false, bloqueado = fa
   f?.classList.remove("golpeado"); void f?.offsetWidth; f?.classList.add("golpeado");
   if (bloqueado) {
     chispas(quien, { n: 22, colores: ["#bfdbfe", "#60a5fa", "#fff"], vel: [120, 320], forma: "chispa", g: 200, vida: [0.25, 0.5], tam: [2, 3] });
-    numeroFlotante(quien, dano ? `🛡 ${dano}` : "¡Bloqueado!", "bloqueo");
+    numeroFlotante(quien, dano ? `🛡 ${dano}` : "¡BLOQUEO!", "bloqueo");
   } else {
     chispas(quien, critico
       ? { n: 46, colores: ["#fff7cc", "#fde047", "#f59e0b", "#ef4444"], vel: [160, 460], forma: "chispa", g: 260, vida: [0.35, 0.8], tam: [2.5, 4] }

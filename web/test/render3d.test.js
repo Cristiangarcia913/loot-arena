@@ -116,7 +116,7 @@ test("del nombre de cualquier criatura se saca su clave", () => {
 });
 
 test("las clases de texto son las mismas que en fx.js", () => {
-  for (const c of ["dano", "critico", "cura", "bloqueo", "esquiva", "info", "estado"]) {
+  for (const c of ["dano", "critico", "cura", "bloqueo", "esquiva", "fallas", "info", "estado"]) {
     assert.ok(TEXTO[c], `falta la clase ${c}`);
     assert.equal(claseTexto(c), c);
   }
@@ -347,14 +347,15 @@ test("textoDeGolpe dice lo mismo que fx.js en cada caso", () => {
   assert.deepEqual(textoDeGolpe(12), { texto: "−12", clase: "dano" });
   assert.deepEqual(textoDeGolpe(42, { critico: true }), { texto: "¡42!", clase: "critico" });
   assert.deepEqual(textoDeGolpe(4, { bloqueado: true }), { texto: "🛡 4", clase: "bloqueo" });
-  assert.deepEqual(textoDeGolpe(0, { bloqueado: true }), { texto: "¡Bloqueado!", clase: "bloqueo" });
-  assert.deepEqual(textoDeGolpe(0, { esquivado: true }), { texto: "¡Esquiva!", clase: "esquiva" });
-  assert.deepEqual(textoDeGolpe("esquiva"), { texto: "¡Esquiva!", clase: "esquiva" });
+  assert.deepEqual(textoDeGolpe(0, { bloqueado: true }), { texto: "¡BLOQUEO!", clase: "bloqueo" });
+  assert.deepEqual(textoDeGolpe(0, { esquivado: true }), { texto: "¡ESQUIVADO!", clase: "esquiva" });
+  assert.deepEqual(textoDeGolpe("esquiva"), { texto: "¡ESQUIVADO!", clase: "esquiva" });
   // La esquiva manda sobre todo lo demás, igual que en fx.animarGolpe.
   assert.equal(textoDeGolpe(99, { critico: true, esquivado: true }).clase, "esquiva");
-  // Fallo propio (Modificador de Arena «Viento Huracanado»): misma clase que esquiva, rótulo distinto.
-  assert.deepEqual(textoDeGolpe(0, { fallo: true }), { texto: "¡Fallas!", clase: "esquiva" });
-  assert.equal(textoDeGolpe(99, { critico: true, fallo: true }).clase, "esquiva");
+  // Fallo propio (Modificador de Arena «Viento Huracanado»): clase PROPIA («fallas»), no «esquiva»:
+  // no es una esquiva de verdad del rival, así que no debe leerse ni colorearse como tal.
+  assert.deepEqual(textoDeGolpe(0, { fallo: true }), { texto: "¡Fallas!", clase: "fallas" });
+  assert.equal(textoDeGolpe(99, { critico: true, fallo: true }).clase, "fallas");
 });
 
 test("el rótulo de un crítico es más grande que el de un golpe normal", () => {

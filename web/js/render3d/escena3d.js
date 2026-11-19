@@ -16,7 +16,7 @@
 // `quien` acepta "heroe" | "jugador" (sinónimos) | "enemigo", igual que en fx.js.
 
 import { cargarTres, soporta3d, infoGpu, MSG_3D, TRES_VERSION, TRES_REVISION } from "./tres.js";
-import { construirEscenario, animarEscenario, PUESTO_X, CAMARA, encuadre } from "./escenario.js";
+import { construirEscenario, animarEscenario, activarRunas, PUESTO_X, CAMARA, encuadre } from "./escenario.js";
 import { construirEnemigo, construirHeroe } from "./criaturas.js";
 import { precargarModelo, cargarModeloExterno } from "./modelos.js";
 import { Rotulos, textoDeGolpe } from "./numeros.js";
@@ -891,7 +891,8 @@ function aplicarEnemigo() {
   soltarCriatura("enemigo");
   const e = E.enemigo;
   const f = luchadorEl("enemigo");
-  if (!e) { f?.classList.remove("jefe"); E.director?.reposar(); return; }
+  if (!e) { f?.classList.remove("jefe"); activarRunas(E.esc, false); E.director?.reposar(); return; }
+  activarRunas(E.esc, !!e.jefe);
   L.ancla.position.z = (L.baseZ ?? L.ancla.position.z) + (RETROCESO_Z_ENEMIGO[e.clave] ?? 0);
   L.ancla.position.y = DESCENSO_Y_ENEMIGO[e.clave] ?? 0;
   const cr = delAlmacen(llaveEnemigo(e.clave, e.jefe),
@@ -1563,7 +1564,9 @@ export async function animarGolpe(quien, dano, { critico = false, bloqueado = fa
   const q = lado(quien);
   const L = E.lados[q];
   const { texto, clase } = textoDeGolpe(dano, { critico, bloqueado, esquivado, fallo });
-  const esq = clase === "esquiva";
+  // "esquiva" y "fallas" son dos clases distintas (para que un fallo propio no se coloree ni se
+  // lea como una esquiva de verdad del rival), pero las dos se animan igual: el mismo esquive.
+  const esq = clase === "esquiva" || clase === "fallas";
 
   if (esq) {
     sonar("esquiva");

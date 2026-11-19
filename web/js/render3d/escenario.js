@@ -166,6 +166,30 @@ export function construirEscenario(T, o = {}) {
     raiz.add(surco);
   }
 
+  // ── Runas arcanas: grabadas entre los dos anillos del círculo central, apagadas en un combate
+  // normal y encendidas con un pulso morado en los de Jefe (ver `activarRunas`). Van en su propio
+  // grupo para poder tocar un solo material (`matRuna`, compartido por las 16 piezas) en vez de
+  // recorrer la escena entera cada fotograma.
+  const matRuna = t.matLuz(0x9f5fff, { aditivo: true, opacidad: 0.08 });
+  const runas = t.grupo("runas");
+  const nRunas = 8;
+  for (let i = 0; i < nRunas; i++) {
+    const a = (i / nRunas) * Math.PI * 2;
+    const x = Math.cos(a) * 1.88, z = Math.sin(a) * 1.88;
+    // Un trazo radial (no solo un punto) para que se lea como símbolo grabado, más un halo
+    // circular alrededor que es lo que de verdad se ve brillar desde la distancia de la cámara.
+    const trazo = t.malla(new T.BoxGeometry(0.04, 0.001, 0.26), matRuna, false);
+    t.en(trazo, x, 0.016, z, { ry: -a });
+    runas.add(trazo);
+    const halo = t.toro(0.13, 0.03, matRuna);
+    halo.rotation.x = Math.PI / 2;
+    halo.position.set(x, 0.015, z);
+    runas.add(halo);
+  }
+  runas.userData.activo = false;
+  runas.userData.material = matRuna;
+  raiz.add(runas);
+
   // Foso / reborde
   raiz.add(t.en(t.toro(RADIO_ARENA, 0.3, t.mat(ARENA.muroLuz, { rugosidad: 0.95, plano: true })), 0, 0.1, 0, { rx: Math.PI / 2 }));
 
@@ -333,7 +357,18 @@ export function construirEscenario(T, o = {}) {
   // marcando «de noche» sin devorar el contraste.
   const niebla = new T.FogExp2(ARENA.niebla, 0.025);
 
-  return { raiz, taller: t, antorchas, polvo, chispas, luces: { ambiente, hemisferio, clave, contra, recorte }, niebla, suelo, calidad: cal };
+  return { raiz, taller: t, antorchas, polvo, chispas, runas, luces: { ambiente, hemisferio, clave, contra, recorte }, niebla, suelo, calidad: cal };
+}
+
+/**
+ * Enciende o apaga el pulso de las runas arcanas del círculo central. `escena3d.js` la llama al
+ * plantar un enemigo (`aplicarEnemigo`), con `activo = !!enemigo.jefe`: así cualquier combate de
+ * Jefe se nota desde el primer fotograma sin que el escenario tenga que saber qué es un jefe.
+ * @param {object} esc lo que devolvió `construirEscenario`
+ * @param {boolean} activo
+ */
+export function activarRunas(esc, activo) {
+  if (esc?.runas) esc.runas.userData.activo = !!activo;
 }
 
 /**
@@ -366,6 +401,16 @@ export function animarEscenario(esc, s, reducido = false) {
       if (arr[i * 3 + 1] > 4.8) arr[i * 3 + 1] = 0.15;
     }
     pos.needsUpdate = true;
+  }
+  const runas = esc.runas;
+  if (runas) {
+    const activo = runas.userData.activo;
+    // Apagadas, un brillo casi imperceptible (el grabado se nota, pero no compite con nada); en
+    // Jefe, un pulso bien visible y más rápido, para que se note el peligro desde el primer vistazo.
+    const base = activo ? 0.5 : 0.07;
+    const amp = activo ? 0.38 : 0.03;
+    const vel = activo ? 2.6 : 0.6;
+    runas.userData.material.opacity = reducido ? base : base + amp * (0.5 + 0.5 * Math.sin(s * vel));
   }
   const ch = esc.chispas;
   if (ch && !reducido) {

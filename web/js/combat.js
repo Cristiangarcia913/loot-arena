@@ -29,6 +29,12 @@ export const RACHA_CADA_JEFE = 5;
  * (vida, ataque y la potencia de sus estados), aunque no sea un piso de jefe. Sin techo
  * a propósito: es lo que hace que seguir arriesgando la racha dé más miedo cuanto más larga es. */
 export const RACHA_ESCALA = Object.freeze({ vida: 0.025, ataque: 0.02, estados: 0.015 });
+/** A partir de esta racha (victorias consecutivas) el rival empieza a jugar sucio: ya no respeta
+ * sus propias cautelas de IA (`sinVeneno`/`sinEscudo`/`sinFuria`, pensadas para no desperdiciar un
+ * turno reaplicando algo que ya tiene activo) y, si su patrón no trae ya una carga o una defensa
+ * propia, se le presta una genérica (`PATRON_TACTICO_RACHA`). Por debajo de esto media docena de
+ * criaturas del bestiario (rata, lobo, goblin…) se quedaban en intercambiar golpes sin más. */
+export const RACHA_TACTICA = 3;
 /** Cada cuántas victorias CONSECUTIVAS se ofrece elegir un Modificador de Arena (ver abajo). */
 export const MODIFICADOR_ARENA_CADA = 3;
 /** Tope de esquiva y piso de precisión del héroe una vez sumados los Modificadores de Arena
@@ -270,13 +276,42 @@ export const MOVIMIENTOS = Object.freeze({
   // jefes
   definitiva_carga: { tipo: "cargar", nombre: "Preparar definitiva", icono: "☄️", libera: "definitiva", definitiva: true, animacion3d: "apoyo" },
   definitiva: { tipo: "habilidad", nombre: "Definitiva", icono: "☄️", mult: JEFE.multDefinitiva, bloqueable: true, imparable: true, brutal: true, definitiva: true, animacion3d: "conjuro" },
+  // Racha táctica (ver `RACHA_TACTICA`): se le presta a cualquier criatura cuyo patrón propio no
+  // traiga ya ninguna carga ni defensa (rata, lobo, goblin, esqueleto, murciélago, avispa, araña,
+  // espectro, arpía, basilisco), para que en una racha larga nadie se quede en "solo pega".
+  carga_de_racha: { tipo: "cargar", nombre: "Reunir la furia de la racha", icono: "🌀", libera: "golpe_de_racha", animacion3d: "apoyo" },
+  golpe_de_racha: { tipo: "habilidad", nombre: "Golpe de la racha", icono: "💥", mult: 2.2, bloqueable: true, brutal: true, animacion3d: "embestida" },
+  velo_de_racha: { tipo: "habilidad", nombre: "Velo de la racha", icono: "🌑", estadosPropios: [{ tipo: "escudo", turnos: 2, pct: 0.22 }], animacion3d: "guardia" },
 });
+
+/** Patrón genérico que se añade (no sustituye) al de una criatura sin carga ni defensa propias
+ * cuando el rival juega en racha táctica. Ver `patronEfectivo` y `RACHA_TACTICA`. */
+const PATRON_TACTICO_RACHA = Object.freeze([
+  Object.freeze({ mov: "carga_de_racha", prob: 0.16 }),
+  Object.freeze({ mov: "velo_de_racha", prob: 0.14, cond: (c) => !tieneEstado(c.enemigo, "escudo") }),
+]);
+
+/** ¿El patrón de una criatura ya trae su propia carga, defensa o autobuff? Si es que sí,
+ * `patronEfectivo` no le presta `PATRON_TACTICO_RACHA`: ya tiene de sobra para pensar. */
+const tienePropiaTactica = (patron) => patron.some((p) => {
+  const m = MOVIMIENTOS[p.mov];
+  return m?.tipo === "cargar" || m?.tipo === "defender" || (m?.estadosPropios?.length ?? 0) > 0;
+});
+
+/** Patrón de verdad que usa `decidirIntencion`: el propio de la criatura, más el genérico de
+ * racha táctica si le falta y el rival ya juega sucio (`enemigo.tacticaAvanzada`). */
+function patronEfectivo(enemigo, patronBase) {
+  if (!enemigo.tacticaAvanzada || tienePropiaTactica(patronBase)) return patronBase;
+  return [...patronBase, ...PATRON_TACTICO_RACHA];
+}
 
 const tieneEstado = (q, tipo) => q.estados.some((e) => e.tipo === tipo && e.turnos > 0);
 const sinAturdirReciente = (c) => c.turno - (c.enemigo.ultimoAturdir ?? -99) >= 4 && !tieneEstado(c.jugador, "aturdido");
-const sinVeneno = (c) => !tieneEstado(c.jugador, "veneno");
-const sinEscudo = (c) => !tieneEstado(c.enemigo, "escudo");
-const sinFuria = (c) => !tieneEstado(c.enemigo, "furia");
+// En racha táctica (`RACHA_TACTICA`) estas tres cautelas se saltan a propósito: el rival ya no
+// espera a que se le acabe el veneno/escudo/furia para volver a aplicarlo, machaca sin descanso.
+const sinVeneno = (c) => c.enemigo.tacticaAvanzada || !tieneEstado(c.jugador, "veneno");
+const sinEscudo = (c) => c.enemigo.tacticaAvanzada || !tieneEstado(c.enemigo, "escudo");
+const sinFuria = (c) => c.enemigo.tacticaAvanzada || !tieneEstado(c.enemigo, "furia");
 
 /**
  * Bestiario ordenado de menor a mayor peligro (20 criaturas, 2 por nivel de arena).
@@ -456,6 +491,9 @@ export function escalarPorRacha(enemigo, racha, { jefeDeRacha = false } = {}) {
     vidaMax: Math.max(1, Math.round(enemigo.vidaMax * fv)),
     ataque: Math.max(1, Math.round(enemigo.ataque * fa)),
     multEstados: 1 + RACHA_ESCALA.estados * r,
+    // Ver `RACHA_TACTICA`: a partir de esta racha, `decidirIntencion` deja de respetar sus propias
+    // cautelas (sinVeneno/sinEscudo/sinFuria) y le presta un patrón táctico a quien no tenga el suyo.
+    tacticaAvanzada: r > RACHA_TACTICA,
   };
 }
 
@@ -935,6 +973,15 @@ function finTurno(q) {
   q.estados = q.estados.filter((e) => e.turnos > 0 && !(e.tipo === "escudo" && e.valor <= 0));
 }
 
+/** Veneno y sangrado SE ACUMULAN en vez de solo refrescarse: cada aplicación nueva SUMA su daño al
+ * que ya quedaba (hasta `TOPE_ACUMULACION_ESTADO` veces lo que vale el golpe que lo provoca, para
+ * que picar sin parar no acabe arrancando la vida entera de un plumazo). El resto de estados
+ * (escudo, furia, aturdido, fragil, reflejo, evasión) sigue refrescándose al mayor valor, como
+ * siempre: acumular un escudo o un aturdido sin tope rompería el combate en vez de hacerlo más
+ * interesante. */
+const ESTADOS_ACUMULABLES = new Set(["veneno", "sangrado"]);
+export const TOPE_ACUMULACION_ESTADO = 3;
+
 function aplicarEstado(c, quien, def, ataqueFuente) {
   const q = c[quien];
   let valor = def.valor;
@@ -944,14 +991,19 @@ function aplicarEstado(c, quien, def, ataqueFuente) {
     const mult = quien === "jugador" && def.tipo !== "escudo" ? (c.enemigo.multEstados ?? 1) : 1;
     valor = Math.max(1, Math.round(baseValor * def.pct * mult));
   }
-  const nuevo = { tipo: def.tipo, turnos: def.turnos, ...(valor != null ? { valor } : {}) };
   const i = q.estados.findIndex((e) => e.tipo === def.tipo);
   if (i >= 0) {
-    // Refresca: se queda con la mayor duración y el mayor valor.
     const viejo = q.estados[i];
-    q.estados[i] = { ...nuevo, turnos: Math.max(viejo.turnos, nuevo.turnos), ...(valor != null ? { valor: Math.max(viejo.valor ?? 0, valor) } : {}) };
+    const turnos = Math.max(viejo.turnos, def.turnos);
+    let valorFinal = viejo.valor;
+    if (valor != null) {
+      valorFinal = ESTADOS_ACUMULABLES.has(def.tipo)
+        ? Math.min((viejo.valor ?? 0) + valor, valor * TOPE_ACUMULACION_ESTADO)
+        : Math.max(viejo.valor ?? 0, valor);
+    }
+    q.estados[i] = { tipo: def.tipo, turnos, ...(valorFinal != null ? { valor: valorFinal } : {}) };
   } else {
-    q.estados.push(nuevo);
+    q.estados.push({ tipo: def.tipo, turnos: def.turnos, ...(valor != null ? { valor } : {}) });
   }
   if (def.tipo === "aturdido" && quien === "jugador") c.enemigo.ultimoAturdir = c.turno;
   return { ...q.estados.find((e) => e.tipo === def.tipo) };
@@ -1307,7 +1359,7 @@ function decidirIntencion(c, rng) {
   if (e.cargando && MOVIMIENTOS[e.cargando]) return crear(e.cargando, true);
   if (e.jefe && e.turnosDefinitiva >= (e.fase === 2 ? JEFE.cadaFase2 : JEFE.cadaFase1)) return crear("definitiva_carga", true);
   const cr = criaturaDe(e.clave);
-  const patron = cr ? cr.patron : PATRON_GENERICO;
+  const patron = patronEfectivo(e, cr ? cr.patron : PATRON_GENERICO);
   const r = rng();
   let acum = 0;
   for (const p of patron) {

@@ -143,7 +143,10 @@ export const TEXTO = Object.freeze({
   critico:  { relleno: "#fff7cc", borde: "#b45309", tam: 1.45 },
   cura:     { relleno: "#bbf7d0", borde: "#14532d", tam: 1 },
   bloqueo:  { relleno: "#bfdbfe", borde: "#1e3a8a", tam: 0.95 },
-  esquiva:  { relleno: "#e5e7eb", borde: "#334155", tam: 0.95 },
+  // Verde, no el gris neutro de antes: una esquiva de verdad del rival se tiene que leer distinta
+  // de un fallo propio del héroe (`fallas`, que sí se queda en el gris original).
+  esquiva:  { relleno: "#6ee89a", borde: "#14532d", tam: 0.95 },
+  fallas:   { relleno: "#e5e7eb", borde: "#334155", tam: 0.95 },
   info:     { relleno: "#fde68a", borde: "#78350f", tam: 0.95 },
   estado:   { relleno: "#ddd6fe", borde: "#4c1d95", tam: 0.9 },
 });
