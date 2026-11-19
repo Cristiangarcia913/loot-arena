@@ -20,7 +20,7 @@ export const BASE_MODELOS = new URL("../../assets/models/", import.meta.url);
  * tras comprobar en pantalla cómo mira cada modelo nuevo.
  */
 export const ROTACION_Y_MODELOS = Object.freeze({
-  // dragon: Math.PI,
+  lobo: Math.PI / 2,
 });
 
 /**

@@ -27,6 +27,40 @@ color de su rareza.
 | Archivo | Origen | Licencia |
 |---|---|---|
 | `dragon.glb` | [Cethiel's Dragon 3D](https://opengameart.org/content/cethiels-dragon-3d) (Drummyfish, OpenGameArt), malla `dragon.obj`+textura convertida a `.glb` con `obj2gltf` (sin los clips de animación Collada del paquete original, que el motor no carga) | CC0 1.0 (dominio público, sin atribución obligatoria) |
+| `esqueleto.glb` | ["LowPoly Animated Monsters"](https://opengameart.org/content/lowpoly-animated-monsters) (Quaternius, OpenGameArt), malla `Skeleton.obj`+textura del paquete, convertida a `.glb` con `obj2gltf` (sin los clips de animación Blend del paquete original, que el motor no carga) | CC0 1.0 (dominio público, sin atribución obligatoria) |
+| `lobo.glb` | ["Animated Animales Low Poly"](https://opengameart.org/content/animated-animales-low-poly) (Quaternius, OpenGameArt), malla `Wolf.obj`+textura del paquete, convertida a `.glb` con `obj2gltf` (sin los clips de animación Blend del paquete original, que el motor no carga) | CC0 1.0 (dominio público, sin atribución obligatoria) |
+| `golem.gltf` | ["Golem Knight"](https://opengameart.org/content/golem-knight) (OpenGameArt), `golem.gltf` del paquete usado tal cual (un único archivo con texturas y buffers embebidos en base64, exportado de Blockbench; no hace falta `obj2gltf`) | CC0 1.0 (dominio público, sin atribución obligatoria) |
+
+**`orco.glb` y `quimera.glb` no existen todavía.** Se buscó en OpenGameArt/Kenney/Quaternius (tras
+descartar una fuente sin reputación verificable que sí los tenía) y no apareció ningún modelo CC0
+utilizable: para el orco, solo había estilos incompatibles (voxel tipo Minecraft) o criaturas que
+no son un orco de verdad (goblin, vikingo humano, zombi — ya usados o con la especie equivocada);
+para la quimera, el único candidato real (`Hydrach`, CC0 en OpenGameArt) viene empaquetado en
+`.rar`, formato que no se pudo abrir con las herramientas disponibles. Ambas criaturas se quedan
+con su receta procedural de `criaturas.js`, que es el comportamiento seguro por defecto de este
+sistema. Si aparece un modelo CC0/MIT válido para cualquiera de las dos, añadirlo con el mismo
+nombre de clave (`orco.glb`/`orco.gltf`, `quimera.glb`/`quimera.gltf`) basta para que el motor lo
+recoja solo.
+
+**Fallo conocido de `golem.gltf`: a veces no se ve.** Verificado en el navegador (motor de
+producción, `cargarModeloExterno` + `criaturaDesdeModelo` + `aplicarEnemigo`, sin atajos): en
+~50% de las veces que aparece como enemigo, no se dibuja ni un píxel suyo — la arena queda vacía,
+sin ningún error en consola. Se investigó a fondo antes de aceptar esto:
+
+- La malla se carga y se mide bien siempre: 16 mallas, 2060 vértices, texturas (128×128 a
+  256×256) totalmente decodificadas, posición y escala del pivote idénticas entre el caso que
+  falla y el que funciona.
+- El fotograma que falla SÍ llega a mandar la orden de dibujar: 50 `drawCalls`, 13.344 triángulos,
+  las 16 mallas dentro del frustum de la cámara — tal cual el fotograma que sí se ve.
+- No es un problema de licencia, geometría, textura, posición, tween de entrada (termina
+  normalmente) ni frustum culling: todo eso se comprobó directamente en el motor real y salió
+  idéntico en ambos casos.
+
+Apunta a un problema de estado de la GPU (profundidad, cara visible o mezcla) que cambia entre
+fotogramas — para seguir hace falta un inspector de fotogramas WebGL (Spector.js/RenderDoc), que
+no estaba disponible al investigarlo. Se deja el archivo puesto (en partidas reales el jugador
+tarda minutos en llegar al nivel 7, de sobra para que todo se asiente) pero si alguien lo
+reproduce con herramientas de verdad, esto es el punto de partida.
 
 ## Qué pasa si lo pones
 
