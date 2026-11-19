@@ -12,10 +12,10 @@
 // Todo el texto entra con textContent (los nombres de objetos vienen de la cadena).
 import { h } from "./dom-secciones.js";
 import {
-  aUnidades, abiDe, cargarAbiMercadoP2P, formatearOro, mensajeErrorTransaccion, resolverDirecciones,
+  aUnidades, abiDe, cargarAbiMercadoP2P, formatearOro, resolverDirecciones,
   unirAbi, ABI_GAMEITEM_APROBACION,
 } from "./economy.js";
-import { conMargenGas, esFalloDeRed, gasRespaldo, tarifasAcotadas, TIMEOUT_TX_MS } from "./wallet-errores.js";
+import { conMargenGas, esFalloDeRed, gasRespaldo, mensajeErrorTransaccion, tarifasAcotadas, TIMEOUT_TX_MS } from "./wallet-errores.js";
 import { rareza, emojiTipo, normalizarItem } from "./equipment.js";
 
 /** Dirección corta para mostrar a un vendedor (igual criterio que ui.js `acortar`, sin importar DOM). */
