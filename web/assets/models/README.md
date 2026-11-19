@@ -34,24 +34,42 @@ color de su rareza.
 | `limo.glb` | ["LowPoly Animated Monsters"](https://opengameart.org/content/lowpoly-animated-monsters) (Quaternius, OpenGameArt — el mismo paquete de `esqueleto.glb`), malla `Slime.obj` (sin textura: colores planos por material) convertida a `.glb` con `obj2gltf` | CC0 1.0 (dominio público, sin atribución obligatoria) |
 
 **`orco.glb` y `quimera.glb` siguen sin existir — sustituidos por `murcielago.glb` y `limo.glb`.**
-Segundo intento, más a fondo (añadiendo itch.io y Poly Pizza a la búsqueda): para el orco, lo único
-con licencia CC0 verificable de verdad seguía sin ser un orco (goblin, vikingo humano, zombi,
-ya cubiertos o con la especie equivocada) o venía en un estilo incompatible (cartoon tipo Pokémon
-de ["50 Monsters Pack 3D"](https://opengameart.org/content/50-monsters-pack-3d), CC0 pero que
-desentonaría al lado del dragón/esqueleto/lobo/gólem ya puestos); lo demás con pinta de orco de
-verdad (itch.io, CGTrader, Sloyd...) era de pago, "paga lo que quieras" sin licencia clara, o
-CC-BY con atribución obligatoria. Para la quimera, `Hydrach` (CC0, OpenGameArt) seguía siendo el
-único candidato real y seguía en `.rar`, formato que este entorno no puede abrir; no apareció
-ninguna quimera/mantícora alternativa con licencia CC0/MIT/dominio público en ningún sitio.
+Tercer intento, esta vez en sitios nuevos (Sketchfab con su filtro de licencia CC0 vía la propia
+API pública, Free3D, CGTrader, Clara.io e itch.io otra vez con términos más amplios: también se
+aceptaba un troll, ogro o bárbaro para el orco, y una hidra o cualquier bestia mítica de varias
+cabezas para la quimera, no solo el animal exacto). Resultado, verificado consultando la licencia
+real de cada ficha, no por fama del sitio ni texto de búsqueda:
 
-En vez de forzar una sustitución de mala calidad o dejar las dos claves vacías, se buscó en el
-propio paquete CC0 ya verificado de `esqueleto.glb` (que también trae `Bat.obj` y `Slime.obj`,
-sin usar hasta ahora) y se cubrieron dos claves del bestiario que SÍ estaban sin modelo: el
-murciélago (`murcielago`) y el limo ácido (`limo`). `orco` y `quimera` se quedan con su receta
-procedural de `criaturas.js`, que es el comportamiento seguro por defecto de este sistema. Si
-aparece un modelo CC0/MIT válido para cualquiera de las dos, añadirlo con el mismo nombre de
-clave (`orco.glb`/`orco.gltf`, `quimera.glb`/`quimera.gltf`) basta para que el motor lo recoja
-solo.
+- **Sketchfab**, filtrando por licencia CC0 de verdad: para *orc*, *troll*, *ogre*, *barbarian*,
+  *minotaur*, *chimera*, *manticore*, *hydra*, *wyvern* y *beast* el resultado fue, prácticamente
+  entero, escaneos de museo (artsmia, Cleveland Museum, Smithsonian...) de jarrones, vasijas,
+  lápidas y flores — nada parecido a una criatura de fantasía jugable, y con cientos de miles de
+  triángulos cuando aparecía algo con forma de bestia (el único "Mythological Beast" real son
+  200 000 caras de una pieza china del siglo V a. C., ni es una quimera ni cabría en el
+  presupuesto 3D del juego). Un vistazo a *Orc Bloodlust* (CC Attribution) y a toda la familia
+  Manticore/Hydra de otros autores confirmó que lo único con pinta correcta es CC-BY (atribución
+  obligatoria), no CC0.
+- **CGTrader**: cada orco libre encontrado usa la licencia propia de CGTrader ("Royalty Free"),
+  que no es lo mismo que CC0/dominio público y no se ajusta a la regla de este README.
+- **itch.io**: el "orc axe enemy" de Summer Engine, que un resultado de búsqueda describía como
+  CC0, resultó ser `"licenseType":"attribution"` al mirar los datos reales de la página (CC-BY, no
+  CC0). La "Mythic Beastiary Collection" (con una criatura con cuernos que podría valer de orco)
+  no declara ninguna licencia en la página y además admite ser generada con IA y retocada a mano,
+  así que no pasa el filtro de licencia clara de este README por partida doble.
+- **Free3D y Clara.io**: ninguna búsqueda encontró una ficha de orco o quimera con CC0/dominio
+  público declarado; son bibliotecas sin filtro de licencia fiable para comprobarlo en bloque.
+
+No apareció ningún candidato nuevo que pasara el filtro de licencia en ninguno de los dos casos.
+En vez de forzar una sustitución de mala calidad o dejar las dos claves vacías, el intento
+anterior ya había cubierto dos claves del bestiario que SÍ estaban sin modelo con contenido del
+mismo paquete CC0 ya verificado: el murciélago (`murcielago`) y el limo ácido (`limo`). `orco` y
+`quimera` se quedan con su receta procedural de `criaturas.js`, que es el comportamiento seguro
+por defecto de este sistema — y, a estas alturas, tras tres búsquedas distintas en las webs de
+assets CC0/MIT más relevantes (OpenGameArt, Kenney, Quaternius, Poly Pizza, Sketchfab, CGTrader,
+Free3D, Clara.io, itch.io), es razonable asumir que no hay un modelo real adecuado disponible
+gratis para ninguna de las dos claves. Si en el futuro aparece uno con licencia CC0/MIT clara,
+añadirlo con el mismo nombre de clave (`orco.glb`/`orco.gltf`, `quimera.glb`/`quimera.gltf`)
+basta para que el motor lo recoja solo.
 
 **Fallo conocido de `golem.gltf`: a veces no se ve.** Verificado en el navegador (motor de
 producción, `cargarModeloExterno` + `criaturaDesdeModelo` + `aplicarEnemigo`, sin atajos): en
