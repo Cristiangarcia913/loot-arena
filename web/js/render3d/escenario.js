@@ -229,9 +229,12 @@ export function construirEscenario(T, o = {}) {
   // Intensidades medidas: ambiente 1,1 + clave 1,5 + antorchas fuertes lavaba el color de todo.
   const ambiente = new T.AmbientLight(0x3a2a20, 0.6);
   const hemisferio = new T.HemisphereLight(0x5b4636, 0x1a120c, 0.35);
-  // Luz «clave»: la que define el volumen de las criaturas. Viene de arriba y de la cámara.
-  const clave = new T.DirectionalLight(0xffd9a0, 1.3);
-  clave.position.set(2.5, 7, 6);
+  // Luz «clave»: la que define el volumen de las criaturas. Viene de arriba y, sobre todo, DE LA
+  // CÁMARA (z positivo): con el fondo ya no negro sino el cielo azul de la niebla, lo que faltaba
+  // para que la cara y el pecho del rival no se queden en penumbra es más potencia frontal, no más
+  // fondo. 1.3 → 1.6 y un pelín más adelantada (z 6 → 7.4).
+  const clave = new T.DirectionalLight(0xffd9a0, 1.6);
+  clave.position.set(2.5, 7, 7.4);
   if (cal.sombras) {
     clave.castShadow = true;
     clave.shadow.mapSize.set(1024, 1024);
@@ -241,14 +244,17 @@ export function construirEscenario(T, o = {}) {
     clave.shadow.camera.top = 7; clave.shadow.camera.bottom = -7;
     clave.shadow.bias = -0.0012;
   }
-  // Contraluz azulada: separa a las criaturas del muro oscuro
-  const contra = new T.DirectionalLight(0x6ba3d6, 0.7);   // contraluz: recorta la silueta contra el muro
+  // Contraluz azulada: separa a las criaturas del muro oscuro. Un poco más fuerte que antes: con
+  // el cielo ahora azulado, esta luz tiene que seguir leyéndose como un borde, no fundirse con el
+  // fondo del mismo tono.
+  const contra = new T.DirectionalLight(0x6ba3d6, 0.95);   // contraluz: recorta la silueta contra el muro
   contra.position.set(-4, 4, -7);
   // Rim light potente: una criatura de piel/textura oscura (el dragón, de noche) se funde con el
   // muro y la niebla de detrás con solo la contraluz azulada de arriba. Esta viene de más atrás,
-  // más alta y mucho más fuerte, en un tono cálido de fuego, para perfilar con un halo brillante
-  // las púas, las alas y la cabeza contra el fondo oscuro.
-  const recorte = new T.DirectionalLight(0xffb066, 2.2);
+  // más alta y mucho más fuerte, en un blanco-dorado brillante (no ámbar apagado), para perfilar
+  // con un halo nítido las púas, las alas y la cabeza de CUALQUIER criatura del bestiario contra
+  // el fondo nocturno, sea cual sea su propio color.
+  const recorte = new T.DirectionalLight(0xfff0d2, 2.6);
   recorte.position.set(1.4, 5.5, -9.2);
   raiz.add(ambiente, hemisferio, clave, contra, recorte);
 
@@ -316,7 +322,11 @@ export function construirEscenario(T, o = {}) {
     raiz.add(chispas);
   }
 
-  const niebla = new T.FogExp2(ARENA.niebla, 0.052);
+  // Densidad más baja que antes (0.052 → 0.025): con el tono ya no negro sino azul medianoche, una
+  // niebla tan cerrada tapaba el muro y la silueta de los luchadores altos (dragón, gólem) antes de
+  // que la cámara pudiera verlos del todo. Más rala deja leer la arena entera y el color sigue
+  // marcando «de noche» sin devorar el contraste.
+  const niebla = new T.FogExp2(ARENA.niebla, 0.025);
 
   return { raiz, taller: t, antorchas, polvo, chispas, luces: { ambiente, hemisferio, clave, contra, recorte }, niebla, suelo, calidad: cal };
 }

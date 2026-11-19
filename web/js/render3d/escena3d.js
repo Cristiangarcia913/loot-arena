@@ -25,7 +25,7 @@ import {
   CALIDADES, HUECO_DESCARTADO, Medidor, Vigilante, bajarCalidad, consultaReducido, detectarEquipo,
   duracion, nivelEquipo, pixelesPorCss,
 } from "./rendimiento.js";
-import { claveDeNombre } from "./paleta.js";
+import { claveDeNombre, ARENA } from "./paleta.js";
 import { BESTIARIO, metadatos3d } from "../combat.js";
 import { Director } from "./camara.js";
 import { construirCofre, pasoCofre, rarezaValida, DURACION, CHISPAS } from "./cofre.js";
@@ -60,6 +60,11 @@ const E = {
   observadores: [],
   promesaListo: null,
 };
+
+// Color de fondo del lienzo (el "cielo" del coliseo) fuera del radio de la niebla: el mismo azul
+// medianoche que `ARENA.niebla`, para que no haya una costura entre el fondo plano y la niebla de
+// verdad cuando la cámara se abre en una criatura grande (dragón, gólem).
+const FONDO_CIELO = ARENA.niebla;
 
 const mqReducido = consultaReducido();
 /** @returns {boolean} true si el usuario pidió movimiento reducido. */
@@ -350,7 +355,7 @@ async function arrancar() {
     powerPreference: "high-performance",
     stencil: false,
   });
-  render.setClearColor(0x0c0806, 1);
+  render.setClearColor(FONDO_CIELO, 1);
   render.shadowMap.enabled = cal.sombras;
   if (cal.sombras) render.shadowMap.type = T.PCFSoftShadowMap;
   if (T.ACESFilmicToneMapping != null) { render.toneMapping = T.ACESFilmicToneMapping; render.toneMappingExposure = 1.15; }
@@ -1069,8 +1074,8 @@ export function destello(color = 0xffffff, opacidad = 0.6, ms = 260) {
   if (!E.listo) return;
   const T = E.T;
   const c = new T.Color(color);
-  const fondo = new T.Color(0x0c0806);
-  const nieblaBase = new T.Color(0x140d08);
+  const fondo = new T.Color(FONDO_CIELO);
+  const nieblaBase = new T.Color(FONDO_CIELO);
   const aux = new T.Color();
   const op = reducido() ? opacidad * 0.4 : opacidad;
   animar({
@@ -1081,8 +1086,8 @@ export function destello(color = 0xffffff, opacidad = 0.6, ms = 260) {
       if (E.esc?.niebla?.color) E.esc.niebla.color.copy(nieblaBase).lerp(c, k * 0.8);
     },
     fin: () => {
-      E.render.setClearColor(0x0c0806, 1);
-      E.esc?.niebla?.color?.set(0x140d08);
+      E.render.setClearColor(FONDO_CIELO, 1);
+      E.esc?.niebla?.color?.set(FONDO_CIELO);
     },
   });
 }

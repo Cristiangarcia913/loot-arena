@@ -532,7 +532,8 @@ const RECETAS = {
   },
 
   esqueleto(t, c) {
-    const m = t.mat(c.base, { rugosidad: 0.75, plano: true }), mo = t.mat(c.osc, { rugosidad: 0.85, plano: true });
+    // Hueso desgastado: mate de verdad (0.75 → 0.82), no un brillo de hueso pulido.
+    const m = t.mat(c.base, { rugosidad: 0.82, plano: true }), mo = t.mat(c.osc, { rugosidad: 0.88, plano: true });
     const h = humanoide(t, { alto: 1.7, ancho: 0.44, matCuerpo: m, matOsc: mo, cabezaR: 0.19, cuello: 0.05, hombros: 0.95 });
     // Costillas en lugar de torso macizo
     h.torso.scale.set(0.62, 1, 0.55);
@@ -593,7 +594,18 @@ const RECETAS = {
     const h = humanoide(t, { alto: 1.95, ancho: 0.72, matCuerpo: m, matOsc: mo, cabezaR: 0.26, hombros: 1.25 });
     h.cabeza.add(t.en(t.caja(0.3, 0.12, 0.2, m), 0, -0.14, 0.06)); // mandíbula
     for (const s of [-1, 1]) h.cabeza.add(t.en(t.cono(0.035, 0.15, t.mat(0xf5f0e0, { rugosidad: 0.4 })), s * 0.1, -0.1, 0.14, { rx: 0.2 })); // colmillos
-    h.cabeza.add(ojos(t, 0xef4444, { r: 0.035, x: 0.1, y: 0.05, z: 0.22 }));
+    // Ojos color ámbar (misma familia que el goblin, no el rojo de bestia/demonio): es lo que
+    // distingue de un vistazo a un humanoide salvaje de un depredador de verdad.
+    h.cabeza.add(ojos(t, 0xfde047, { r: 0.035, x: 0.1, y: 0.05, z: 0.22 }));
+    // Hombreras de hierro: sin esto el orco iba desnudo de torso y el pedido de «armadura de
+    // hierro con reflejo» no se notaba en el cuerpo, solo en el hacha.
+    const matHierro = t.mat(0x3b3630, { metal: 0.7, rugosidad: 0.3 });
+    for (const s of [-1, 1]) {
+      h.torso.add(t.en(t.esfera(0.17, matHierro, 0.6), s * 0.46, 0.12, 0));
+      h.torso.add(t.en(t.cono(0.05, 0.14, matHierro), s * 0.46, 0.22, 0, { rz: s * 0.3 }));
+    }
+    // Cinturón con hebilla de hierro (en coordenadas locales del torso, a la altura de la cadera)
+    h.torso.add(t.en(t.toro(0.3, 0.035, matHierro), 0, -0.38, 0, { rx: Math.PI / 2 }));
     // Hacha de dos hojas
     const arma = t.grupo("arma");
     const matHoja = t.mat(0x9ca3af, { metal: 0.85, rugosidad: 0.4 });
@@ -620,7 +632,9 @@ const RECETAS = {
     const cabeza = t.grupo("cabeza");
     cabeza.add(t.en(t.esfera(0.21, m, 1.1), 0, 0, 0));
     cabeza.add(t.en(t.cono(0.27, 0.42, t.mat(c.osc, { opacidad: 0.75, rugosidad: 0.4, doble: true })), 0, 0.1, -0.03)); // capucha
-    cabeza.add(ojos(t, 0xffffff, { r: 0.045, x: 0.075, y: 0, z: 0.16 }));
+    // Azul espectral, no blanco: es un fantasma, no un demonio, y el tono fantasmal distingue a
+    // simple vista su familia "no-muerta" en medio del bestiario.
+    cabeza.add(ojos(t, c.emision || 0x7dd3fc, { r: 0.045, x: 0.075, y: 0, z: 0.16 }));
     t.en(cabeza, 0, 0.62, 0);
     cuerpo.add(cabeza);
     for (const s of [-1, 1]) {
@@ -736,7 +750,9 @@ const RECETAS = {
     cabeza.add(t.en(t.esfera(0.26, m, 0.85), 0, 0, 0));
     cabeza.add(t.en(t.cono(0.17, 0.42, mo), 0, -0.04, 0.3, { rx: Math.PI / 2 })); // morro
     for (const s of [-1, 1]) cabeza.add(t.en(t.cono(0.055, 0.34, mo), s * 0.14, 0.2, -0.1, { rx: -0.5, rz: s * 0.4 })); // cuernos
-    cabeza.add(ojos(t, c.acento, { r: 0.05, x: 0.13, y: 0.08, z: 0.2 }));
+    // Rojo ardiente, no el dorado de los cuernos y escamas (`c.acento`): es la bestia del
+    // bestiario que más tiene que leerse como una amenaza encendida contra el cielo nocturno.
+    cabeza.add(ojos(t, 0xff3b1f, { r: 0.05, x: 0.13, y: 0.08, z: 0.2 }));
     t.en(cabeza, 0, 0.4, 0.1);
     prev.add(cabeza);
     t.en(cuello, 0, 0.3, 0.42);

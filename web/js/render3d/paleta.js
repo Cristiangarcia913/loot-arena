@@ -128,7 +128,10 @@ export const ARENA = Object.freeze({
   muroLuz: 0x3b2a1c,
   oro: 0xe8b75a,
   estandarte: 0x6b1414,
-  niebla: 0x140d08,
+  // Cielo nocturno de coliseo: azul medianoche, no negro puro. Un fondo sin tono se traga a
+  // cualquier criatura oscura (el dragón, los no-muertos); con un azul profundo el ojo sigue
+  // distinguiendo la silueta contra la niebla aunque esté lejos de las antorchas.
+  niebla: 0x0a1128,
   madera: 0x1a1410,
   llama: 0xffb13c,
   llamaNucleo: 0xfff5c8,
