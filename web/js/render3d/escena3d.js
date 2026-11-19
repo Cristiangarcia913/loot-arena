@@ -384,7 +384,7 @@ async function arrancar() {
     mov.name = `mov-${q}`;
     ancla.add(mov);
     escena.add(ancla);
-    E.lados[q] = { ancla, mov, criatura: null, vivo: true, aura: null, baseX: signo * PUESTO_X };
+    E.lados[q] = { ancla, mov, criatura: null, vivo: true, aura: null, baseX: signo * PUESTO_X, baseZ: ancla.position.z };
   }
 
   // Sitio donde se dibujan los modelos al precalentarlos: dentro del plano de la cámara (si
@@ -844,6 +844,17 @@ function reconstruirHeroe() {
   precompilar(cr.raiz);
 }
 
+/**
+ * Retroceso extra en Z (metros) para enemigos cuyo modelo externo, ya reducido de escala, sigue
+ * quedando demasiado cerca del héroe y de la barra de vida. El puesto del enemigo (`ancla`) es el
+ * mismo para todas las claves, así que esto se aplica y se deshace al cambiar de enemigo (ver
+ * `aplicarEnemigo`), nunca se queda pegado a un combate anterior. Vacío salvo casos comprobados
+ * en pantalla, igual que `ALTURA_MODELOS`/`TINTE_MODELOS` de `modelos.js`.
+ */
+const RETROCESO_Z_ENEMIGO = Object.freeze({
+  dragon: -1.2,
+});
+
 function aplicarEnemigo() {
   const L = E.lados.enemigo;
   if (!L || !E.T) return;
@@ -851,6 +862,7 @@ function aplicarEnemigo() {
   const e = E.enemigo;
   const f = luchadorEl("enemigo");
   if (!e) { f?.classList.remove("jefe"); E.director?.reposar(); return; }
+  L.ancla.position.z = (L.baseZ ?? L.ancla.position.z) + (RETROCESO_Z_ENEMIGO[e.clave] ?? 0);
   const cr = delAlmacen(llaveEnemigo(e.clave, e.jefe),
     () => construirEnemigo(E.T, e.clave, { ...opcionesTaller(), jefe: !!e.jefe }));
   L.mov.add(cr.raiz);

@@ -213,7 +213,13 @@ export function construirEscenario(T, o = {}) {
   // Contraluz azulada: separa a las criaturas del muro oscuro
   const contra = new T.DirectionalLight(0x6ba3d6, 0.7);   // contraluz: recorta la silueta contra el muro
   contra.position.set(-4, 4, -7);
-  raiz.add(ambiente, hemisferio, clave, contra);
+  // Rim light potente: una criatura de piel/textura oscura (el dragón, de noche) se funde con el
+  // muro y la niebla de detrás con solo la contraluz azulada de arriba. Esta viene de más atrás,
+  // más alta y mucho más fuerte, en un tono cálido de fuego, para perfilar con un halo brillante
+  // las púas, las alas y la cabeza contra el fondo oscuro.
+  const recorte = new T.DirectionalLight(0xffb066, 2.2);
+  recorte.position.set(1.4, 5.5, -9.2);
+  raiz.add(ambiente, hemisferio, clave, contra, recorte);
 
   // ── Polvo en suspensión ──
   let polvo = null;
@@ -244,7 +250,7 @@ export function construirEscenario(T, o = {}) {
 
   const niebla = new T.FogExp2(ARENA.niebla, 0.052);
 
-  return { raiz, taller: t, antorchas, polvo, luces: { ambiente, hemisferio, clave, contra }, niebla, suelo, calidad: cal };
+  return { raiz, taller: t, antorchas, polvo, luces: { ambiente, hemisferio, clave, contra, recorte }, niebla, suelo, calidad: cal };
 }
 
 /**

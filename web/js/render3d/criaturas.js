@@ -16,7 +16,7 @@ import { Taller, ALTO_HEROE } from "./piezas.js";
 import { colorEnemigo, rareza3d, hex, oscurecer, HEROE, CLAVES_ENEMIGO } from "./paleta.js";
 import { CATALOGO, cosmetico } from "../economy.js";
 import { metadatos3d, BESTIARIO } from "../combat.js";
-import { modeloEnMemoria, criaturaDesdeModelo } from "./modelos.js";
+import { modeloEnMemoria, criaturaDesdeModelo, ALTURA_MODELOS } from "./modelos.js";
 
 const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
 
@@ -1393,11 +1393,14 @@ export function construirEnemigo(T, clave, o = {}) {
   try { meta = metadatos3d(k); } catch { meta = null; }
 
   // Modelo externo verificado por el equipo (ver `modelos.js`): sustituye la malla entera, igual
-  // que en `construirHeroe`. La altura la sigue mandando el bestiario (relativa al héroe), con el
-  // mismo tope `ESTIRADO_MAX` que la vía procedural.
+  // que en `construirHeroe`. La altura la manda el bestiario (relativa al héroe), con el mismo
+  // tope `ESTIRADO_MAX` que la vía procedural, salvo que `ALTURA_MODELOS` traiga un valor fijo
+  // para esa clave (un modelo concreto que, aun dentro del tope, queda demasiado grande para la
+  // cámara de combate).
   const plantillaExterna = modeloEnMemoria(k);
   if (plantillaExterna) {
-    const alturaObjetivo = meta?.altura > 0 ? Math.min(meta.altura, ESTIRADO_MAX) * ALTO_HEROE : ALTO_HEROE;
+    const alturaObjetivo = ALTURA_MODELOS[k]
+      ?? (meta?.altura > 0 ? Math.min(meta.altura, ESTIRADO_MAX) * ALTO_HEROE : ALTO_HEROE);
     const cr = criaturaDesdeModelo(plantillaExterna, alturaObjetivo, T, k);
     cr.raiz.name = `enemigo-${k || "generico"}-externo`;
     if (o.jefe) cr.raiz.scale.setScalar(cr.raiz.scale.x * 1.35); // sin corona: no hay Taller aquí

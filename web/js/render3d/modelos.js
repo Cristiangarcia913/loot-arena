@@ -23,6 +23,32 @@ export const ROTACION_Y_MODELOS = Object.freeze({
   // dragon: Math.PI,
 });
 
+/**
+ * Altura final en metros (pies a cabeza) para un modelo, cuando la fórmula genérica del bestiario
+ * (altura relativa al héroe, con tope `ESTIRADO_MAX` en `criaturas.js`) se queda demasiado grande y
+ * la criatura tapa la interfaz de combate. Anula ese cálculo para la clave que tenga entrada aquí;
+ * las demás siguen exactamente igual. Vacío a propósito, igual que `ROTACION_Y_MODELOS`.
+ */
+export const ALTURA_MODELOS = Object.freeze({
+  dragon: 2.85,
+});
+
+/**
+ * Tinte de material por modelo: algunos `.glb` descargados llegan con una sola textura muy oscura
+ * y se funden con el suelo y el muro de la arena. `color` multiplica el `baseColorFactor` (se
+ * permite subir algún canal por encima de 1 a propósito, para que NO se quede más oscuro al
+ * multiplicarse con una textura ya oscura); `emissive`/`emissiveIntensity` suman brillo propio, que
+ * no depende de la textura y por eso separa ojos/fauces/escamas del fondo aunque no haya luz
+ * directa encima. Vacío a propósito, igual que `ROTACION_Y_MODELOS`.
+ */
+export const TINTE_MODELOS = Object.freeze({
+  // Dragón de fuego: la textura del `.glb` es un marrón oscuro liso que se pierde en la arena de
+  // noche. Un solo material cubre todo el cuerpo (sin separación por piezas), así que el tinte es
+  // uniforme: escarlata/carmesí con el rojo empujado por encima de 1 para que contraste de verdad,
+  // y un brillo naranja/rojo fuego sutil encima.
+  dragon: { colorRGB: [2.4, 0.42, 0.34], emissive: 0xff5a1f, emissiveIntensity: 0.35 },
+});
+
 const urlAddon = (archivo) => `https://cdn.jsdelivr.net/npm/three@${TRES_VERSION}/examples/jsm/${archivo}`;
 
 let promesaLoader = null;
@@ -152,7 +178,7 @@ export function precargarModelo(nombre) {
  * @param {object} plantilla la escena de `cargarModeloExterno` (no se modifica)
  * @param {number} alturaObjetivo metros, de los pies a lo más alto
  * @param {object} [T] three.js, solo para arrancar el `AnimationMixer` si hay clips embebidos
- * @param {string} [nombre] clave del bestiario (para `ROTACION_Y_MODELOS`)
+ * @param {string} [nombre] clave del bestiario (para `ROTACION_Y_MODELOS` y `TINTE_MODELOS`)
  * @returns {{raiz:object, taller:{liberar:Function}, alto:number, radio:number, partes:object,
  *            materiales:object[], flota:boolean, externo:true, mixer:object|null}}
  */
@@ -160,12 +186,25 @@ export function criaturaDesdeModelo(plantilla, alturaObjetivo, T, nombre) {
   const raiz = plantilla.clone(true);
   const clips = plantilla.animaciones ?? [];
   const materiales = [];
+  const tinte = nombre && TINTE_MODELOS[nombre];
 
   raiz.traverse((n) => {
     if (!n.isMesh || !n.geometry) return;
     n.geometry = n.geometry.clone();
     n.geometry.computeBoundingBox?.();
-    const clonar = (m) => { const c = m.clone(); materiales.push(c); return c; };
+    const clonar = (m) => {
+      const c = m.clone();
+      if (tinte && T?.Color) {
+        if (c.color && tinte.colorRGB) c.color.setRGB(...tinte.colorRGB);
+        else if (c.color && tinte.color != null) c.color = new T.Color(tinte.color);
+        if (c.emissive && tinte.emissive != null) {
+          c.emissive = new T.Color(tinte.emissive);
+          c.emissiveIntensity = tinte.emissiveIntensity ?? 1;
+        }
+      }
+      materiales.push(c);
+      return c;
+    };
     if (!n.material && T?.MeshStandardMaterial) {
       // Malla sin material (algún exportador lo deja vacío): sin esto se ve negra o blanca lisa.
       const m = new T.MeshStandardMaterial({ color: 0x6b3a2e, roughness: 0.6, metalness: 0.1 });
