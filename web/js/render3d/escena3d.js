@@ -607,6 +607,16 @@ function reposo(q, s) {
       cuerpo.position.y = baseY + Math.sin(s * 1.7 + fase) * 0.022 * f;
       cuerpo.rotation.z = Math.sin(s * 0.85 + fase) * 0.018 * f;
     }
+  } else if (cr.externo) {
+    // Un modelo externo (dragon.glb y cualquier otro `.glb` futuro) no trae piezas con nombre que
+    // mecer: sin esto se queda congelado como una estatua en vez de parecer un animal vivo. Se
+    // respira sobre la propia raíz, ya centrada por `criaturaDesdeModelo`, en Y (posición, sube y
+    // baja el pecho) y Z (balanceo lateral) — dejando el eje X libre para el cabeceo del ataque de
+    // `animarAtaque`, que si no se pisarían entre sí fotograma a fotograma.
+    const raiz = cr.raiz;
+    const baseY = raiz.userData.baseY ?? (raiz.userData.baseY = raiz.position.y);
+    raiz.position.y = baseY + Math.sin(s * 1.4 + fase) * 0.03 * f;
+    raiz.rotation.z = Math.sin(s * 0.8 + fase) * 0.025 * f;
   }
   if (quieto) return;
   if (p?.cabeza) p.cabeza.rotation.y = Math.sin(s * 0.45 + fase) * 0.17;
@@ -1243,6 +1253,12 @@ export function animarAtaque(quien, { critico = false, brutal = false, animacion
   const cabezaBase = cabeza?.rotation.x ?? 0;
   const cuerpo = L.criatura.partes?.cuerpo ?? null;
   const cuerpoBase = cuerpo?.rotation.x ?? 0;
+  // Modelo externo sin `cuerpo` con nombre (dragon.glb): el cabeceo de la embestida/mordisco se
+  // aplica a la propia raíz, en el eje X que `reposo()` deja libre para esto (usa Y/Z para la
+  // respiración), así el dragón se abalanza y mete la cabeza en el golpe igual que una criatura
+  // con receta propia.
+  const raizExterna = !cuerpo && L.criatura.externo ? L.criatura.raiz : null;
+  const raizPitchBase = raizExterna?.rotation.x ?? 0;
 
   // La cámara: los ataques que no se mueven del sitio piden un plano más abierto, porque lo que
   // hay que ver es lo que sale volando, no al que lo lanza.
@@ -1272,6 +1288,7 @@ export function animarAtaque(quien, { critico = false, brutal = false, animacion
       L.mov.position.y = Math.sin(Math.max(0, Math.min(1, k)) * Math.PI) * d.alzar;
       L.mov.rotation.y = -0.18 * k + d.giro * Math.sin(Math.max(0, k) * Math.PI);
       if (cuerpo) cuerpo.rotation.x = cuerpoBase + d.inclinar * Math.max(0, k);
+      else if (raizExterna) raizExterna.rotation.x = raizPitchBase + (d.inclinar + d.cabeza * 0.5) * Math.max(0, k);
       if (cabeza && d.cabeza) cabeza.rotation.x = cabezaBase + d.cabeza * Math.max(0, k);
       if (arma && d.arma) arma.rotation.x = armaBase - d.arma * k;
       E.director?.juntando(Math.max(0, k) * (d.avance > 0 ? 1 : 0));
@@ -1284,6 +1301,7 @@ export function animarAtaque(quien, { critico = false, brutal = false, animacion
       if (arma) arma.rotation.x = armaBase;
       if (cabeza) cabeza.rotation.x = cabezaBase;
       if (cuerpo) cuerpo.rotation.x = cuerpoBase;
+      else if (raizExterna) raizExterna.rotation.x = raizPitchBase;
     },
   });
 }
