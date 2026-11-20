@@ -1,0 +1,31 @@
+/* Telemetría Emocional opcional (UX research, 100% local). Prefijo emo- para no chocar con style.css.
+   z-index 60: por debajo de toasts (120) y de cualquier pantalla (80+), para no tapar nada importante. */
+.btn-icono#btn-emociones.activo { box-shadow: 0 0 0 2px var(--oro), 0 0 10px rgba(232, 183, 90, .6); }
+
+.emo-indicador {
+  position: fixed; top: 64px; right: 12px; z-index: 60;
+  width: 34px; height: 34px; display: grid; place-items: center;
+  font-size: 1.3rem; line-height: 1; border-radius: 50%;
+  background: var(--panel-2, #2d231b); border: 1px solid var(--borde, #5b4530);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .5);
+  animation: emo-aparece .25s ease-out;
+}
+@keyframes emo-aparece { from { transform: scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.emo-pantalla { background: rgba(5, 3, 2, .82); backdrop-filter: blur(3px); }
+.emo-caja {
+  max-width: min(420px, 92vw); border-radius: 18px; border: 2px solid var(--oro);
+  background: linear-gradient(180deg, var(--panel-2, #2d231b), #15100c);
+  padding: 22px 24px; text-align: center; box-shadow: var(--sombra, 0 10px 30px rgba(0, 0, 0, .5));
+}
+.emo-caja h3 { color: var(--oro); margin: 0 0 14px; font-size: 1.15rem; }
+.emo-filas { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.emo-fila {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 8px 10px; border-radius: 10px; background: rgba(0, 0, 0, .25); border: 1px solid var(--borde, #5b4530);
+}
+.emo-fila-icono { font-size: 1.3rem; flex: none; }
+.emo-fila-texto { flex: 1; }
+.emo-fila-texto strong { color: var(--oro); }
+.emo-conclusion { font-weight: 700; color: var(--oro); margin: 10px 0; }
+.emo-nota { font-size: .78rem; color: var(--tenue, #b9a88e); margin: 0 0 16px; }

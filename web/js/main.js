@@ -21,6 +21,7 @@ import * as HEROE from "./heroe.js";
 import * as GAS from "./gas.js";
 import * as TUT from "./tutorial.js";
 import * as EXP from "./expediciones.js";
+import * as EMO from "./emociones.js";
 import { reclamarBotin } from "./api.js";
 import { mostrarAnuncioRecompensado } from "./anuncios.js";
 import { catalogoRotativo, semillaDelDia, ofertaDelDiaCosmetico } from "./economy.js";
@@ -986,7 +987,7 @@ async function alTerminar(fin) {
     const r = P.aplicarVictoria(S.progreso, c.enemigo);
     S.progreso = r.progreso;
     // Jefe vencido (de nivel o de racha): los Modificadores de Arena en juego se vacían.
-    if (c.enemigo.jefe) S.modificadoresArena = [];
+    if (c.enemigo.jefe) { S.modificadoresArena = []; EMO.capturarPico("jefe_vencido"); }
     guardarProgreso();
     renderHeroe();
     const nivelAhora = P.infoXp(S.progreso).nivel;
@@ -1003,8 +1004,11 @@ async function alTerminar(fin) {
     return;
   }
 
-  if (fin === "derrota") S.progreso = P.aplicarDerrota(S.progreso);
-  else S.progreso = P.aplicarHuida(S.progreso);
+  if (fin === "derrota") {
+    const perdiaRacha = S.progreso.racha > 0;
+    S.progreso = P.aplicarDerrota(S.progreso);
+    if (perdiaRacha) EMO.capturarPico("racha_perdida");
+  } else S.progreso = P.aplicarHuida(S.progreso);
   // La racha se rompe: con ella se acaban los Modificadores de Arena en juego.
   S.modificadoresArena = [];
   guardarProgreso();
@@ -1014,6 +1018,7 @@ async function alTerminar(fin) {
   const eleccion = await FX.mostrarResultado({ tipo: fin, ...resumen, racha: 0 });
   if (fin === "derrota") resultado(h("div", { class: "res res-derrota" }, h("strong", {}, "☠️ Derrota. "), "Tu racha se rompe y la expedición termina. Mejora tu equipo, compra pociones en la tienda y vuelve a Explorar."));
   if (eleccion === "otra") explorar();
+  else await EMO.mostrarResumenSesion();
 }
 
 // ───────────────────────── Modificadores de Arena (bendiciones/maldiciones) ─────────────────────────
@@ -1233,6 +1238,7 @@ async function mostrarBotin(r, eleccionPrevia) {
           detalle: [E.rareza(r.item.rareza).nombre], hash: r.txHash ?? null,
         });
       }
+      if (r.item.rareza >= 1) EMO.capturarPico("botin_raro");
       eleccion = await FX.revelarBotin(r.item);
       TUT.avanzarTutorial("botin");
       await cargarInventario();
@@ -1252,6 +1258,7 @@ async function mostrarBotin(r, eleccionPrevia) {
       if (enemigo?.jefe) {
         registrarHistorialLocal({ tipo: "botin", titulo: `Botín de jefe: «${r.item.nombre}»`, detalle: [E.rareza(r.item.rareza).nombre, "modo demo: guardado en este navegador"] });
       }
+      if (r.item.rareza >= 1) EMO.capturarPico("botin_raro");
       eleccion = await FX.revelarBotin(r.item);
       TUT.avanzarTutorial("botin");
       await cargarInventario();
@@ -1274,6 +1281,7 @@ async function mostrarBotin(r, eleccionPrevia) {
       resultado(h("div", { class: "res res-error" }, h("strong", {}, "❌ No se pudo reclamar el botín. "), r.mensaje, " ", reintentar));
   }
   if (eleccion === "otra") explorar();
+  else await EMO.mostrarResumenSesion();
 }
 
 // ───────────────────────── Sección Cadena ─────────────────────────
@@ -1321,6 +1329,7 @@ async function montarSeccionCadena() {
 // ───────────────────────── Arranque ─────────────────────────
 
 async function iniciar() {
+  EMO.iniciar();
   conectarBoton3D();
   await elegirMotor();
   // Los dos motores exportan `iniciarInterfaz`: el 3D monta su escena y limpia la 2D,
