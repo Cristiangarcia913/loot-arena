@@ -1,11 +1,17 @@
 // Telemetría Emocional opcional para UX research (MEJORAS: "Radiografía de Satisfacción del
 // Jugador"). 100 % local y privado: el análisis se hace en el navegador del jugador con
-// face-api.js (CDN jsDelivr); nunca se guarda ni se envía ninguna foto, solo la emoción
-// dominante y su porcentaje. No toca el DOM ni la cámara al importarse.
+// face-api.js (CDN jsDelivr); nunca se guarda ni se envía ninguna foto, solo la reacción
+// detectada. No toca el DOM ni la cámara al importarse.
+//
+// La cara de reposo de cada jugador ante una webcam normal varía demasiado (luz, ángulo,
+// expresividad) para fiarse del valor ABSOLUTO de un solo fotograma: por eso se comparan 3
+// fotogramas por evento (antes/durante/después, ver `capturarPico`) y se juzga por el CAMBIO
+// respecto al "antes" (`clasificarReaccion`), no por la emoción "en bruto" de cada uno.
 //
 // Partes:
-//   1. Utilidades puras (interpretar expresiones, resumen de sesión) → testeables sin DOM.
-//   2. Cámara y face-api.js: un fotograma puntual por evento clave, nunca un bucle continuo
+//   1. Utilidades puras (puntuar expresiones, comparar 3 fotogramas, resumen de sesión) →
+//      testeables sin DOM.
+//   2. Cámara y face-api.js: 3 fotogramas puntuales por evento clave, nunca un bucle continuo
 //      (cero impacto en los 60 FPS). Cualquier fallo (sin webcam, permiso denegado, CDN caído,
 //      sin rostro…) se traga en silencio: el juego sigue exactamente igual.
 //   3. Widget de UI: botón "📷 Medidor Emocional (Opcional)", indicador de esquina y el modal
@@ -15,14 +21,17 @@ import { toast } from "./ui.js";
 
 // ───────────────────────── 1. Utilidades puras ─────────────────────────
 
-/** Claves de expresión que entiende face-api.js (orden fijo, no depende del objeto de la lib). */
-const CLAVES_EMOCION = ["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"];
+/** Expresiones de face-api.js que cuentan como reacción positiva (alegría/sorpresa) y negativa
+ * (tristeza, enfado, asco, miedo: decepción al perder). `neutral` no entra en ninguna: es la base. */
+const CLAVES_POSITIVAS = ["happy", "surprised"];
+const CLAVES_NEGATIVAS = ["sad", "angry", "disgusted", "fearful"];
 
-/** Emoji por emoción dominante, para el indicador de esquina y el resumen. */
-export const ICONOS_EMOCION = Object.freeze({
-  neutral: "😐", happy: "😃", surprised: "😮", sad: "😢", angry: "😠", fearful: "😨", disgusted: "🤢",
+/** 3 reacciones posibles (lo único que ve el jugador: no hace falta más granularidad). */
+export const REACCIONES = Object.freeze({
+  contento_sorprendido: Object.freeze({ icono: "😲", texto: "Contento / Sorprendido" }),
+  triste_decepcion: Object.freeze({ icono: "😢", texto: "Triste / Decepción" }),
+  sin_reaccion: Object.freeze({ icono: "😐", texto: "Sin reacción" }),
 });
-export const icono = (emocion) => ICONOS_EMOCION[emocion] ?? "😐";
 
 /**
  * Los 3 disparadores de combate/cofre que alimentan la telemetría, con su etiqueta para el
@@ -38,29 +47,48 @@ export const EVENTOS_EMOCION = Object.freeze({
 export const MAX_HISTORIAL = 200;
 
 /**
- * Emoción dominante de un objeto de expresiones de face-api.js (`{neutral, happy, sad, …}` en
- * 0..1). Pura: no depende de la forma exacta del objeto (admite plano o con `.asSortedArray`).
- * @param {Record<string, number>} expresiones
- * @returns {{emocion:string, porcentaje:number}}
+ * Suma de probabilidad positiva/negativa de UN fotograma de expresiones de face-api.js
+ * (`{neutral, happy, sad, …}` en 0..1 cada una). `null` (sin rostro detectado) puntúa 0 en ambas.
+ * Pura.
+ * @param {Record<string, number>|null} expresiones
+ * @returns {{positivo:number, negativo:number}}
  */
-export function interpretarExpresiones(expresiones) {
-  if (!expresiones || typeof expresiones !== "object") return { emocion: "neutral", porcentaje: 0 };
-  let mejor = "neutral", valor = -1;
-  for (const clave of CLAVES_EMOCION) {
-    const v = Number(expresiones[clave]);
-    if (Number.isFinite(v) && v > valor) { valor = v; mejor = clave; }
-  }
-  return { emocion: mejor, porcentaje: Math.round(Math.max(0, valor) * 100) };
+export function puntuarEmocion(expresiones) {
+  const suma = (claves) => claves.reduce((s, k) => s + (Number(expresiones?.[k]) || 0), 0);
+  return { positivo: suma(CLAVES_POSITIVAS), negativo: suma(CLAVES_NEGATIVAS) };
+}
+
+/** A partir de qué subida (0..1) de positivo/negativo respecto al "antes" se considera una reacción de verdad. */
+export const UMBRAL_REACCION = 0.15;
+
+/**
+ * Compara 3 fotogramas de un mismo evento (`antes` del momento clave, `durante` y `después`,
+ * cada uno expresiones de face-api.js o `null` si no se detectó rostro) y decide la reacción
+ * por el CAMBIO respecto al "antes": cuánto sube lo positivo o lo negativo en el pico de
+ * durante/después frente a la cara de referencia. Pura.
+ * @param {{antes?: object|null, durante?: object|null, despues?: object|null}} fotogramas
+ * @returns {{reaccion: keyof typeof REACCIONES, deltaPositivo:number, deltaNegativo:number}}
+ */
+export function clasificarReaccion({ antes = null, durante = null, despues = null } = {}) {
+  const base = puntuarEmocion(antes);
+  const pico = [durante, despues].map(puntuarEmocion);
+  const picoPositivo = Math.max(0, ...pico.map((p) => p.positivo));
+  const picoNegativo = Math.max(0, ...pico.map((p) => p.negativo));
+  const deltaPositivo = Math.round((picoPositivo - base.positivo) * 100) / 100;
+  const deltaNegativo = Math.round((picoNegativo - base.negativo) * 100) / 100;
+  let reaccion = "sin_reaccion";
+  if (deltaPositivo >= UMBRAL_REACCION && deltaPositivo >= deltaNegativo) reaccion = "contento_sorprendido";
+  else if (deltaNegativo >= UMBRAL_REACCION && deltaNegativo > deltaPositivo) reaccion = "triste_decepcion";
+  return { reaccion, deltaPositivo, deltaNegativo };
 }
 
 /**
- * Pico de emoción para un evento clave: `{evento, emocionDominante, porcentaje, timestamp}`.
+ * Pico de reacción para un evento clave: `{evento, reaccion, deltaPositivo, deltaNegativo, timestamp}`.
  * @param {string} evento una clave de EVENTOS_EMOCION
- * @param {Record<string, number>} expresiones
+ * @param {{antes?: object|null, durante?: object|null, despues?: object|null}} fotogramas
  */
-export function crearPico(evento, expresiones, ahora = Date.now()) {
-  const { emocion, porcentaje } = interpretarExpresiones(expresiones);
-  return { evento, emocionDominante: emocion, porcentaje, timestamp: ahora };
+export function crearPico(evento, fotogramas, ahora = Date.now()) {
+  return { evento, ...clasificarReaccion(fotogramas), timestamp: ahora };
 }
 
 /** Añade un pico al historial sin mutar, recortando a `max` (se descartan los más antiguos). */
@@ -81,19 +109,23 @@ export function conclusionUX(media, nPicos) {
   return "Partida con baja intensidad emocional detectada.";
 }
 
+/** Intensidad (0..100) de un pico: lo que más cambió, sea positivo o negativo. */
+const intensidad = (p) => Math.max(0, Math.round(Math.max(p.deltaPositivo, p.deltaNegativo) * 100));
+
 /**
- * Resumen de UX research de una sesión: el pico (máximo porcentaje) de cada tipo de evento que
- * haya ocurrido, más una conclusión. Pura.
- * @param {Array<{evento:string, emocionDominante:string, porcentaje:number, timestamp:number}>} historial
- * @returns {{picos: Array<{evento:string, etiqueta:string, icono:string, emocionDominante:string, porcentaje:number}>, media:number, conclusion:string}}
+ * Resumen de UX research de una sesión: el pico más intenso (mayor cambio frente al "antes")
+ * de cada tipo de evento que haya ocurrido, más una conclusión. Pura.
+ * @param {Array<{evento:string, reaccion:string, deltaPositivo:number, deltaNegativo:number, timestamp:number}>} historial
+ * @returns {{picos: Array<{evento:string, etiqueta:string, icono:string, reaccion:string, reaccionIcono:string, reaccionTexto:string, porcentaje:number}>, media:number, conclusion:string}}
  */
 export function resumenSesion(historial = []) {
   const picos = [];
   for (const [evento, meta] of Object.entries(EVENTOS_EMOCION)) {
     const deEsteTipo = historial.filter((p) => p.evento === evento);
     if (!deEsteTipo.length) continue;
-    const pico = deEsteTipo.reduce((a, b) => (b.porcentaje > a.porcentaje ? b : a));
-    picos.push({ evento, etiqueta: meta.etiqueta, icono: meta.icono, emocionDominante: pico.emocionDominante, porcentaje: pico.porcentaje });
+    const pico = deEsteTipo.reduce((a, b) => (intensidad(b) > intensidad(a) ? b : a));
+    const r = REACCIONES[pico.reaccion] ?? REACCIONES.sin_reaccion;
+    picos.push({ evento, etiqueta: meta.etiqueta, icono: meta.icono, reaccion: pico.reaccion, reaccionIcono: r.icono, reaccionTexto: r.texto, porcentaje: intensidad(pico) });
   }
   const media = picos.length ? Math.round(picos.reduce((s, p) => s + p.porcentaje, 0) / picos.length) : 0;
   return { picos, media, conclusion: conclusionUX(media, picos.length) };
@@ -183,9 +215,9 @@ function indicador() {
   return el;
 }
 
-function actualizarIndicador(emocion) {
+function actualizarIndicador(reaccion) {
   const el = indicador();
-  el.textContent = icono(emocion);
+  el.textContent = (REACCIONES[reaccion] ?? REACCIONES.sin_reaccion).icono;
   el.hidden = !estado.activo;
 }
 
@@ -206,7 +238,7 @@ export async function activarMedidor() {
     estado.stream = stream;
     estado.video = crearVideoOculto(stream);
     estado.activo = true;
-    actualizarIndicador("neutral");
+    actualizarIndicador("sin_reaccion");
     toast("📷 Medidor emocional activado: se analiza en tu navegador, nunca se guarda ni se envía ninguna foto.", "ok", 6000);
     // Los modelos se precargan en segundo plano; si fallan, cada captura simplemente no hará nada.
     cargarFaceApi().catch((e) => console.warn("[emociones] modelos no disponibles:", e?.message ?? e));
@@ -235,17 +267,15 @@ export async function alternarMedidor() {
   return activarMedidor();
 }
 
-/**
- * Captura UN fotograma puntual y lo analiza, solo si el medidor está activo. Se usa en los 3
- * instantes clave del juego (cofre con botín Raro/Legendario, Jefe derrotado, racha perdida).
- * PROHIBIDO llamarla en bucle: cada llamada es una foto suelta, nunca un stream. Cualquier fallo
- * (sin rostro en cámara, modelos sin cargar, CDN caído…) se traga y devuelve null: nunca bloquea
- * ni rompe el flujo del juego.
- * @param {keyof typeof EVENTOS_EMOCION} tipoEvento
- * @returns {Promise<{evento:string, emocionDominante:string, porcentaje:number, timestamp:number}|null>}
- */
-export async function capturarPico(tipoEvento) {
-  if (!estado.activo || !estado.video || !EVENTOS_EMOCION[tipoEvento]) return null;
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Cuándo se toman los fotogramas "durante" y "después", en ms desde la llamada a `capturarPico`
+ * (que en sí misma ya captura el "antes": el instante exacto del evento clave). */
+const RETRASO_DURANTE_MS = 500;
+const RETRASO_DESPUES_MS = 1400;
+
+/** Un fotograma suelto del vídeo oculto, analizado con face-api.js. `null` si no hay rostro o algo falla. */
+async function fotogramaExpresiones() {
+  if (!estado.video) return null;
   try {
     const faceapi = await cargarFaceApi();
     if (!estado.canvas) estado.canvas = document.createElement("canvas");
@@ -254,15 +284,38 @@ export async function capturarPico(tipoEvento) {
     cv.height = estado.video.videoHeight || 120;
     cv.getContext("2d").drawImage(estado.video, 0, 0, cv.width, cv.height);
     const deteccion = await faceapi.detectSingleFace(cv, new faceapi.TinyFaceDetectorOptions()).withFaceExpressions();
-    if (!deteccion) return null;
-    const pico = crearPico(tipoEvento, deteccion.expressions);
-    estado.historial = registrarPico(estado.historial, pico);
-    actualizarIndicador(pico.emocionDominante);
-    return pico;
+    return deteccion?.expressions ?? null;
   } catch (e) {
-    console.warn("[emociones] captura omitida:", e?.message ?? e);
+    console.warn("[emociones] fotograma omitido:", e?.message ?? e);
     return null;
   }
+}
+
+/**
+ * Mide la reacción del jugador ante un evento clave con 3 fotogramas puntuales (nunca un bucle,
+ * cero impacto en los 60 FPS): uno AHORA ("antes", el instante exacto del evento), otro a los
+ * `RETRASO_DURANTE_MS` ("durante", mientras procesa lo que ha pasado) y otro a los
+ * `RETRASO_DESPUES_MS` ("después", reacción ya asentada). Se compara el cambio frente al "antes"
+ * (ver `clasificarReaccion`) en vez de fiarse de un único fotograma absoluto, porque una sola foto
+ * de una webcam normal no es fiable para saber si alguien está "contento" o solo tiene esa cara.
+ * No hace nada si el medidor no está activo. Nunca lanza ni bloquea el flujo del juego: los
+ * fotogramas de después se toman en segundo plano, así que esta función no bloquea al llamador
+ * más que lo que tarda el primer fotograma ("antes").
+ * @param {keyof typeof EVENTOS_EMOCION} tipoEvento
+ * @returns {Promise<void>}
+ */
+export async function capturarPico(tipoEvento) {
+  if (!estado.activo || !estado.video || !EVENTOS_EMOCION[tipoEvento]) return;
+  const antes = await fotogramaExpresiones();
+  (async () => {
+    await esperar(RETRASO_DURANTE_MS);
+    const durante = await fotogramaExpresiones();
+    await esperar(RETRASO_DESPUES_MS - RETRASO_DURANTE_MS);
+    const despues = await fotogramaExpresiones();
+    const pico = crearPico(tipoEvento, { antes, durante, despues });
+    estado.historial = registrarPico(estado.historial, pico);
+    actualizarIndicador(pico.reaccion);
+  })().catch((e) => console.warn("[emociones] captura omitida:", e?.message ?? e));
 }
 
 /** Historial de picos de la sesión actual (copia). */
@@ -323,7 +376,7 @@ export function mostrarResumenSesion() {
     const filas = resumen.picos.map((p) => h("div", { class: "emo-fila" },
       h("span", { class: "emo-fila-icono", "aria-hidden": "true" }, p.icono),
       h("span", { class: "emo-fila-texto" }, `${p.etiqueta}: `,
-        h("strong", {}, `${icono(p.emocionDominante)} ${p.porcentaje}%`))));
+        h("strong", {}, `${p.reaccionIcono} ${p.reaccionTexto} (${p.porcentaje}%)`))));
     overlay = h("div", { class: "pantalla emo-pantalla" },
       h("div", { class: "emo-caja" },
         h("h3", {}, "📊 Radiografía de Satisfacción del Jugador"),
