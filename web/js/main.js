@@ -842,7 +842,10 @@ async function animarEvento(ev, c) {
     FX.sonar("rugido");
     $("#f-enemigo .retrato")?.classList.add("jefe-furioso");
   }
-  if (ev.tipo === "victoria") FX.animarMuerte("enemigo");
+  // `animarVictoriaHeroe` solo existe en el motor 3D (escena3d.js): el héroe alza espada y
+  // escudo, llueve confeti dorado y suena la fanfarria. En 2D (fx.js) no hace nada especial, así
+  // que se llama con encadenado opcional y sin esperar: es puro espectáculo.
+  if (ev.tipo === "victoria") { FX.animarMuerte("enemigo"); FX.animarVictoriaHeroe?.(); }
   if (ev.tipo === "derrota") FX.animarMuerte("heroe");
   if (!golpe && ev.dano == null && !ev.curacion && !defensa && !apoyo) await esperar(FX.reducido() ? 80 : 260);
 }
@@ -995,7 +998,7 @@ async function alTerminar(fin) {
     ENG.registrarEvento({ tipo: "racha", valor: r.racha });
     // El botín se pide ya (el servidor tarda unos segundos en mintear) mientras se ve el resumen.
     const botin = pedirBotin(c.enemigo);
-    const eleccion = await FX.mostrarResultado({ tipo: "victoria", ...resumen, xp: r.xp, racha: r.racha });
+    const eleccion = await FX.mostrarResultado({ tipo: "victoria", ...resumen, xp: r.xp, racha: r.racha, jefe: !!c.enemigo.jefe });
     // El modificador se ofrece ANTES de `mostrarBotin`: si `eleccion` es "otra", ese paso ya
     // encadena el siguiente combate (ver más abajo), así que hay que elegir ahora para que el
     // modificador llegue a tiempo y se aplique en `explorar()` a la próxima pelea.

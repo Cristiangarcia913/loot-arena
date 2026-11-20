@@ -53,9 +53,10 @@
 }
 .merc-tab {
   font: 600 .95rem var(--cuerpo); color: var(--tenue); background: transparent; border: 1px solid transparent;
-  border-radius: 9px; padding: 9px 18px; cursor: pointer; min-height: 40px;
+  border-radius: 9px; padding: 9px 18px; cursor: pointer; min-height: 40px; transition: transform .1s, color .15s;
 }
-.merc-tab:hover { color: var(--texto); }
+.merc-tab:hover { color: var(--texto); transform: scale(1.03); }
+.merc-tab:active { transform: scale(.97); }
 .merc-tab.on, .merc-tab[aria-selected="true"] {
   color: #2a1a06; background: linear-gradient(180deg, #f6d27c, var(--oro-2)); border-color: #f6d58b;
 }

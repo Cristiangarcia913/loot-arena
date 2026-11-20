@@ -97,8 +97,8 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
   box-shadow: 0 2px 0 rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .12);
   position: relative;
 }
-.btn:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
-.btn:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 0 0 rgba(0, 0, 0, .45); }
+.btn:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px) scale(1.03); }
+.btn:active:not(:disabled) { transform: translateY(1px) scale(.97); box-shadow: 0 0 0 rgba(0, 0, 0, .45); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn:focus-visible { outline: 2px solid var(--oro); outline-offset: 2px; }
 .btn-gold { background: linear-gradient(180deg, #f6d27c, var(--oro-2)); color: #2a1a06; border-color: #f6d58b; text-shadow: 0 1px 0 rgba(255, 255, 255, .35); }
@@ -143,9 +143,27 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
 }
 .btn-skill.legendaria { background: linear-gradient(180deg, #fbbf24, #b45309); color: #2a1a06; border-color: #fde68a; box-shadow: 0 0 14px rgba(245, 158, 11, .6); }
 
-/* Remate Definitivo (⚡): botón que solo se enciende con la Furia al 100 % (ver `.furia.lista`). */
+/* Remate Definitivo (⚡): botón que solo se enciende con la Furia al 100 % (ver `.furia.lista`).
+   Pulso dorado continuo + un par de chispas luminosas flotando, para que sea irresistible pulsarlo. */
 .btn-rematar { background: linear-gradient(180deg, #fde68a, var(--oro-2)); color: #2a1a06; border-color: #fff3c4; text-shadow: 0 1px 0 rgba(255, 255, 255, .35); }
-.btn-rematar.lista:not(:disabled) { animation: latido 1.2s ease-in-out infinite; }
+.btn-rematar.lista:not(:disabled) { animation: remate-brillo 1.1s ease-in-out infinite; overflow: visible; }
+.btn-rematar.lista:not(:disabled)::before,
+.btn-rematar.lista:not(:disabled)::after {
+  content: ""; position: absolute; width: 6px; height: 6px; border-radius: 50%;
+  background: #fff3c4; box-shadow: 0 0 6px 2px #fde68a; pointer-events: none;
+  animation: remate-chispa 1.6s ease-in-out infinite;
+}
+.btn-rematar.lista:not(:disabled)::before { top: -4px; left: 18%; animation-delay: 0s; }
+.btn-rematar.lista:not(:disabled)::after { top: 100%; left: 72%; animation-delay: .5s; }
+@keyframes remate-brillo {
+  0%, 100% { box-shadow: 0 0 8px 2px rgba(253, 230, 138, .6), 0 2px 0 rgba(0, 0, 0, .4); }
+  50% { box-shadow: 0 0 26px 10px rgba(253, 230, 138, .95), 0 2px 0 rgba(0, 0, 0, .4); }
+}
+@keyframes remate-chispa {
+  0% { transform: translateY(0) scale(.4); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translateY(-16px) scale(1.1); opacity: 0; }
+}
 
 /* ── Banner ── */
 .banner {
@@ -499,8 +517,13 @@ code { background: rgba(255, 255, 255, .06); padding: 0 .3em; border-radius: 4px
 
 /* ── Mercado (tienda/vestuario, contenido de tienda.js) ── */
 .pestanas { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: rgba(0, 0, 0, .3); border: 1px solid var(--borde-suave); }
-.pestana { font: 600 .88rem var(--cuerpo); color: var(--tenue); background: none; border: 0; padding: 7px 14px; border-radius: 8px; cursor: pointer; }
+.pestana {
+  font: 600 .88rem var(--cuerpo); color: var(--tenue); background: none; border: 0; padding: 7px 14px;
+  border-radius: 8px; cursor: pointer; transition: transform .1s, color .15s;
+}
 .pestana[aria-selected="true"] { color: #2a1a06; background: linear-gradient(180deg, #f6d27c, var(--oro-2)); }
+.pestana:hover:not([aria-selected="true"]) { color: var(--texto); transform: scale(1.03); }
+.pestana:active { transform: scale(.97); }
 .tienda:empty::before, .vestuario:empty::before { content: "Conecta tu wallet para abrir el mercado."; color: var(--tenue); font-size: .9rem; }
 .saldo-oro:empty { display: none; }
 .preview-cosmetico { width: 100%; height: 100%; min-height: 140px; display: grid; place-items: center; }
@@ -758,7 +781,7 @@ body.app { height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-
   position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px;
   color: var(--tenue); text-decoration: none; font-weight: 600; font-size: .95rem; transition: background .15s, color .15s, transform .1s;
 }
-.menu-item:hover { background: rgba(232, 183, 90, .09); color: var(--texto); }
+.menu-item:hover { background: rgba(232, 183, 90, .09); color: var(--texto); transform: scale(1.03); }
 .menu-item:active { transform: scale(.97); }
 .menu-item.activo { color: #2a1a06; background: linear-gradient(180deg, #f6d27c, var(--oro-2)); box-shadow: 0 2px 0 rgba(0, 0, 0, .45), 0 0 16px rgba(232, 183, 90, .25); }
 .menu-ico { font-size: 1.25rem; width: 1.7rem; text-align: center; flex: none; }

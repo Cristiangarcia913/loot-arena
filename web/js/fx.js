@@ -17,6 +17,12 @@ import {
   spriteHeroe, spriteEnemigo, spriteCofre, spriteCosmetico, spriteMedalla, spriteLlama, claveEnemigo, iconoEstado, iconoIntencion,
   iconoObjeto, PALETA_RAREZA, RANURA_COSMETICO, APARIENCIA_VACIA,
 } from "./sprites.js";
+import { toast } from "./ui.js";
+
+/** Enlace de la hazaña compartida (ver `mostrarResultado`). */
+const URL_JUEGO = "https://cristiangarcia913.itch.io/loot-arena";
+/** Racha mínima (estrictamente mayor que esto) para ofrecer compartir sin haber vencido a un jefe. */
+const RACHA_COMPARTIR = 5;
 
 export { sonar, setSilencio, silenciado, setMusica, musicaActiva } from "./audio.js";
 
@@ -1297,8 +1303,10 @@ export async function ocultarPortada() {
 
 /**
  * Pantalla de victoria/derrota a pantalla completa (#pantalla-resultado) con resumen y contadores animados.
+ * En victoria con racha > `RACHA_COMPARTIR` o jefe vencido, añade un botón "Compartir Hazaña" que
+ * copia un reto al portapapeles (factor viral).
  * @param {{tipo:"victoria"|"derrota"|"huida", enemigo?:string, danoHecho?:number, danoRecibido?:number,
- *          criticos?:number, turnos?:number, xp?:number, racha?:number, oro?:number}} resumen
+ *          criticos?:number, turnos?:number, xp?:number, racha?:number, oro?:number, jefe?:boolean}} resumen
  * @returns {Promise<"otra"|"continuar">} "otra" = «¡Otra vez!» (explorar de nuevo)
  */
 export function mostrarResultado(resumen = {}) {
@@ -1327,7 +1335,24 @@ export function mostrarResultado(resumen = {}) {
   const otra = txt("button", "btn btn-gold btn-grande", tipo === "derrota" ? "⚔️ Volver a intentarlo" : "⚔️ ¡Otra vez!");
   const seguir = txt("button", "btn btn-ghost", "Continuar");
   otra.type = seguir.type = "button";
-  acc.append(otra, seguir);
+  // Factor viral: racha alta o Jefe vencido es justo el momento en que a alguien le apetece
+  // presumir. El mensaje ya lleva el enlace al juego, así que compartir es jugada gratis.
+  let compartir = null;
+  if (tipo === "victoria" && (!!resumen.jefe || Number(resumen.racha) > RACHA_COMPARTIR)) {
+    compartir = txt("button", "btn btn-gold btn-latido", "📋 Compartir Hazaña");
+    compartir.type = "button";
+    compartir.addEventListener("click", async () => {
+      const mensaje = `🏆 ¡Acabo de derrotar a ${resumen.enemigo ?? "un rival"} con Racha ${Number(resumen.racha) || 0} en Loot Arena! `
+        + `¿Tienes agallas para superarme? ⚔️ Juega gratis aquí: ${URL_JUEGO}`;
+      try {
+        await navigator.clipboard.writeText(mensaje);
+        toast("¡Copiado al portapapeles! Reta a tus amigos", "ok", 3500);
+      } catch {
+        toast("No se pudo copiar: copia el mensaje a mano.", "error", 4000);
+      }
+    });
+  }
+  acc.append(otra, ...(compartir ? [compartir] : []), seguir);
   caja.append(grid, acc);
   p.replaceChildren(caja);
   p.hidden = false;

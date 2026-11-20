@@ -314,6 +314,30 @@ function asegurarLuchador(raiz, quien) {
     it.setAttribute("aria-live", "polite");
     (f.querySelector(".hp") ?? f.querySelector(".f-hud") ?? f).after(it);
   }
+  // Barra de vida con daño retardado ("ghost bar"): mismo mecanismo que fx.js (observa el
+  // ancho de `.hp-fill` y deja detrás un rastro rojo/ámbar que se drena 420 ms más tarde), para
+  // que el 3D pegue tan fuerte como el 2D en vez de quedarse con una barra que solo se encoge.
+  const hp = f.querySelector(".hp");
+  const fill = hp?.querySelector(".hp-fill");
+  if (fill && !hp.querySelector(".hp-lag")) {
+    const lag = el("div", "hp-lag");
+    fill.before(lag);
+    lag.style.width = fill.style.width || "100%";
+    let previo = parseFloat(fill.style.width) || 100;
+    let timer = 0;
+    new MutationObserver(() => {
+      const ahora = parseFloat(fill.style.width);
+      if (Number.isNaN(ahora)) return;
+      clearTimeout(timer);
+      if (ahora < previo) {
+        hp.classList.remove("hp-dano"); void hp.offsetWidth; hp.classList.add("hp-dano");
+        timer = setTimeout(() => { lag.style.transition = "width .55s cubic-bezier(.3,.7,.4,1)"; lag.style.width = `${ahora}%`; }, reducido() ? 0 : 420);
+      } else {
+        lag.style.transition = "none"; lag.style.width = `${ahora}%`;
+      }
+      previo = ahora;
+    }).observe(fill, { attributes: true, attributeFilter: ["style"] });
+  }
   return f;
 }
 
@@ -1750,6 +1774,64 @@ export function animarMuerte(quien) {
       cr.raiz.visible = false;
       for (const m of mats) m.opacity = 0;
       if (L.aura) { liberarRama(L.aura); L.aura = null; }
+    },
+  });
+}
+
+/**
+ * Lluvia de confeti dorado sobre la arena: varias ráfagas repartidas en el ancho del escenario,
+ * con un pelín de dorado/ámbar cada una para que no se vea un único color plano. Puro espectáculo
+ * (se salta igual que el resto de partículas con movimiento reducido o calidad baja).
+ */
+function confetiDorado() {
+  if (!E.listo) return;
+  const T = E.T;
+  const colores = [0xfde047, 0xf59e0b, 0xfff3c4, 0xeab308, 0xfbbf24];
+  const puntos = 7;
+  for (let i = 0; i < puntos; i++) {
+    const x = (i / (puntos - 1) - 0.5) * 3.4;
+    const pos = new T.Vector3(x, 3.2 + Math.random() * 0.5, azar(-0.7, 0.7));
+    const color = colores[i % colores.length];
+    setTimeout(() => {
+      if (!E.listo) return;
+      particulas(pos, { n: 26, color, vel: 0.9, g: -2.4, ms: 2200, tam: 0.09 });
+    }, i * 80);
+  }
+}
+
+/**
+ * Pose de victoria del gladiador: alza espada y escudo al cielo mientras llueve confeti dorado y
+ * suena la fanfarria. Se lanza junto a `animarMuerte("enemigo")` (ver `main.js`, evento
+ * `tipo: "victoria"`) y nunca se espera: es puro espectáculo, así que si el motor no está listo o
+ * el héroe ya no está en pie, no puede bloquear el flujo de combate.
+ * @returns {Promise<void>}
+ */
+export function animarVictoriaHeroe() {
+  sonar("victoria");
+  const L = E.lados.heroe;
+  if (!E.listo || !L?.criatura || !L.vivo) return esperar(dur(900));
+  plano("victoria", "heroe");
+  confetiDorado();
+  destellarCriatura("heroe", 1.1, 1000);
+  const p = L.criatura.partes ?? {};
+  const brazoDer = p.brazoDer ?? null;
+  const brazoIzq = p.brazoIzq ?? null;
+  const baseDer = brazoDer?.rotation.x ?? 0;
+  const baseIzq = brazoIzq?.rotation.x ?? 0;
+  const baseY = L.mov.position.y;
+  return animar({
+    ms: dur(1700), lado: "heroe",
+    al: (p2) => {
+      // 0→0.25 alza los brazos (con un pequeño salto); 0.25→0.75 los mantiene en alto; resto: vuelve.
+      const subir = p2 < 0.25 ? salida(p2 / 0.25) : p2 < 0.75 ? 1 : 1 - suave((p2 - 0.75) / 0.25);
+      if (brazoDer) brazoDer.rotation.x = baseDer - 2.5 * subir;
+      if (brazoIzq) brazoIzq.rotation.x = baseIzq - 2.1 * subir;
+      L.mov.position.y = baseY + (p2 < 0.25 ? Math.sin((p2 / 0.25) * Math.PI) * 0.12 : 0);
+    },
+    fin: () => {
+      if (brazoDer) brazoDer.rotation.x = baseDer;
+      if (brazoIzq) brazoIzq.rotation.x = baseIzq;
+      L.mov.position.y = baseY;
     },
   });
 }
