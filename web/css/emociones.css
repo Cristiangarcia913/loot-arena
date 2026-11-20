@@ -5,12 +5,28 @@
 .emo-indicador {
   position: fixed; top: 64px; right: 12px; z-index: 60;
   width: 34px; height: 34px; display: grid; place-items: center;
-  font-size: 1.3rem; line-height: 1; border-radius: 50%;
+  font-size: 1.3rem; line-height: 1; border-radius: 50%; padding: 0; cursor: pointer;
   background: var(--panel-2, #2d231b); border: 1px solid var(--borde, #5b4530);
   box-shadow: 0 2px 8px rgba(0, 0, 0, .5);
   animation: emo-aparece .25s ease-out;
+  transition: transform .15s ease, box-shadow .15s ease;
 }
+.emo-indicador:hover, .emo-indicador:focus-visible { transform: scale(1.08); box-shadow: 0 0 0 2px var(--oro), 0 2px 10px rgba(0, 0, 0, .5); }
 @keyframes emo-aparece { from { transform: scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.emo-popover {
+  position: fixed; top: 104px; right: 12px; z-index: 61;
+  width: min(260px, calc(100vw - 32px)); padding: 12px 14px; text-align: left;
+  border-radius: 12px; background: var(--panel-2, #2d231b); border: 1px solid var(--oro);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .55);
+  animation: emo-aparece .18s ease-out;
+}
+.emo-popover-cabeza { font-weight: 700; color: var(--oro); margin-bottom: 8px; font-size: .85rem; }
+.emo-popover-evento { font-size: .85rem; margin-bottom: 4px; }
+.emo-popover-reaccion { font-size: 1rem; font-weight: 700; margin-bottom: 4px; }
+.emo-popover-detalle { font-size: .72rem; color: var(--tenue, #b9a88e); margin-bottom: 4px; }
+.emo-popover-hace { font-size: .7rem; color: var(--tenue, #b9a88e); }
+.emo-popover-nota { font-size: .68rem; color: var(--tenue, #b9a88e); margin: 8px 0 0; }
 
 .emo-pantalla { background: rgba(5, 3, 2, .82); backdrop-filter: blur(3px); }
 .emo-caja {

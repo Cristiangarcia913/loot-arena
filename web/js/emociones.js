@@ -146,6 +146,7 @@ const estado = {
   canvas: null,
   historial: [],
   cargaModelos: null,
+  ultimoPico: null,
 };
 
 /** ¿El navegador puede, en principio, dar acceso a una cámara? (no pide permiso todavía). */
@@ -201,15 +202,70 @@ function crearVideoOculto(stream) {
   return video;
 }
 
+/** "hace 3 s" / "hace 2 min", para el detalle del último pico en el popover. */
+function haceTiempo(timestamp) {
+  const s = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (s < 5) return "justo ahora";
+  if (s < 60) return `hace ${s} s`;
+  return `hace ${Math.round(s / 60)} min`;
+}
+
+function cerrarPopover() {
+  const el = document.getElementById("emo-popover");
+  if (el) el.hidden = true;
+  document.removeEventListener("click", alClicFueraPopover, true);
+  document.removeEventListener("keydown", alEscapePopover);
+}
+function alClicFueraPopover(ev) {
+  if (!ev.target.closest?.("#emo-popover, #emo-indicador")) cerrarPopover();
+}
+function alEscapePopover(ev) {
+  if (ev.key === "Escape") cerrarPopover();
+}
+
+/** Popover con la última reacción detectada (o un aviso si aún no hay ninguna). Al pulsar el icono de la esquina. */
+function abrirPopover() {
+  let el = document.getElementById("emo-popover");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "emo-popover";
+    el.className = "emo-popover";
+    el.setAttribute("role", "status");
+    document.body.append(el);
+  }
+  const p = estado.ultimoPico;
+  const meta = p ? EVENTOS_EMOCION[p.evento] : null;
+  const r = p ? (REACCIONES[p.reaccion] ?? REACCIONES.sin_reaccion) : null;
+  el.replaceChildren(
+    h("div", { class: "emo-popover-cabeza" }, "📷 Medidor emocional"),
+    p
+      ? h("div", { class: "emo-popover-cuerpo" },
+          h("div", { class: "emo-popover-evento" }, `${meta?.icono ?? ""} ${meta?.etiqueta ?? p.evento}`),
+          h("div", { class: "emo-popover-reaccion" }, `${r.icono} ${r.texto}`),
+          h("div", { class: "emo-popover-detalle" }, `Cambio frente al "antes": +${Math.round(p.deltaPositivo * 100)} % positivo · +${Math.round(p.deltaNegativo * 100)} % negativo`),
+          h("div", { class: "emo-popover-hace" }, haceTiempo(p.timestamp)))
+      : h("p", { class: "tenue" }, "Aún no se detectó ninguna reacción. Se mide en el próximo cofre Raro/Legendario, Jefe vencido o derrota con racha."),
+    h("p", { class: "emo-popover-nota" }, "100 % local: nada se envía ni se guarda ninguna foto."));
+  el.hidden = false;
+  document.addEventListener("click", alClicFueraPopover, true);
+  document.addEventListener("keydown", alEscapePopover);
+}
+
 function indicador() {
   let el = document.getElementById("emo-indicador");
   if (!el) {
-    el = document.createElement("div");
+    el = document.createElement("button");
+    el.type = "button";
     el.id = "emo-indicador";
     el.className = "emo-indicador";
     el.hidden = true;
-    el.setAttribute("aria-hidden", "true");
-    el.title = "Medidor emocional (opcional, 100% local)";
+    el.setAttribute("aria-haspopup", "true");
+    el.title = "Medidor emocional: pulsa para ver el detalle";
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const popoverAbierto = document.getElementById("emo-popover") && !document.getElementById("emo-popover").hidden;
+      if (popoverAbierto) cerrarPopover(); else abrirPopover();
+    });
     document.body.append(el);
   }
   return el;
@@ -257,6 +313,7 @@ export function desactivarMedidor() {
   estado.stream = null;
   estado.video = null;
   estado.activo = false;
+  cerrarPopover();
   const el = document.getElementById("emo-indicador");
   if (el) el.hidden = true;
 }
@@ -314,6 +371,7 @@ export async function capturarPico(tipoEvento) {
     const despues = await fotogramaExpresiones();
     const pico = crearPico(tipoEvento, { antes, durante, despues });
     estado.historial = registrarPico(estado.historial, pico);
+    estado.ultimoPico = pico;
     actualizarIndicador(pico.reaccion);
   })().catch((e) => console.warn("[emociones] captura omitida:", e?.message ?? e));
 }
