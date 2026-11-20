@@ -108,18 +108,16 @@ const cargando = new Map();
  */
 export const modeloEnMemoria = (nombre) => listos.get(nombre);
 
-async function existeArchivo(url) {
-  try {
-    const r = await fetch(url, { method: "HEAD" });
-    return r.ok;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Carga de verdad `nombre.glb` (o `nombre.gltf` si no hay `.glb`) desde `web/assets/models/`.
  * Se cachea: una vez resuelta, siempre devuelve lo mismo sin volver a tocar la red.
+ *
+ * No hay pre-chequeo de existencia con `fetch(url, { method: "HEAD" })`: los CDN de hosting como
+ * Itch.io (sirven el juego detrás de un iframe propio) bloquean o rechazan peticiones HEAD con
+ * 403/405, así que ese pre-chequeo daba `false` para un `.glb` que sí estaba servido y la criatura
+ * se quedaba sin modelo externo en producción aunque funcionara en local. En su lugar, se intenta
+ * la carga directa con `loadAsync` y, si falla (404 real, red caída, archivo roto...), se prueba
+ * la siguiente extensión; el `try/catch` de más abajo sigue siendo la red de seguridad final.
  * @param {string} nombre sin extensión, p.ej. `"heroe"` o `"dragon"`
  * @returns {Promise<object|null>} la escena cargada (NUNCA se usa directamente: se clona con
  *          `criaturaDesdeModelo`), o `null` si no hay archivo o algo falló.
@@ -128,20 +126,23 @@ export async function cargarModeloExterno(nombre) {
   if (listos.has(nombre)) return listos.get(nombre);
   let resultado = null;
   try {
+    await cargarTres();
+    const GLTFLoader = await cargarGLTFLoader();
     for (const ext of ["glb", "gltf"]) {
       const url = new URL(`${nombre}.${ext}`, BASE_MODELOS).href;
-      // eslint-disable-next-line no-await-in-loop
-      if (!(await existeArchivo(url))) continue;
-      await cargarTres();
-      const GLTFLoader = await cargarGLTFLoader();
-      const cargador = new GLTFLoader();
-      const gltf = await cargador.loadAsync(url);
-      resultado = gltf?.scene ?? gltf?.scenes?.[0] ?? null;
-      // Los clips embebidos (idle, respiración, alas...) viajan sueltos en `gltf.animations`, no
-      // colgados de la escena: se guardan aquí como propiedad de conveniencia, LEÍDA ANTES de
-      // clonar en `criaturaDesdeModelo` (un `clone()` de three.js no copia propiedades ajenas).
-      if (resultado) resultado.animaciones = gltf.animations ?? [];
-      break;
+      try {
+        const cargador = new GLTFLoader();
+        // eslint-disable-next-line no-await-in-loop
+        const gltf = await cargador.loadAsync(url);
+        resultado = gltf?.scene ?? gltf?.scenes?.[0] ?? null;
+        // Los clips embebidos (idle, respiración, alas...) viajan sueltos en `gltf.animations`, no
+        // colgados de la escena: se guardan aquí como propiedad de conveniencia, LEÍDA ANTES de
+        // clonar en `criaturaDesdeModelo` (un `clone()` de three.js no copia propiedades ajenas).
+        if (resultado) resultado.animaciones = gltf.animations ?? [];
+        break;
+      } catch {
+        // No había `.${ext}` (404) o ese archivo concreto está roto: se prueba la otra extensión.
+      }
     }
   } catch {
     resultado = null; // modelo roto, CDN caído o navegador sin soporte: no es motivo para romper nada
