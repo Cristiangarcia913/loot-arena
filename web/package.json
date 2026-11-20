@@ -5,6 +5,7 @@
   "description": "Web estática de Loot Arena (sin build). Este package.json solo sirve para tests y scripts.",
   "scripts": {
     "test": "node --test",
+    "test:agentes": "node test/simulacion-multagente.mjs",
     "sync": "node sync-config.mjs",
     "start": "npx --yes serve ."
   }
