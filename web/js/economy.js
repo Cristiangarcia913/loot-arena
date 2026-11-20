@@ -79,6 +79,17 @@ export function cosmetico(id) {
   return POR_ID.get(Number(id)) ?? null;
 }
 
+/**
+ * Cosméticos "poseídos" en Modo Demo/Local (sin wallet conectada): todo el catálogo equipable
+ * (sin el consumible), para poder probar y equipar cualquier pieza —incluida el Aura— sin que
+ * haga falta un NFT real. Comprar, vender y abrir cofres sigue pidiendo wallet; esto solo
+ * desbloquea la prueba y el equipado, que es puramente local (ver `tienda.js: montarTienda`).
+ * @returns {Record<number, number>} id del catálogo → 1
+ */
+export function cosmeticosDemo() {
+  return Object.fromEntries(CATALOGO.filter((x) => x.ranura !== "consumible").map((x) => [x.id, 1]));
+}
+
 /** Cosméticos que puede dar un cofre (todos menos consumibles), agrupados por rareza. */
 export function poolCofre(catalogo = CATALOGO) {
   const pool = [[], [], []];

@@ -7,6 +7,7 @@ import { tirarLoot, tirarPrimerBotin, EstadoBotin, RegistroPrimerBotin } from '.
 import { crearRouterGas, RegistroGas } from './gas.js';
 import { crearRouterTorre, RegistroTorre } from './torre.js';
 import { crearRouterTesoreria } from './tesoreria.js';
+import { crearRouterSatisfaccion } from './satisfaccion.js';
 import { RateLimiter } from './rateLimit.js';
 import { mensajeError } from './chain.js';
 import { origenCors } from './config.js';
@@ -96,6 +97,7 @@ export function crearApp({
   estadoAlmacen = null,
   tesoreria = null, tesoreriaNoDisponible,
   red = null,
+  rutaSatisfaccionCsv = null,
 }) {
   const app = express();
   app.set('trust proxy', trustProxy);
@@ -327,6 +329,8 @@ export function crearApp({
   app.use(crearRouterTorre({ validarDireccion, now, registro: registroTorre }));
   // ── 1.4.1 (fase E3): resumen del dinero del juego, cacheado ──
   app.use(crearRouterTesoreria({ tesoreria, now, ...(tesoreriaNoDisponible ? { noDisponible: tesoreriaNoDisponible } : {}) }));
+  // ── Sistema de UX Research: mini-encuesta de satisfacción → .csv para Excel ──
+  if (rutaSatisfaccionCsv) app.use(crearRouterSatisfaccion({ rutaCsv: rutaSatisfaccionCsv, now, logger }));
 
   app.use((_req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 

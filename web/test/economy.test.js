@@ -36,6 +36,18 @@ test("CATALOGO coincide con MEJORAS.md §5", () => {
   for (const x of E.CATALOGO) assert.ok([...E.RANURAS, "consumible"].includes(x.ranura));
 });
 
+test("cosmeticosDemo: todo el catálogo equipable (sin el consumible), a 1 unidad", () => {
+  const cos = E.cosmeticosDemo();
+  const idsEsperados = E.CATALOGO.filter((x) => x.ranura !== "consumible").map((x) => x.id);
+  assert.deepEqual(Object.keys(cos).map(Number).sort((a, b) => a - b), idsEsperados.sort((a, b) => a - b));
+  for (const id of idsEsperados) assert.equal(cos[id], 1);
+  assert.equal(cos[E.ID_POCION], undefined);
+  // Aura de escarcha (10) y Aura de llamas (11): el bug reportado era justo que no se podían
+  // equipar en Modo Demo/Local por no tener NFT; aquí deben salir "poseídas" como el resto.
+  assert.equal(cos[10], 1);
+  assert.equal(cos[11], 1);
+});
+
 test("cofre: pool sin consumibles y distribución ~60/32/8", () => {
   const pool = E.poolCofre();
   assert.deepEqual(pool, [[1, 2, 4, 7], [3, 5, 8, 10, 12], [6, 9, 11, 13]]);

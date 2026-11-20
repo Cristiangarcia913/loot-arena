@@ -22,6 +22,7 @@ import * as GAS from "./gas.js";
 import * as TUT from "./tutorial.js";
 import * as EXP from "./expediciones.js";
 import * as EMO from "./emociones.js";
+import * as SAT from "./satisfaccion.js";
 import { reclamarBotin } from "./api.js";
 import { mostrarAnuncioRecompensado } from "./anuncios.js";
 import { catalogoRotativo, semillaDelDia, ofertaDelDiaCosmetico } from "./economy.js";
@@ -57,6 +58,8 @@ const S = {
   expResultado: null, // último resultado de recoger una expedición (para «Duplicar botín»)
   transfiriendo: new Set(),
   links: { tx: () => null, token: () => null },
+  // Para "tiempo jugado" de la mini-encuesta de satisfacción (UX research): desde que se abrió la página.
+  inicioSesion: Date.now(),
 };
 
 const CLAVE_3D = "lootarena:3d";
@@ -963,6 +966,27 @@ function alTecla(ev) {
   btn.click();
 }
 
+// ───────────────────────── Encuesta de satisfacción (UX research) ─────────────────────────
+
+/** Estadísticas de la partida que se empaquetan con la encuesta (SPEC: nivel, rachaMax, tiempoMinutos). */
+function statsSatisfaccion() {
+  return {
+    nivel: P.infoXp(S.progreso).nivel,
+    rachaMax: S.progreso.mejorRacha,
+    tiempoMinutos: Math.round(((Date.now() - S.inicioSesion) / 60_000) * 10) / 10,
+  };
+}
+
+/**
+ * Cierra la "Radiografía de Satisfacción" emocional (si hubo cámara) y, detrás, la mini-encuesta
+ * de 5 segundos. El historial emocional se copia ANTES de `mostrarResumenSesion`, que lo vacía.
+ */
+async function evaluarSesion() {
+  const historialEmocion = EMO.obtenerHistorial();
+  await EMO.mostrarResumenSesion();
+  await SAT.mostrarEncuesta({ stats: statsSatisfaccion(), historialEmocion, serverUrl: S.cfg?.serverUrl });
+}
+
 function resultado(...contenido) {
   const r = $("#resultado");
   r.replaceChildren(...contenido.flat().filter(Boolean));
@@ -1021,7 +1045,7 @@ async function alTerminar(fin) {
   const eleccion = await FX.mostrarResultado({ tipo: fin, ...resumen, racha: 0 });
   if (fin === "derrota") resultado(h("div", { class: "res res-derrota" }, h("strong", {}, "☠️ Derrota. "), "Tu racha se rompe y la expedición termina. Mejora tu equipo, compra pociones en la tienda y vuelve a Explorar."));
   if (eleccion === "otra") explorar();
-  else await EMO.mostrarResumenSesion();
+  else await evaluarSesion();
 }
 
 // ───────────────────────── Modificadores de Arena (bendiciones/maldiciones) ─────────────────────────
@@ -1284,7 +1308,7 @@ async function mostrarBotin(r, eleccionPrevia) {
       resultado(h("div", { class: "res res-error" }, h("strong", {}, "❌ No se pudo reclamar el botín. "), r.mensaje, " ", reintentar));
   }
   if (eleccion === "otra") explorar();
-  else await EMO.mostrarResumenSesion();
+  else await evaluarSesion();
 }
 
 // ───────────────────────── Sección Cadena ─────────────────────────
@@ -1380,6 +1404,9 @@ async function iniciar() {
   $("#form-transfer").addEventListener("submit", confirmarTransferencia);
   $("#tr-cancel").addEventListener("click", () => $("#dlg-transfer").close());
   $("#tr-to").addEventListener("input", () => { $("#tr-error").textContent = ""; });
+  $("#btn-evaluar-juego")?.addEventListener("click", () => SAT.mostrarEncuesta({
+    stats: statsSatisfaccion(), historialEmocion: EMO.obtenerHistorial(), serverUrl: S.cfg?.serverUrl,
+  }));
 
   try {
     S.cfg = await cargarConfig();
@@ -1391,6 +1418,12 @@ async function iniciar() {
   }
   conectarSelectorRed();
   S.links = enlacesExplorador(S.cfg.net, S.cfg.address);
+  const btnDescargaSat = $("#btn-descargar-satisfaccion");
+  const urlDescargaSat = SAT.urlDescarga(S.cfg.serverUrl);
+  if (btnDescargaSat) {
+    if (urlDescargaSat) btnDescargaSat.href = urlDescargaSat;
+    else { btnDescargaSat.setAttribute("aria-disabled", "true"); btnDescargaSat.classList.add("btn-disabled"); btnDescargaSat.addEventListener("click", (ev) => ev.preventDefault()); }
+  }
   // Despierta el servidor de botín (Render free se duerme) mientras el jugador combate.
   // De paso se mira si el indexador del ranking está atascado (1.4.1 de equipo-servidor):
   // así se nota desde el juego, sin entrar en los logs de Render. Solo avisa si hay algo mal;

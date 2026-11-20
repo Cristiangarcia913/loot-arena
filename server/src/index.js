@@ -190,6 +190,7 @@ async function main() {
   }
 
   const app = crearApp({
+    rutaSatisfaccionCsv: resolve(here, '../data/satisfaccion_jugadores.csv'),
     mint: crearMinter(contract, { emisor }),
     ranking,
     rankingNoDisponible: `Ranking no disponible: el servidor no tiene configurado ${faltanRanking.join(', ')}`,

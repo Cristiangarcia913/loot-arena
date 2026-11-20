@@ -14,7 +14,7 @@ import {
   FAUCET_SEPOLIA, ETH_MINIMO_GAS, MAX_ETH_DIARIO, cosmetico, precioVentaLocal, recompensaEthLocal,
   estimarEthVenta, formatearOro, formatearEth, oroEntero, aUnidades, aparienciaVacia, equiparCosmetico,
   quitarRanura, sanearApariencia, cargarApariencia, guardarApariencia, resolverDirecciones, cargarAbis,
-  crearEconomiaChain,
+  crearEconomiaChain, cosmeticosDemo,
 } from "./economy.js";
 import { mensajeErrorTransaccion, evaluarGas, hastaQue } from "./wallet-errores.js";
 import { asegurarGas, GAS_ESPERA_MAX_MS } from "./gas.js";
@@ -168,6 +168,10 @@ export async function montarTienda(o = {}) {
   }
   if (gen !== generacion) return { modo: "desmontada" };
   S.modo = modo;
+  // Sin wallet (Modo Demo/Local): no hay NFTs reales que poseer, pero el vestuario no debe
+  // bloquearse por eso. Se "posee" todo el catálogo para poder probar y equipar cualquier pieza
+  // (incluida el Aura) solo en este navegador; comprar/vender/abrir cofres sigue pidiendo wallet.
+  if (modo === "demo") S.cosmeticos = cosmeticosDemo();
   document.documentElement.dataset.economia = modo;
   renderTodo();
   if (activo()) await refrescarTodo();
@@ -463,7 +467,7 @@ function renderAvisos() {
   if (!c) return;
   const avisos = [];
   if (S.modo === "demo") {
-    avisos.push(h("div", { class: "tn-aviso tn-aviso-info" }, "🦊 Conecta MetaMask para vender objetos, comprar cosméticos y abrir cofres. Mientras, puedes mirar el catálogo y probar los cosméticos."));
+    avisos.push(h("div", { class: "tn-aviso tn-aviso-info" }, "🦊 Conecta MetaMask para vender objetos, comprar cosméticos de verdad y abrir cofres. Mientras, puedes equipar y probar gratis cualquier cosmético del catálogo (solo en este navegador)."));
   }
   if (S.modo === "chain" && S.redOk === false) {
     avisos.push(h("div", { class: "tn-aviso tn-aviso-gas", role: "alert" },
@@ -548,6 +552,9 @@ function renderCatalogo() {
     const r = rarezaCos(x.rareza);
     const precio = S.preciosCos.get(x.id) ?? x.precio;
     const tengo = S.cosmeticos[x.id] ?? 0;
+    // En Modo Demo "tengo" es siempre todo el catálogo (para poder probarlo/equiparlo gratis):
+    // la etiqueta y el botón de compra no deben decir "ya lo tienes" de algo que no se ha comprado.
+    const tengoDeVerdad = tengo > 0 && S.modo !== "demo";
     const sinOro = S.oro != null && S.oro < aUnidades(precio);
     const carta = h("article", { class: `tn-cos rz-${r.clase}`, tabindex: "0", "data-id": x.id,
       onmouseenter: () => probar(x.id), onfocus: () => probar(x.id) },
@@ -556,15 +563,15 @@ function renderCatalogo() {
         h("strong", {}, x.nombre),
         h("span", { class: "tn-meta" }, `${NOMBRE_RANURA[x.ranura]} · ${r.nombre}`),
         x.ranura === "consumible" ? h("span", { class: "tn-meta" }, "+1 poción por expedición (se gasta)") : null,
-        tengo ? h("span", { class: "tn-chip tn-chip-tengo" }, x.ranura === "consumible" ? `Tienes ${tengo}` : "En tu vestuario") : null),
+        tengoDeVerdad ? h("span", { class: "tn-chip tn-chip-tengo" }, x.ranura === "consumible" ? `Tienes ${tengo}` : "En tu vestuario") : null),
       h("div", { class: "tn-cos-acc" },
         h("span", { class: "tn-precio" }, `🪙 ${formatearOro(aUnidades(precio))}`),
         x.ranura !== "consumible" ? h("button", { type: "button", class: "btn btn-small btn-ghost", onclick: () => probar(x.id, true) }, "Probar") : null,
         h("button", {
-          type: "button", class: "btn btn-small btn-gold", disabled: !activo() || S.ocupado || sinOro || (tengo > 0 && x.ranura !== "consumible"),
-          title: !activo() ? "Conecta MetaMask para comprar" : sinOro ? "No tienes ORO suficiente" : tengo && x.ranura !== "consumible" ? "Ya lo tienes" : null,
+          type: "button", class: "btn btn-small btn-gold", disabled: !activo() || S.ocupado || sinOro || (tengoDeVerdad && x.ranura !== "consumible"),
+          title: !activo() ? "Conecta MetaMask para comprar" : sinOro ? "No tienes ORO suficiente" : tengoDeVerdad && x.ranura !== "consumible" ? "Ya lo tienes" : null,
           onclick: (ev) => comprar(x.id, ev.currentTarget),
-        }, tengo > 0 && x.ranura !== "consumible" ? "Comprado" : "Comprar")));
+        }, tengoDeVerdad && x.ranura !== "consumible" ? "Comprado" : "Comprar")));
     return carta;
   }));
 }
@@ -641,7 +648,7 @@ function renderVestuario() {
   });
   poner(v, 
     h("div", { class: "tn-cabeza" }, h("h2", {}, "👘 Vestuario")),
-    S.modo === "demo" ? h("p", { class: "tn-tenue" }, "Conecta tu wallet para ver y equipar tus cosméticos.") : null,
+    S.modo === "demo" ? h("p", { class: "tn-tenue" }, "Modo demo: puedes equipar y probar cualquier cosmético gratis en este navegador. Conecta tu wallet para comprarlos de verdad como NFT.") : null,
     h("div", { class: "tn-ranuras" }, filas),
     h("p", { class: "tn-pociones" }, `🧪 Pociones extra: ${pocionesExtra()}`, h("span", { class: "tn-tenue" }, " (se suman a las 3 de cada expedición y se gastan al usarlas)")));
 }
