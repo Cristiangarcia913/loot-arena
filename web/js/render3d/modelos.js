@@ -20,7 +20,9 @@ export const BASE_MODELOS = new URL("../../assets/models/", import.meta.url);
  * tras comprobar en pantalla cómo mira cada modelo nuevo.
  */
 export const ROTACION_Y_MODELOS = Object.freeze({
-  lobo: Math.PI / 2,
+  // lobo.glb tiene el hocico hacia +X. Con +π/2 el +X acababa en −Z: el lobo daba la espalda (y la
+  // cola) al héroe. −π/2 lleva +X a +Z, de cara al rival como las recetas procedurales.
+  lobo: -Math.PI / 2,
 });
 
 /**
@@ -49,6 +51,54 @@ export const ALTURA_MODELOS = Object.freeze({
  * prueba si el rim light ya existente alcanza.
  */
 export const TINTE_MODELOS = Object.freeze({});
+
+/**
+ * Ojos que brillan en los modelos externos (los 20 rivales tienen que tener mirada viva, también
+ * los que vienen de un `.glb`). Dos vías:
+ *  · `material`: si el `.glb` trae un material de ojos con nombre (limo, murciélago: «Eyes»), ese
+ *    material pasa a ser emisivo con este color. Ver `esMaterialDeOjos`.
+ *  · `pos`/`r`/`sep`/`eje`: los de una sola malla (dragón, esqueleto, lobo) no tienen ojos aparte,
+ *    así que se les ponen dos esferas emisivas con halo en COORDENADAS CRUDAS del archivo (antes de
+ *    escalar). Medidas con la caja del racimo de vértices de la cabeza de cada `.glb`: `pos` es el
+ *    punto medio entre los ojos, `sep` la mitad de la distancia entre ellos sobre `eje` (el eje
+ *    perpendicular a hacia donde mira el modelo).
+ */
+export const OJOS_MODELOS = Object.freeze({
+  limo:       Object.freeze({ color: 0xb6ff5c }),
+  murcielago: Object.freeze({ color: 0xff3b1f }),
+  lobo:       Object.freeze({ color: 0xffc23d, pos: [3.62, 4.24, -0.36], r: 0.1, sep: 0.3, eje: 2 }),
+  dragon:     Object.freeze({ color: 0xff3b1f, pos: [0, 0.3, 0.33], r: 0.016, sep: 0.045, eje: 0 }),
+  esqueleto:  Object.freeze({ color: 0x67e8f9, pos: [0, 4.74, 0.56], r: 0.08, sep: 0.19, eje: 0 }),
+});
+
+/** ¿Es un material de ojos por su nombre? («Eyes», «eye_L», «Ojos»...). */
+export const esMaterialDeOjos = (m) => /eye|ojo/i.test(m?.name ?? "");
+
+/**
+ * Añade a `raiz` las dos esferas de ojos (núcleo + halo aditivos) de `cfg` en coordenadas crudas.
+ * Devuelve los materiales creados para que la criatura los apague al morir como los demás.
+ */
+function ponerOjosModelo(raiz, cfg, T) {
+  if (!cfg?.pos || !T?.SphereGeometry || !T?.MeshBasicMaterial) return [];
+  const comun = { color: cfg.color, transparent: true, depthWrite: false, blending: T.AdditiveBlending };
+  const matNucleo = new T.MeshBasicMaterial({ ...comun, opacity: 1 });
+  const matHalo = new T.MeshBasicMaterial({ ...comun, opacity: 0.22 });
+  matNucleo.userData.emisionBase = null; matNucleo.userData.fuerzaBase = 0;
+  matHalo.userData.emisionBase = null; matHalo.userData.fuerzaBase = 0;
+  const geoNucleo = new T.SphereGeometry(cfg.r, 10, 8);
+  const geoHalo = new T.SphereGeometry(cfg.r * 2.1, 10, 8);
+  for (const s of [-1, 1]) {
+    const p = [...cfg.pos];
+    p[cfg.eje] += s * cfg.sep;
+    for (const [geo, mat] of [[geoNucleo, matNucleo], [geoHalo, matHalo]]) {
+      const ojo = new T.Mesh(geo, mat);
+      ojo.name = "ojo";
+      ojo.position.set(p[0], p[1], p[2]);
+      raiz.add(ojo);
+    }
+  }
+  return [matNucleo, matHalo];
+}
 
 const urlAddon = (archivo) => `https://cdn.jsdelivr.net/npm/three@${TRES_VERSION}/examples/jsm/${archivo}`;
 
@@ -189,6 +239,7 @@ export function criaturaDesdeModelo(plantilla, alturaObjetivo, T, nombre) {
   const clips = plantilla.animaciones ?? [];
   const materiales = [];
   const tinte = nombre && TINTE_MODELOS[nombre];
+  const ojos = nombre && OJOS_MODELOS[nombre];
 
   raiz.traverse((n) => {
     if (!n.isMesh || !n.geometry) return;
@@ -196,6 +247,11 @@ export function criaturaDesdeModelo(plantilla, alturaObjetivo, T, nombre) {
     n.geometry.computeBoundingBox?.();
     const clonar = (m) => {
       const c = m.clone();
+      // Material de ojos con nombre: brillo propio fuerte (el tone mapping ACES lo hace «arder»).
+      if (ojos?.color != null && esMaterialDeOjos(c) && c.emissive && T?.Color) {
+        c.emissive = new T.Color(ojos.color);
+        c.emissiveIntensity = 1.5;
+      }
       if (tinte && T?.Color) {
         if (c.color && tinte.colorRGB) c.color.setRGB(...tinte.colorRGB);
         else if (c.color && tinte.color != null) c.color = new T.Color(tinte.color);
@@ -248,6 +304,10 @@ export function criaturaDesdeModelo(plantilla, alturaObjetivo, T, nombre) {
   const radio = caja
     ? Math.max(0.3, Math.max(caja.max.x - caja.min.x, caja.max.z - caja.min.z) * escala * 0.5)
     : 0.3;
+
+  // Ojos de los modelos de una sola malla: se añaden DESPUÉS de medir la caja (no cuentan para la
+  // altura) y como hijos de `raiz`, así heredan su escala, centrado y giro.
+  materiales.push(...ponerOjosModelo(raiz, ojos, T));
 
   // Giro de corrección (ver `ROTACION_Y_MODELOS`): algunos `.glb` miran hacia -Z en vez de hacia
   // el jugador. Rota sobre el propio pivote (ya centrado en x/z), así que no desplaza nada más.

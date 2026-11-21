@@ -134,6 +134,10 @@ export const ARENA = Object.freeze({
   niebla: 0x0a1128,
   madera: 0x1a1410,
   llama: 0xffb13c,
+  /** Brasas que flotan por la arena: más rojizas que la llama, para leerse como rescoldo. */
+  brasa: 0xff7a2a,
+  /** Bruma de suelo: gris azulado frío, un punto más claro que la niebla para que se note. */
+  bruma: 0x3a4a6e,
   llamaNucleo: 0xfff5c8,
 });
 

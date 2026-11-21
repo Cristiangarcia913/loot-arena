@@ -237,3 +237,10 @@ test("la constante de juntarse coincide con lo que avanza la embestida", () => {
 test("el encuadre base y el ancho del luchador siguen siendo los que la cámara espera", () => {
   assert.ok(ENC.cobertura >= ENC.puesto + ANCHO_LUCHADOR - 0.02);
 });
+
+test("⚡ Remate Definitivo: el plano más cerrado, bajo y seco, por encima del tope de seguridad", () => {
+  assert.ok(PLANOS.remate.acercar < PLANOS.critico.acercar, "el remate cierra más que un crítico");
+  assert.ok(PLANOS.remate.acercar >= ACERCAMIENTO_MAXIMO);
+  assert.ok(PLANOS.remate.bajar > PLANOS.critico.bajar);
+  assert.ok(PLANOS.remate.prisa > PLANOS.critico.prisa);
+});

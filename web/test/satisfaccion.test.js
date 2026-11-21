@@ -115,3 +115,27 @@ describe("urlDescarga", () => {
     assert.equal(SAT.urlDescarga(""), null);
   });
 });
+
+describe("chips y csvLocal (descarga sin servidor)", () => {
+  test("los cuatro chips rápidos de la encuesta", () => {
+    assert.deepEqual(SAT.CHIPS.map((c) => c.texto),
+      ["🔥 Muy Adictivo", "⚔️ Combate Táctico", "🐉 Jefes Épicos", "📈 Justo y Desafiante"]);
+  });
+
+  test("lista vacía → solo BOM + cabecera (misma que el servidor)", () => {
+    assert.equal(SAT.csvLocal([]),
+      "﻿Fecha;Jugador;Nivel;RachaMax;Estrellas;EmocionDominante;TensionMedia;TiempoJuegoMin;Comentario;Tags\r\n");
+  });
+
+  test("ordena de la más antigua a la más reciente, escapa ';' y une las etiquetas", () => {
+    const lista = [
+      { fecha: "2026-01-02", jugador: null, estrellas: 3, tags: [], comentario: null },
+      { fecha: "2026-01-01", jugador: "Ana", nivel: 5, rachaMax: 2, estrellas: 5, emocionDominante: "Alegría",
+        tensionMedia: 0.4, tiempoMinutos: 12.5, comentario: "top; de verdad", tags: ["🔥 Muy Adictivo", "🐉 Jefes Épicos"] },
+    ];
+    const filas = SAT.csvLocal(lista).split("\r\n");
+    assert.equal(filas[1], '2026-01-01;Ana;5;2;5;Alegría;0.4;12.5;"top; de verdad";🔥 Muy Adictivo, 🐉 Jefes Épicos');
+    assert.equal(filas[2], "2026-01-02;Anónimo;;;3;;;;;");
+    assert.equal(filas.at(-1), "");
+  });
+});

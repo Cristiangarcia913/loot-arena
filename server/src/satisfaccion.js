@@ -8,16 +8,18 @@
 // El .csv lleva BOM UTF-8 (para que Excel en español lea bien los acentos) y usa ';' como
 // separador (el que espera Excel configurado en español al abrir con doble clic).
 import express from 'express';
-import { mkdir, appendFile, access, constants as fsConstants } from 'node:fs/promises';
+import { mkdir, appendFile, readFile, rename } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { RateLimiter } from './rateLimit.js';
 
 export const LIMITE_SATISFACCION_IP = { windowMs: 60 * 60 * 1000, max: 30 }; // 30 envíos por hora por IP
 
 /** Cabecera del .csv, en el mismo orden que `normalizarSatisfaccion` produce los valores. */
+// Nombres sin espacios ni acentos: así se pueden usar tal cual como encabezado de tabla de Excel
+// o como nombre de columna en Power Query / pandas sin renombrar nada.
 export const CABECERA_SATISFACCION = Object.freeze([
-  'Fecha', 'Jugador', 'Nivel', 'Racha máxima', 'Estrellas', 'Emoción dominante',
-  'Tensión media', 'Tiempo (min)', 'Etiquetas', 'Comentario',
+  'Fecha', 'Jugador', 'Nivel', 'RachaMax', 'Estrellas', 'EmocionDominante',
+  'TensionMedia', 'TiempoJuegoMin', 'Comentario', 'Tags',
 ]);
 
 const SEPARADOR = ';';
@@ -114,14 +116,32 @@ export function normalizarSatisfaccion(body, { now = Date.now } = {}) {
   };
 }
 
-/** Crea la carpeta y el .csv con cabecera si todavía no existen. Idempotente. */
-export async function asegurarCsv(rutaCsv) {
+/**
+ * Crea la carpeta y el .csv con cabecera si todavía no existen. Idempotente.
+ *
+ * Si ya hay un .csv pero su cabecera no es la actual (versión anterior con otras columnas u otro
+ * orden), NO se le añaden filas: se renombra a `<nombre>.anterior-<marca>.csv` (se conserva todo)
+ * y se empieza uno nuevo. Mezclar dos formatos en el mismo archivo rompería las columnas en Excel.
+ * @returns {Promise<{migrado:string|null}>} ruta de la copia antigua si hubo que apartarla
+ */
+export async function asegurarCsv(rutaCsv, { now = Date.now } = {}) {
+  let primera = null;
   try {
-    await access(rutaCsv, fsConstants.F_OK);
-  } catch {
-    await mkdir(dirname(rutaCsv), { recursive: true });
-    await appendFile(rutaCsv, cabeceraCsv(), 'utf8');
+    const txt = await readFile(rutaCsv, 'utf8');
+    primera = txt.replace(/^﻿/, '').split(/\r?\n/, 1)[0];
+  } catch (err) {
+    if (err?.code !== 'ENOENT') throw err;
   }
+  const esperada = filaCsv(CABECERA_SATISFACCION).replace(/\r\n$/, '');
+  if (primera === esperada) return { migrado: null };
+  let migrado = null;
+  if (primera !== null) {
+    migrado = rutaCsv.replace(/\.csv$/i, '') + `.anterior-${now()}.csv`;
+    await rename(rutaCsv, migrado);
+  }
+  await mkdir(dirname(rutaCsv), { recursive: true });
+  await appendFile(rutaCsv, cabeceraCsv(), 'utf8');
+  return { migrado };
 }
 
 /** Añade una fila al .csv de satisfacción (crea el archivo con cabecera si hace falta). */
@@ -129,7 +149,7 @@ export async function anadirFilaSatisfaccion(rutaCsv, datos) {
   await asegurarCsv(rutaCsv);
   await appendFile(rutaCsv, filaCsv([
     datos.fecha, datos.jugador, datos.nivel, datos.rachaMax, datos.estrellas,
-    datos.emocionDominante, datos.tensionMedia, datos.tiempoMinutos, datos.tags, datos.comentario,
+    datos.emocionDominante, datos.tensionMedia, datos.tiempoMinutos, datos.comentario, datos.tags,
   ]), 'utf8');
 }
 

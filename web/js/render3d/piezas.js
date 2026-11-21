@@ -10,6 +10,21 @@
 /** Unidades: 1 ≈ 1 metro. El héroe mide 1,8 y la arena tiene 9 de radio. */
 export const ALTO_HEROE = 1.8;
 
+/**
+ * Acabados PBR calibrados (MeshStandardMaterial): `t.mat(color, { acabado: "metal" })`. Un valor
+ * explícito de `metal`/`rugosidad` en la misma llamada manda sobre el acabado.
+ *  · metal: armaduras, cascos, escudos y herrajes. Brillo metálico definido (refleja el entorno
+ *    PMREM de escena3d.js en vez de verse negro).
+ *  · hueso / roca: superficies mates, sin reflejo, facetadas o porosas.
+ *  · piel: carne y escamas blandas; algo de satinado para que el volumen se lea con la luz.
+ */
+export const ACABADO = Object.freeze({
+  metal: Object.freeze({ metal: 0.8, rugosidad: 0.25 }),
+  hueso: Object.freeze({ metal: 0.02, rugosidad: 0.85 }),
+  roca:  Object.freeze({ metal: 0.02, rugosidad: 0.85 }),
+  piel:  Object.freeze({ metal: 0.0, rugosidad: 0.62 }),
+});
+
 export class Taller {
   /**
    * @param {object} T espacio de nombres de three.js
@@ -33,11 +48,13 @@ export class Taller {
    * Material opaco normal (el de casi todo).
    * @param {number} color
    * @param {{emision?:number, fuerza?:number, metal?:number, rugosidad?:number,
-   *          opacidad?:number, plano?:boolean, doble?:boolean}} [o]
+   *          opacidad?:number, plano?:boolean, doble?:boolean, acabado?:keyof ACABADO}} [o]
    *        plano: facetas marcadas (piedra, hueso) · doble: visible por las dos caras (telas, alas)
    */
   mat(color, o = {}) {
     const { T } = this;
+    const ac = ACABADO[o.acabado];
+    if (ac) o = { ...o, metal: o.metal ?? ac.metal, rugosidad: o.rugosidad ?? ac.rugosidad };
     const m = new T.MeshStandardMaterial({
       color,
       roughness: o.rugosidad ?? 0.72,

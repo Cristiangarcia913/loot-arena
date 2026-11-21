@@ -686,3 +686,52 @@ test("una escena entera se construye y se libera sin dejar restos", () => {
   for (const x of [esc, heroe, enemigo]) { liberarRama(x.raiz); x.taller.liberar(); }
   assert.ok(liberados.total - antes >= creados, `creados ${creados}, liberados ${liberados.total - antes}`);
 });
+
+test("Aura de escarcha (10) y de llamas (11): se equipan y se ven en 3D en modo demo y con wallet", async () => {
+  const E = await import("../js/economy.js");
+  const demo = E.cosmeticosDemo();                 // modo local/demo: todo el catálogo "poseído"
+  const wallet = { 10: 1, 11: 1 };                 // con wallet: los NFT en la cuenta
+  for (const id of [10, 11]) {
+    for (const [modo, saldos] of [["demo", demo], ["wallet", wallet]]) {
+      const ap = E.sanearApariencia(E.equiparCosmetico(E.aparienciaVacia(), id), saldos);
+      assert.equal(ap.aura, id, `aura ${id} perdida al sanear en modo ${modo}`);
+      const h = construirHeroe(T, [], ap, OPC);
+      assert.ok(h.partes.aura, `aura ${id} sin malla 3D en modo ${modo}`);
+      assert.ok(h.radio > construirHeroe(T, [], {}, OPC).radio, "el aura debe ensanchar el encuadre");
+      h.taller.liberar();
+    }
+  }
+});
+
+test("acabados PBR: armadura metálica calibrada y ojos con halo emisivo en los rivales", () => {
+  const h = construirHeroe(T, [{ tipo: "Armadura", rareza: 1 }], {}, OPC);
+  const metales = h.materiales.filter((m) => m.metalness === 0.8 && m.roughness === 0.25);
+  assert.ok(metales.length >= 3, "la coraza, la hombrera y la gola deberían usar el acabado metal");
+  h.taller.liberar();
+  for (const clave of ["golem", "esqueleto"]) {
+    const e = construirEnemigo(T, clave, OPC);
+    assert.ok(e.materiales.some((m) => m.roughness === 0.85), `${clave}: hueso/roca debería ser mate (0,85)`);
+    e.taller.liberar();
+  }
+  for (const clave of ["limo", "lobo", "orco", "dragon"]) {
+    const e = construirEnemigo(T, clave, OPC);
+    assert.ok(e.materiales.some((m) => m.blending != null && m.opacity < 0.5), `${clave}: sin halo de ojos`);
+    e.taller.liberar();
+  }
+  // El enjambre: ojos emisivos diminutos en cada avispa, sin halo (siete halos serían ruido).
+  const av = construirEnemigo(T, "avispa", OPC);
+  assert.ok(av.materiales.some((m) => m.blending != null), "avispa: sin ojos emisivos");
+  av.taller.liberar();
+});
+
+test("escenario: brasas flotantes según calidad, y la bruma no rompe sin document (Node)", () => {
+  const medio = construirEscenario(T, { calidad: "medio" });
+  assert.ok(medio.brasas, "faltan las brasas en calidad media");
+  assert.equal(medio.bruma, null, "sin document no se puede pintar la textura de la bruma");
+  assert.doesNotThrow(() => { for (let i = 0; i < 300; i++) animarEscenario(medio, i / 60); });
+  const bajo = construirEscenario(T, { calidad: "bajo" });
+  assert.equal(bajo.brasas, null, "el perfil bajo no paga las brasas");
+  const reducido = construirEscenario(T, { calidad: "alto", reducido: true });
+  assert.equal(reducido.brasas, null, "con movimiento reducido no hay brasas");
+  for (const e of [medio, bajo, reducido]) e.taller.liberar();
+});

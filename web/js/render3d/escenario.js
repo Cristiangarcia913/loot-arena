@@ -351,13 +351,90 @@ export function construirEscenario(T, o = {}) {
     raiz.add(chispas);
   }
 
+  // ── Bruma de combate a ras de suelo ──
+  // Unos pocos planos tumbados con un degradado radial (textura de canvas de 64 px, una sola para
+  // todos) que derivan despacio. Van en ANILLO (radio 3,4..8) y no en el centro: velan el suelo y
+  // el pie del muro, que es lo que tiene que quedar «al fondo», y dejan nítidos a los luchadores
+  // en el círculo de combate. Sin `document` (pruebas en Node) o en perfil bajo, no se monta.
+  let bruma = null;
+  const doc = o.documento ?? globalThis.document;
+  if (cal.polvo > 0 && T.CanvasTexture && typeof doc?.createElement === "function") {
+    const c = doc.createElement("canvas");
+    c.width = c.height = 64;
+    const ctx = c.getContext?.("2d");
+    if (ctx) {
+      const gr = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, "rgba(255,255,255,1)");
+      gr.addColorStop(0.45, "rgba(255,255,255,0.45)");
+      gr.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = gr;
+      ctx.fillRect(0, 0, 64, 64);
+      const tex = t.reg(new T.CanvasTexture(c));
+      const matBruma = t.reg(new T.MeshBasicMaterial({
+        color: ARENA.bruma, map: tex, transparent: true, opacity: 0.2, depthWrite: false, fog: true,
+      }));
+      bruma = t.grupo("bruma");
+      const nBruma = cal.sombras ? 9 : 6;
+      const geoBruma = t.reg(new T.PlaneGeometry(1, 1));
+      for (let i = 0; i < nBruma; i++) {
+        const a = (i / nBruma) * Math.PI * 2 + 0.4;
+        const r = 3.4 + ((i * 0.618) % 1) * 4.6;
+        const lado = 4.5 + ((i * 0.41) % 1) * 3.5;
+        const p = new T.Mesh(geoBruma, matBruma);
+        p.rotation.x = -Math.PI / 2;
+        p.position.set(Math.cos(a) * r, 0.12 + (i % 3) * 0.07, Math.sin(a) * r);
+        p.scale.set(lado, lado * 0.7, 1);
+        p.renderOrder = 1;
+        p.userData = { a, r, vel: 0.012 + (i % 4) * 0.006, fase: i * 1.7 };
+        bruma.add(p);
+      }
+      bruma.userData.material = matBruma;
+      raiz.add(bruma);
+    }
+  }
+
+  // ── Brasas flotantes sobre la arena ──
+  // Las chispas de arriba salen solo de las antorchas; estas flotan bajas por todo el redondel,
+  // suben despacio con un vaivén y se reciclan. Mismo presupuesto que el polvo: el perfil bajo
+  // (y el movimiento reducido) no las paga.
+  let brasas = null;
+  if (cal.polvo > 0 && !o.reducido) {
+    const n = Math.max(10, Math.round(cal.polvo * 0.45));
+    const pos = new Float32Array(n * 3);
+    const vel = new Float32Array(n);
+    const fase = new Float32Array(n);
+    const nacer = (i, alto = Math.random() * 0.4) => {
+      const a = Math.random() * Math.PI * 2, r = 1.2 + Math.random() * (RADIO_ARENA - 2.5);
+      pos[i * 3] = Math.cos(a) * r;
+      pos[i * 3 + 1] = 0.05 + alto;
+      pos[i * 3 + 2] = Math.sin(a) * r;
+    };
+    for (let i = 0; i < n; i++) {
+      nacer(i, Math.random() * 1.8);
+      vel[i] = 0.12 + Math.random() * 0.22;
+      fase[i] = Math.random() * 6.28;
+    }
+    const geo = new T.BufferGeometry();
+    geo.setAttribute("position", new T.BufferAttribute(pos, 3));
+    t.reg(geo);
+    const mat = new T.PointsMaterial({
+      color: ARENA.brasa, size: 0.04, sizeAttenuation: true,
+      transparent: true, opacity: 0.75, depthWrite: false, blending: T.AdditiveBlending,
+    });
+    t.reg(mat);
+    brasas = new T.Points(geo, mat);
+    brasas.name = "brasas";
+    brasas.userData = { vel, fase, nacer };
+    raiz.add(brasas);
+  }
+
   // Densidad más baja que antes (0.052 → 0.025): con el tono ya no negro sino azul medianoche, una
   // niebla tan cerrada tapaba el muro y la silueta de los luchadores altos (dragón, gólem) antes de
   // que la cámara pudiera verlos del todo. Más rala deja leer la arena entera y el color sigue
   // marcando «de noche» sin devorar el contraste.
   const niebla = new T.FogExp2(ARENA.niebla, 0.025);
 
-  return { raiz, taller: t, antorchas, polvo, chispas, runas, luces: { ambiente, hemisferio, clave, contra, recorte }, niebla, suelo, calidad: cal };
+  return { raiz, taller: t, antorchas, polvo, chispas, brasas, bruma, runas, luces: { ambiente, hemisferio, clave, contra, recorte }, niebla, suelo, calidad: cal };
 }
 
 /**
@@ -384,7 +461,10 @@ export function animarEscenario(esc, s, reducido = false) {
       const p = a.fase ?? 0;
       // Titileo: dos senos de frecuencias distintas + un pellizco rápido. Nada de aleatorio puro,
       // que se ve como un parpadeo de bombilla fundida.
-      const f = 0.78 + 0.14 * Math.sin(s * 7.3 + p) + 0.08 * Math.sin(s * 17.1 + p * 2.3);
+      // Tercer término lento y de frecuencia irracional (√2): la llama «respira» y el patrón no se
+      // repite a ojo, que es lo que lo hace orgánico en vez de mecánico.
+      const f = 0.76 + 0.13 * Math.sin(s * 7.3 + p) + 0.07 * Math.sin(s * 17.1 + p * 2.3)
+        + 0.06 * Math.sin(s * 1.41421 + p * 0.7);
       if (a.luz) a.luz.intensity = a.base * f;
       a.llama.scale.set(0.9 + f * 0.18, 0.82 + f * 0.3, 0.9 + f * 0.18);
       a.llama.rotation.y = s * 1.6 + p;
@@ -426,5 +506,31 @@ export function animarEscenario(esc, s, reducido = false) {
     pos.needsUpdate = true;
     // Mismo titileo que las llamas: las chispas no brillan a ritmo constante.
     ch.material.opacity = 0.6 + 0.2 * Math.sin(s * 9 + 1);
+  }
+  const br = esc.brasas;
+  if (br && !reducido) {
+    const pos = br.geometry.attributes.position;
+    const arr = pos.array, { vel, fase, nacer } = br.userData;
+    const dt = 1 / 60;
+    for (let i = 0; i < vel.length; i++) {
+      arr[i * 3 + 1] += vel[i] * dt;
+      arr[i * 3] += Math.sin(s * 1.3 + fase[i]) * 0.003;
+      arr[i * 3 + 2] += Math.cos(s * 1.1 + fase[i]) * 0.003;
+      if (arr[i * 3 + 1] > 2.2) nacer(i);
+    }
+    pos.needsUpdate = true;
+    br.material.opacity = 0.55 + 0.2 * Math.sin(s * 5.3 + 2);
+  }
+  const bm = esc.bruma;
+  if (bm && !reducido) {
+    // Deriva: cada jirón gira despacio alrededor del centro y «respira» un poco de tamaño.
+    for (const p of bm.children) {
+      const u = p.userData;
+      const a = u.a + s * u.vel;
+      p.position.x = Math.cos(a) * u.r;
+      p.position.z = Math.sin(a) * u.r;
+      p.rotation.z = s * u.vel * 2 + u.fase;
+    }
+    bm.userData.material.opacity = 0.17 + 0.04 * Math.sin(s * 0.4);
   }
 }

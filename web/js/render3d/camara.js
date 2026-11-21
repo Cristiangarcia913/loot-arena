@@ -38,6 +38,8 @@ export const PLANOS = Object.freeze({
   muerte:       Object.freeze({ acercar: 0.82, ladear: 0.34, bajar: 0.1,  ms: 1300, prisa: 5 }),
   /** Se abre el cofre: al centro de la arena, un poco más bajo. */
   botin:        Object.freeze({ acercar: 0.72, ladear: 0,    bajar: 0.25, ms: 2600, prisa: 7 }),
+  /** ⚡ Remate Definitivo: el plano más cerrado y bajo de todos, entra seco y aguanta el golpe. */
+  remate:       Object.freeze({ acercar: 0.68, ladear: 0.46, bajar: 0.34, ms: 1000, prisa: 16 }),
   /** El héroe alza espada y escudo tras ganar: nos acercamos a él despacio y aguantamos el plano. */
   victoria:     Object.freeze({ acercar: 0.84, ladear: 0.3,  bajar: 0.05, ms: 1700, prisa: 6 }),
 });

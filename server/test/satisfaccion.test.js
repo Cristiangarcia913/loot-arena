@@ -148,6 +148,32 @@ describe('asegurarCsv / anadirFilaSatisfaccion (filesystem real, carpeta tempora
     assert.equal(lineas.length, 2);
     assert.match(lineas[1], /^.*;Ana;.*;5;/);
   });
+
+  test('cabecera exacta para Excel y Comentario antes de Tags en cada fila', async () => {
+    const r = normalizarSatisfaccion({ estrellas: 4, comentario: 'muy bueno', tags: ['🔥 Muy Adictivo', '🐉 Jefes Épicos'] });
+    await anadirFilaSatisfaccion(ruta, r.datos);
+    const [cab, fila] = (await readFile(ruta, 'utf8')).replace(/^﻿/, '').split('\r\n');
+    assert.equal(cab, 'Fecha;Jugador;Nivel;RachaMax;Estrellas;EmocionDominante;TensionMedia;TiempoJuegoMin;Comentario;Tags');
+    const cols = fila.split(';');
+    assert.equal(cols.length, 10);
+    assert.equal(cols[8], 'muy bueno');
+    assert.equal(cols[9], '🔥 Muy Adictivo, 🐉 Jefes Épicos');
+  });
+
+  test('un .csv con la cabecera antigua se aparta (sin perder nada) y se empieza uno nuevo', async () => {
+    const { writeFile, readdir, mkdir } = await import('node:fs/promises');
+    const { dirname } = await import('node:path');
+    await mkdir(dirname(ruta), { recursive: true });
+    const antiguo = '﻿Fecha;Jugador;Nivel;Racha máxima;Estrellas;Emoción dominante;Tensión media;Tiempo (min);Etiquetas;Comentario\r\nx;Ana;1;2;5;;;;;hola\r\n';
+    await writeFile(ruta, antiguo, 'utf8');
+    const { migrado } = await asegurarCsv(ruta, { now: () => 123 });
+    assert.ok(migrado?.endsWith('.anterior-123.csv'));
+    assert.equal(await readFile(migrado, 'utf8'), antiguo);
+    assert.equal(await readFile(ruta, 'utf8'), cabeceraCsv());
+    assert.equal((await readdir(dirname(ruta))).length, 2);
+    // Una segunda llamada ya no migra nada.
+    assert.equal((await asegurarCsv(ruta)).migrado, null);
+  });
 });
 
 describe('API HTTP: POST /api/satisfaccion y GET /api/satisfaccion/descargar', () => {

@@ -104,3 +104,9 @@ test("capturarPico no hace nada (ni lanza) si el medidor no está activo", async
   assert.equal(await EMO.capturarPico("botin_raro"), undefined);
   assert.equal(await EMO.capturarPico("evento_inventado"), undefined);
 });
+
+test("los momentos medidos cubren victoria, cofre y derrota (más sus variantes intensas)", () => {
+  for (const ev of ["victoria", "jefe_vencido", "cofre", "botin_raro", "derrota", "racha_perdida"]) {
+    assert.ok(EMO.EVENTOS_EMOCION[ev]?.etiqueta, `falta el evento ${ev}`);
+  }
+});

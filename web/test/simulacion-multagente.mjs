@@ -332,10 +332,13 @@ async function simularColeccionista() {
   if (statsFinal.esquiva > P.ESQUIVA_TOPE_CONJUNTO + 1e-9) error(reporte, `La probabilidad de esquiva desborda su tope: ${statsFinal.esquiva} > ${P.ESQUIVA_TOPE_CONJUNTO}.`);
 
   // Economía simulada: Tienda del Día, compra y venta de equipo repetido, sin duplicar $ORO.
-  const economia = ECON.crearEconomiaSimulada({ oro: 500, latencia: 0, rng, aprobado: true });
-  let oroEsperado = ECON.aUnidades(500);
-
+  // La oferta cambia con la fecha (hasta 900 ORO, "Mini dragón"): el saldo inicial cubre la oferta
+  // de HOY más 500, para que el resultado no dependa del día en que se ejecute la suite.
   const oferta = ECON.ofertaDelDiaCosmetico(ECON.semillaDelDia());
+  const oroInicial = 500 + (oferta?.precio ?? 0);
+  const economia = ECON.crearEconomiaSimulada({ oro: oroInicial, latencia: 0, rng, aprobado: true });
+  let oroEsperado = ECON.aUnidades(oroInicial);
+
   if (!oferta) {
     advertencia(reporte, "ofertaDelDiaCosmetico() no devolvió ninguna oferta del día.");
   } else {

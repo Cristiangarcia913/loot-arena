@@ -41,7 +41,7 @@ export { TRES_VERSION, TRES_REVISION, MSG_3D, soporta3d };
 
 const E = {
   raiz: null, lienzo: null, T: null,
-  render: null, escena: null, camara: null,
+  render: null, escena: null, camara: null, entorno: null,
   esc: null, rotulos: null,
   lados: { heroe: null, enemigo: null },
   equipados: [], apariencia: {},
@@ -383,7 +383,9 @@ async function arrancar() {
   });
   render.setClearColor(FONDO_CIELO, 1);
   render.shadowMap.enabled = cal.sombras;
-  if (cal.sombras) render.shadowMap.type = T.PCFSoftShadowMap;
+  // three.js r187 retiró PCFSoftShadowMap (avisaba en consola y caía a PCF igualmente): se pide
+  // PCFShadowMap directamente, que en esta versión ya filtra con suavizado.
+  if (cal.sombras) render.shadowMap.type = T.PCFShadowMap ?? T.PCFSoftShadowMap;
   if (T.ACESFilmicToneMapping != null) { render.toneMapping = T.ACESFilmicToneMapping; render.toneMappingExposure = 1.15; }
   if (T.SRGBColorSpace != null) render.outputColorSpace = T.SRGBColorSpace;
   E.render = render;
@@ -396,6 +398,12 @@ async function arrancar() {
   E.esc = construirEscenario(T, { calidad: E.calidad, reducido: reducido() });
   escena.add(E.esc.raiz);
   escena.fog = E.esc.niebla;
+  // Reflejos del metal: sin un entorno, un material con `metalness` alto no tiene nada que
+  // reflejar salvo los puntos de luz y se ve casi negro. Un cielo procedural (noche arriba, franja
+  // cálida de antorchas en el horizonte, arena abajo) convertido UNA vez en PMREM da a armaduras y
+  // filos su brillo sin coste por fotograma. El perfil bajo no lo paga.
+  E.entorno = crearEntorno(T, render, E.calidad);
+  if (E.entorno) { escena.environment = E.entorno; escena.environmentIntensity = INTENSIDAD_ENTORNO; }
 
   E.rotulos = new Rotulos(T);
   E.director = new Director({ reducido, viva: E.camaraViva });
@@ -455,6 +463,42 @@ async function arrancar() {
   prepararCola();
   precalentar();
   return true;
+}
+
+/** Cuánto aporta el entorno reflejado: bajo, para no lavar la iluminación de 3 puntos medida. */
+const INTENSIDAD_ENTORNO = 0.45;
+
+/**
+ * Entorno de reflejos procedural (ver `montar`): una esfera vista desde dentro con colores por
+ * vértice que pasa por `PMREMGenerator` una sola vez. Devuelve `null` (y la escena sigue igual
+ * que antes) en perfil bajo, si three.js no trae el generador o si algo falla en la GPU.
+ */
+function crearEntorno(T, render, calidad) {
+  if (calidad === "bajo" || !T.PMREMGenerator || !T.Float32BufferAttribute) return null;
+  let pm = null, geo = null, mat = null;
+  try {
+    pm = new T.PMREMGenerator(render);
+    const sala = new T.Scene();
+    geo = new T.SphereGeometry(10, 24, 12);
+    const pos = geo.attributes.position;
+    const arriba = new T.Color(0x1b2a55), horizonte = new T.Color(0xa8653a), abajo = new T.Color(0x3a2a1c);
+    const c = new T.Color();
+    const col = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i) / 10; // -1 (suelo) .. 1 (cénit)
+      if (y > 0.1) c.copy(horizonte).lerp(arriba, Math.min(1, (y - 0.1) / 0.5));
+      else c.copy(abajo).lerp(horizonte, Math.max(0, (y + 0.3) / 0.4));
+      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+    }
+    geo.setAttribute("color", new T.Float32BufferAttribute(col, 3));
+    mat = new T.MeshBasicMaterial({ vertexColors: true, side: T.BackSide });
+    sala.add(new T.Mesh(geo, mat));
+    return pm.fromScene(sala, 0.04).texture;
+  } catch {
+    return null;
+  } finally {
+    geo?.dispose(); mat?.dispose(); pm?.dispose();
+  }
 }
 
 function ajustarTamano() {
@@ -1275,7 +1319,7 @@ function destellarCriatura(q, fuerza = 1, ms = 320) {
  * @returns {Promise<void>} **se cumple en el instante del impacto** (la vuelta sigue animándose),
  *          igual que `fx.animarAtaque`, que es de lo que depende el ritmo del combate en main.js
  */
-export function animarAtaque(quien, { critico = false, brutal = false, animacion = null } = {}) {
+export function animarAtaque(quien, { critico = false, brutal = false, animacion = null, remate = false } = {}) {
   sonar("ataque");
   const q = lado(quien);
   const L = E.lados[q];
@@ -1303,7 +1347,16 @@ export function animarAtaque(quien, { critico = false, brutal = false, animacion
 
   // La cámara: los ataques que no se mueven del sitio piden un plano más abierto, porque lo que
   // hay que ver es lo que sale volando, no al que lo lanza.
-  plano(critico || brutal ? "critico" : viaja(d.nombre) ? "embestida" : "telegrafiado", q);
+  plano(remate ? "remate" : critico || brutal ? "critico" : viaja(d.nombre) ? "embestida" : "telegrafiado", q);
+  // ⚡ Remate Definitivo: además del plano cinematográfico, un destello dorado y una corona de
+  // chispas doradas en el punto de impacto, para que se distinga de un crítico cualquiera.
+  if (remate) setTimeout(() => {
+    if (!E.listo) return;
+    destello(0xfde68a, 0.55, 520);
+    const p = puntoImpacto(otroLado(q));
+    particulas(p, { n: 60, color: 0xfde047, vel: 5, g: -6, ms: 950, tam: 0.09 });
+    particulas(p, { n: 30, color: 0xffffff, vel: 3.2, g: -2, ms: 700, tam: 0.06 });
+  }, ms * imp);
 
   if (d.sacude) setTimeout(() => sacudir(d.sacude, brutal ? 480 : 360), ms * imp);
   if (brutal) setTimeout(() => destello(0xef4444, 0.35), ms * imp);
@@ -1319,7 +1372,7 @@ export function animarAtaque(quien, { critico = false, brutal = false, animacion
   // habilidades que el actor se aplica a sí mismo (ver `animarApoyo`).
   if (!d.chorro && !d.proyectil && !d.anillo && !d.defensivo) {
     if (d.nombre === "tajo_cruzado") setTimeout(() => estelaCruzada(q), ms * imp);
-    else setTimeout(() => estelaDeTajo(q, critico || brutal), ms * imp);
+    else setTimeout(() => estelaDeTajo(q, critico || brutal || remate, d.nombre), ms * imp);
   }
   // Grito de guerra: el envión de tamaño que vende el aumento sutil, además del anillo dorado.
   const pulsoDeGrito = d.nombre === "grito";
@@ -1453,33 +1506,52 @@ function anilloDeConjuro(q, d) {
  * @param {"heroe"|"enemigo"} atacante quien da el golpe (el tajo sale delante del OTRO lado)
  * @param {boolean} [grande=false] golpe crítico o brutal: arco más ancho y más vivo
  */
-function estelaDeTajo(atacante, grande = false) {
+function estelaDeTajo(atacante, grande = false, gesto = null) {
   const blanco = otroLado(atacante);
   const L = E.lados[blanco];
   if (!E.listo || !L?.criatura || !L.vivo) return;
   const T = E.T;
   const col = E.lados[atacante]?.criatura?.colores?.acento ?? 0xf1f5f9;
-  const geo = new T.TorusGeometry(grande ? 0.52 : 0.42, grande ? 0.045 : 0.032, 6, 20, Math.PI * 1.1);
-  const mat = new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, blending: T.AdditiveBlending, depthWrite: false });
-  const tajo = new T.Mesh(geo, mat);
-  // De cara a la cámara (sin el giro de 90° que usan los anillos que se posan en el suelo), con
-  // una inclinación lateral para que se lea como un corte diagonal y no como un aro perfecto.
   const fuera = Math.sign(L.baseX ?? L.ancla.position.x) || 1;
-  tajo.rotation.z = -fuera * 0.55 + azar(-0.12, 0.12);
-  tajo.rotation.y = azar(-0.2, 0.2);
-  tajo.position.copy(puntoImpacto(blanco));
-  tajo.position.x -= fuera * 0.18;
-  tajo.scale.setScalar(0.5);
-  E.escena.add(tajo);
-  animar({
-    ms: dur(220),
-    al: (p) => {
-      const k = salida(p);
-      tajo.scale.setScalar(0.5 + k * 0.75);
-      mat.opacity = 0.9 * (1 - p * p);
-    },
-    fin: () => { E.escena.remove(tajo); geo.dispose(); mat.dispose(); },
-  });
+  const centro = puntoImpacto(blanco);
+  // Zarpazo (`garra`): tres surcos finos y paralelos, como las uñas de una bestia. Cualquier otro
+  // golpe cuerpo a cuerpo: una sola hoja ancha.
+  const zarpas = gesto === "garra" ? [-0.09, 0, 0.09] : [0];
+  const radio = grande ? 0.52 : 0.42;
+  const giroBase = -fuera * 0.55 + azar(-0.12, 0.12);
+  const ladeo = azar(-0.2, 0.2);
+  for (const [k, desv] of zarpas.entries()) {
+    // Cada estela son DOS arcos: un núcleo blanco fino (lo caliente del filo) y un halo ancho del
+    // color del atacante. Además el arco BARRE (gira sobre sí mismo mientras se apaga), así se lee
+    // como la trayectoria curva del golpe y no como un aro que aparece quieto.
+    const grosor = zarpas.length > 1 ? 0.6 : 1;
+    const geoHalo = new T.TorusGeometry(radio, (grande ? 0.06 : 0.045) * grosor, 6, 24, Math.PI * 1.05);
+    const geoNucleo = new T.TorusGeometry(radio, (grande ? 0.02 : 0.014) * grosor, 4, 24, Math.PI * 1.05);
+    const matHalo = new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.6, blending: T.AdditiveBlending, depthWrite: false });
+    const matNucleo = new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, blending: T.AdditiveBlending, depthWrite: false });
+    const tajo = new T.Group();
+    tajo.add(new T.Mesh(geoHalo, matHalo), new T.Mesh(geoNucleo, matNucleo));
+    tajo.rotation.z = giroBase;
+    tajo.rotation.y = ladeo;
+    tajo.position.copy(centro);
+    tajo.position.x -= fuera * 0.18;
+    tajo.position.y += desv;
+    tajo.scale.setScalar(0.5);
+    E.escena.add(tajo);
+    const retraso = k * 30;
+    animar({
+      ms: dur(260 + retraso),
+      al: (p) => {
+        const q = Math.max(0, (p * (260 + retraso) - retraso) / 260);
+        const e = salida(q);
+        tajo.scale.setScalar(0.5 + e * 0.75);
+        tajo.rotation.z = giroBase - fuera * e * 0.9;   // barrido en la dirección del golpe
+        matHalo.opacity = 0.6 * (1 - q * q);
+        matNucleo.opacity = 1 - q;
+      },
+      fin: () => { E.escena.remove(tajo); geoHalo.dispose(); geoNucleo.dispose(); matHalo.dispose(); matNucleo.dispose(); },
+    });
+  }
 }
 
 /**
@@ -1619,10 +1691,19 @@ export async function animarGolpe(quien, dano, { critico = false, bloqueado = fa
   if (E.listo && L?.criatura) {
     destellarCriatura(q, critico ? 1.6 : bloqueado ? 0.7 : 1);
     const centro = puntoImpacto(q);
-    if (bloqueado) particulas(centro, { n: 22, color: 0x93c5fd, vel: 2.8, g: -6, ms: 520, tam: 0.06 });
-    else particulas(centro, critico
-      ? { n: 46, color: 0xfde047, vel: 4.2, g: -7, ms: 820, tam: 0.085 }
-      : { n: 20, color: 0xef4444, vel: 2.6, g: -7, ms: 560, tam: 0.06 });
+    // Hacia dónde salen despedidas las partículas: lejos del atacante, un poco hacia arriba.
+    const lejos = Math.sign(L.baseX ?? L.ancla.position.x) || 1;
+    if (bloqueado) {
+      particulas(centro, { n: 22, color: 0x93c5fd, vel: 2.8, g: -6, ms: 520, tam: 0.06 });
+      // Chispas de metal contra metal: rápidas, blanco-amarillas y con mucha gravedad (caen enseguida).
+      particulas(centro, { n: 18, color: 0xfff3b0, vel: 4.6, g: -12, ms: 420, tam: 0.04, hacia: [-lejos, 0.55, 0], ancho: 1.4 });
+    } else if (critico) {
+      particulas(centro, { n: 46, color: 0xfde047, vel: 4.2, g: -7, ms: 820, tam: 0.085 });
+      // Salpicadura del crítico: gotas gruesas que salen hacia atrás y caen al suelo por su peso.
+      particulas(centro, { n: 26, color: 0xb91c1c, vel: 3.4, g: -11, ms: 900, tam: 0.075, hacia: [lejos, 0.5, 0], ancho: 1.2 });
+    } else {
+      particulas(centro, { n: 20, color: 0xef4444, vel: 2.6, g: -7, ms: 560, tam: 0.06 });
+    }
     if (critico) { destello(0xfff2c4, 0.45); sacudir(12, 420); }
     // El dragón escupe fuego: el golpe que recibe el héroe lleva una ráfaga extra de llamas y
     // humo en el punto de impacto, además de las chispas normales de arriba.
@@ -1938,7 +2019,9 @@ export function desmontar() {
   if (E.esc) { liberarRama(E.esc.raiz); E.esc.taller.liberar(); E.esc = null; }
   E.rotulos?.liberar();
   E.rotulos = null;
-  if (E.escena) { E.escena.clear?.(); E.escena = null; }
+  E.entorno?.dispose?.();
+  E.entorno = null;
+  if (E.escena) { E.escena.environment = null; E.escena.clear?.(); E.escena = null; }
   if (E.render) {
     E.render.setAnimationLoop?.(null);
     E.render.dispose();

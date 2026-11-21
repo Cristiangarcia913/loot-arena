@@ -20,7 +20,7 @@ export const CHIPS = Object.freeze([
   Object.freeze({ id: "adictivo", texto: "🔥 Muy Adictivo" }),
   Object.freeze({ id: "tactico", texto: "⚔️ Combate Táctico" }),
   Object.freeze({ id: "jefes", texto: "🐉 Jefes Épicos" }),
-  Object.freeze({ id: "justo", texto: "📈 Difícil pero Justo" }),
+  Object.freeze({ id: "justo", texto: "📈 Justo y Desafiante" }),
 ]);
 
 // ───────────────────────── 1. Funciones puras ─────────────────────────
@@ -119,6 +119,49 @@ export function urlDescarga(serverUrl) {
   return serverUrl ? `${serverUrl}/api/satisfaccion/descargar` : null;
 }
 
+/** Misma cabecera que el .csv del servidor (server/src/satisfaccion.js). */
+export const CABECERA_CSV = Object.freeze([
+  "Fecha", "Jugador", "Nivel", "RachaMax", "Estrellas", "EmocionDominante",
+  "TensionMedia", "TiempoJuegoMin", "Comentario", "Tags",
+]);
+
+const campoCsv = (v) => {
+  const s = v === null || v === undefined ? "" : String(v);
+  return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/**
+ * .csv para Excel (BOM UTF-8, separador ';', CRLF) con las respuestas guardadas en este
+ * navegador: lo que descarga el botón "📥 Descargar Datos de Satisfacción" cuando no hay
+ * servidor (modo local/demo). Mismo formato que el del servidor, de la más antigua a la más
+ * reciente. Pura.
+ * @param {Array<object>} lista respuestas como las guarda `guardarLocal` (la más reciente primero)
+ * @returns {string}
+ */
+export function csvLocal(lista = []) {
+  const fila = (vals) => `${vals.map(campoCsv).join(";")}\r\n`;
+  const filas = [...(lista ?? [])].reverse().map((d) => fila([
+    d.fecha, d.jugador || "Anónimo", d.nivel, d.rachaMax, d.estrellas, d.emocionDominante,
+    d.tensionMedia, d.tiempoMinutos, d.comentario, Array.isArray(d.tags) ? d.tags.join(", ") : d.tags,
+  ]));
+  return `\uFEFF${fila(CABECERA_CSV)}${filas.join("")}`;
+}
+
+/** Descarga `csvLocal` de la copia local como archivo (sin servidor). Devuelve cuántas filas lleva. */
+export function descargarCsvLocal({ documento = document } = {}) {
+  const lista = parsearLocal(leer(CLAVE_LOCAL));
+  const blob = new Blob([csvLocal(lista)], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = documento.createElement("a");
+  a.href = url;
+  a.download = "satisfaccion_jugadores.csv";
+  documento.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return lista.length;
+}
+
 // ───────────────────────── 2. Modal ─────────────────────────
 
 function estrellasUI(onCambio) {
@@ -192,6 +235,7 @@ export function mostrarEncuesta({ stats = {}, historialEmocion = [], serverUrl =
     overlay = h("div", { class: "pantalla sat-pantalla" },
       h("div", { class: "sat-caja" },
         h("h3", {}, "📊 ¿Qué te ha parecido esta sesión?"),
+        h("p", { class: "sat-sub tenue" }, "Solo 5 segundos: toca las estrellas y, si quieres, una etiqueta."),
         estrellasUI((n) => { estrellas = n; enviarBtn.disabled = false; }),
         chipsUI(seleccion),
         comentario,

@@ -819,6 +819,7 @@ async function animarEvento(ev, c) {
       critico: !!ev.critico,
       brutal: !!(ev.brutal || ev.definitiva),
       animacion: C.animacion3d(ev.id),
+      remate: !!ev.remate,
     });
     await FX.animarGolpe(quienFx(ev.objetivo), ev.dano, { critico: !!ev.critico, bloqueado: !!ev.bloqueado, esquivado: !!ev.esquivado, fallo: !!ev.fallo });
   } else if (ev.dano != null && ev.objetivo) {
@@ -1014,7 +1015,8 @@ async function alTerminar(fin) {
     const r = P.aplicarVictoria(S.progreso, c.enemigo);
     S.progreso = r.progreso;
     // Jefe vencido (de nivel o de racha): los Modificadores de Arena en juego se vacían.
-    if (c.enemigo.jefe) { S.modificadoresArena = []; EMO.capturarPico("jefe_vencido"); }
+    if (c.enemigo.jefe) S.modificadoresArena = [];
+    EMO.capturarPico(c.enemigo.jefe ? "jefe_vencido" : "victoria");
     guardarProgreso();
     renderHeroe();
     const nivelAhora = P.infoXp(S.progreso).nivel;
@@ -1034,7 +1036,7 @@ async function alTerminar(fin) {
   if (fin === "derrota") {
     const perdiaRacha = S.progreso.racha > 0;
     S.progreso = P.aplicarDerrota(S.progreso);
-    if (perdiaRacha) EMO.capturarPico("racha_perdida");
+    EMO.capturarPico(perdiaRacha ? "racha_perdida" : "derrota");
   } else S.progreso = P.aplicarHuida(S.progreso);
   // La racha se rompe: con ella se acaban los Modificadores de Arena en juego.
   S.modificadoresArena = [];
@@ -1265,7 +1267,7 @@ async function mostrarBotin(r, eleccionPrevia) {
           detalle: [E.rareza(r.item.rareza).nombre], hash: r.txHash ?? null,
         });
       }
-      if (r.item.rareza >= 1) EMO.capturarPico("botin_raro");
+      EMO.capturarPico(r.item.rareza >= 1 ? "botin_raro" : "cofre");
       eleccion = await FX.revelarBotin(r.item);
       TUT.avanzarTutorial("botin");
       await cargarInventario();
@@ -1285,7 +1287,7 @@ async function mostrarBotin(r, eleccionPrevia) {
       if (enemigo?.jefe) {
         registrarHistorialLocal({ tipo: "botin", titulo: `Botín de jefe: «${r.item.nombre}»`, detalle: [E.rareza(r.item.rareza).nombre, "modo demo: guardado en este navegador"] });
       }
-      if (r.item.rareza >= 1) EMO.capturarPico("botin_raro");
+      EMO.capturarPico(r.item.rareza >= 1 ? "botin_raro" : "cofre");
       eleccion = await FX.revelarBotin(r.item);
       TUT.avanzarTutorial("botin");
       await cargarInventario();
@@ -1422,7 +1424,16 @@ async function iniciar() {
   const urlDescargaSat = SAT.urlDescarga(S.cfg.serverUrl);
   if (btnDescargaSat) {
     if (urlDescargaSat) btnDescargaSat.href = urlDescargaSat;
-    else { btnDescargaSat.setAttribute("aria-disabled", "true"); btnDescargaSat.classList.add("btn-disabled"); btnDescargaSat.addEventListener("click", (ev) => ev.preventDefault()); }
+    else {
+      // Sin servidor (modo local/demo): el botón sigue funcionando, con las respuestas guardadas
+      // en este navegador y en el mismo formato .csv para Excel que el del servidor.
+      btnDescargaSat.title = "Sin servidor: descarga las valoraciones guardadas en este navegador";
+      btnDescargaSat.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        const n = SAT.descargarCsvLocal();
+        if (!n) toast("Todavía no hay valoraciones guardadas en este navegador: el archivo solo lleva la cabecera.", "info", 5000);
+      });
+    }
   }
   // Despierta el servidor de botín (Render free se duerme) mientras el jugador combate.
   // De paso se mira si el indexador del ranking está atascado (1.4.1 de equipo-servidor):

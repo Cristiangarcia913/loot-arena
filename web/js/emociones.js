@@ -37,9 +37,15 @@ export const REACCIONES = Object.freeze({
  * Los 3 disparadores de combate/cofre que alimentan la telemetría, con su etiqueta para el
  * resumen final (MEJORAS: "Sorpresa al obtener botín: 85%", "Nivel de Tensión en combate: 70%").
  */
+// Los tres momentos clave que se miden (victoria, cofre y derrota), cada uno con su variante más
+// intensa cuando la hay (vencer a un Jefe, botín raro, perder una racha). Solo se toman 3
+// fotogramas sueltos por evento (ver `capturarPico`): nunca se procesa vídeo continuo.
 export const EVENTOS_EMOCION = Object.freeze({
-  botin_raro: Object.freeze({ etiqueta: "Sorpresa al obtener botín", icono: "🎁" }),
+  victoria: Object.freeze({ etiqueta: "Alegría al ganar un combate", icono: "🏆" }),
   jefe_vencido: Object.freeze({ etiqueta: "Euforia al vencer al Jefe", icono: "👑" }),
+  cofre: Object.freeze({ etiqueta: "Expectación al abrir un cofre", icono: "📦" }),
+  botin_raro: Object.freeze({ etiqueta: "Sorpresa al obtener botín", icono: "🎁" }),
+  derrota: Object.freeze({ etiqueta: "Tensión al caer en combate", icono: "🛡️" }),
   racha_perdida: Object.freeze({ etiqueta: "Nivel de Tensión al perder la racha", icono: "💔" }),
 });
 

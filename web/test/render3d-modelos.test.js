@@ -321,3 +321,18 @@ test("un jefe con modelo externo sale más grande, aunque sin corona", () => {
   assert.equal(jefe.partes.corona, undefined, "un modelo externo no tiene corona procedural");
   assert.equal(jefe.jefe, true);
 });
+
+test("cada .glb de assets/models tiene ojos que brillan configurados (OJOS_MODELOS)", async () => {
+  const { readdirSync } = await import("node:fs");
+  const { OJOS_MODELOS, esMaterialDeOjos, ROTACION_Y_MODELOS } = await import("../js/render3d/modelos.js");
+  const glb = readdirSync(new URL("../assets/models/", import.meta.url)).filter((f) => f.endsWith(".glb")).map((f) => f.replace(".glb", ""));
+  for (const nombre of glb) {
+    const cfg = OJOS_MODELOS[nombre];
+    assert.ok(cfg?.color != null, `${nombre}.glb sin ojos configurados`);
+    if (cfg.pos) assert.ok(cfg.r > 0 && cfg.sep > 0 && [0, 1, 2].includes(cfg.eje), `${nombre}: ojos mal definidos`);
+  }
+  assert.ok(esMaterialDeOjos({ name: "Eyes" }) && esMaterialDeOjos({ name: "ojo_izq" }));
+  assert.ok(!esMaterialDeOjos({ name: "Body" }) && !esMaterialDeOjos(null));
+  // lobo.glb tiene el hocico en +X: −π/2 lo pone de cara al rival (+Z), +π/2 le daba la espalda.
+  assert.equal(ROTACION_Y_MODELOS.lobo, -Math.PI / 2);
+});

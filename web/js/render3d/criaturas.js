@@ -141,7 +141,7 @@ function ponerCosmeticos(t, ap, { raiz, cuerpo, cabeza }) {
       const tela = t.mat(cp.color, { doble: true, rugosidad: 0.95, ...brillo(cp) });
       const capa = t.grupo("capa");
       capa.add(t.en(t.plano(0.62, 1.05, tela), 0, -0.45, 0));
-      capa.add(t.en(t.toro(0.2, 0.035, t.mat(oscurecer(cp.color, 0.3), { metal: 0.6, rugosidad: 0.4 })), 0, 0.06, 0.02, { rx: Math.PI / 2 }));
+      capa.add(t.en(t.toro(0.2, 0.035, t.mat(oscurecer(cp.color, 0.3), { acabado: "metal" })), 0, 0.06, 0.02, { rx: Math.PI / 2 }));
       t.en(capa, 0, 1.33, -0.21, { rx: 0.12 });
       cuerpo.add(capa);
       extras.capa = capa;
@@ -239,11 +239,14 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   const esp = pal("Espada"), esc = pal("Escudo"), cas = pal("Casco"), arm = pal("Armadura"), bot = pal("Botas");
 
   const tinte = tinteDe(ap.color);
-  const matPiel = t.mat(HEROE.piel, { rugosidad: 0.85 });
+  const matPiel = t.mat(HEROE.piel, { acabado: "piel" });
   const colTorso = tinte ? tinte[0] : arm ? arm.luz : HEROE.tunica;
   const colTorsoOsc = tinte ? tinte[1] : arm ? arm.osc : 0x5a3519;
-  const matTorso = t.mat(colTorso, { metal: arm ? 0.6 : 0.05, rugosidad: arm ? 0.35 : 0.8, emision: arm?.emision, fuerza: arm ? arm.fuerza * 0.35 : 0 });
-  const matTorsoOsc = t.mat(colTorsoOsc, { metal: arm ? 0.5 : 0.05, rugosidad: 0.5 });
+  // Coraza con acabado de metal calibrado (0,8 / 0,25, ver `ACABADO`); la túnica sin armadura, tela mate.
+  const matTorso = t.mat(colTorso, arm
+    ? { acabado: "metal", emision: arm.emision, fuerza: arm.fuerza * 0.35 }
+    : { metal: 0.05, rugosidad: 0.8 });
+  const matTorsoOsc = t.mat(colTorsoOsc, arm ? { acabado: "metal", rugosidad: 0.45 } : { metal: 0.05, rugosidad: 0.5 });
   const matBota = t.mat(bot ? bot.base : HEROE.bota, { metal: bot ? 0.5 : 0.1, rugosidad: 0.55, emision: bot?.emision, fuerza: bot ? bot.fuerza * 0.3 : 0 });
   // Los brazos van SIEMPRE de cuero oscuro, aunque la armadura sea legendaria. Con todo dorado
   // (torso, hombreras, casco, espada y escudo) el heroe era un bulto de un solo color y no se
@@ -273,17 +276,30 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   torso.add(t.en(t.capsula(0.25, 0.4, matTorso), 0, 0, 0));
   torso.add(t.en(t.toro(0.26, 0.045, t.mat(HEROE.cinturon, { rugosidad: 0.7 })), 0, -0.22, 0, { rx: Math.PI / 2 }));
   if (arm) {
-    const matHombro = t.mat(arm.base, { metal: 0.75, rugosidad: 0.3, emision: arm.emision, fuerza: arm.fuerza * 0.5 });
+    const matHombro = t.mat(arm.base, { acabado: "metal", emision: arm.emision, fuerza: arm.fuerza * 0.5 });
     for (const s of [-1, 1]) torso.add(t.en(t.esfera(0.135, matHombro, 0.7), s * 0.27, 0.2, 0));
+    // Relieve de la coraza (lorica musculata): dos pectorales abombados y tres placas abdominales
+    // con el metal oscuro entre ellas. Sin esto la armadura era la misma cápsula lisa del torso,
+    // solo que brillante: «la pastilla» con otro color.
+    for (const s of [-1, 1]) torso.add(t.en(t.esfera(0.12, matTorso, 0.42), s * 0.095, 0.1, 0.19, { rx: -0.25 }));
+    for (let i = 0; i < 3; i++) {
+      torso.add(t.en(t.caja(0.3 - i * 0.03, 0.022, 0.03, matTorsoOsc), 0, -0.03 - i * 0.06, 0.245 - i * 0.004));
+    }
+    // Gola: aro de metal en el cuello que remata la coraza por arriba.
+    torso.add(t.en(t.toro(0.13, 0.025, matHombro), 0, 0.36, 0, { rx: Math.PI / 2 }));
   }
   // Hombrera de placas (manica): SIEMPRE en el brazo derecho, lleve armadura o no. Es lo que hace
   // reconocible al gladiador frente a un soldado cualquiera (el brazo del arma va protegido con
   // placas de metal superpuestas; el del escudo va desnudo, que para eso lo cubre el escudo).
-  const matPlaca = t.mat(0x9c7a3e, { metal: 0.78, rugosidad: 0.32 });
+  const matPlaca = t.mat(0x9c7a3e, { acabado: "metal" });
   const hombreraDer = t.grupo("hombreraDer");
   for (let i = 0; i < 3; i++) {
     hombreraDer.add(t.en(t.esfera(0.15 - i * 0.014, matPlaca, 0.55), 0, -i * 0.07, 0.025 + i * 0.012));
   }
+  // Reborde y remaches de la placa superior: definen el canto de la hombrera para que se lea
+  // como metal laminado y no como tres bolas apiladas.
+  hombreraDer.add(t.en(t.toro(0.125, 0.014, matCuero), 0, -0.01, 0.03, { rx: Math.PI / 2 - 0.35 }));
+  for (const a of [-0.6, 0, 0.6]) hombreraDer.add(t.en(t.esfera(0.016, matPlaca), Math.sin(a) * 0.11, 0.05, 0.08 + Math.cos(a) * 0.02));
   t.en(hombreraDer, 0.28, 0.2, 0);
   torso.add(hombreraDer);
   // Pteruges: tiras de cuero colgando del cinturón, en arco por delante. También siempre puestas:
@@ -320,7 +336,7 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
     cabeza.add(t.en(t.esfera(0.008, matBrilloOjo), lado * 0.065 + lado * 0.01, 0.028, 0.165));
   }
   if (cas) {
-    const matCasco = t.mat(cas.base, { metal: 0.85, rugosidad: 0.25, emision: cas.emision, fuerza: cas.fuerza * 0.6 });
+    const matCasco = t.mat(cas.base, { acabado: "metal", emision: cas.emision, fuerza: cas.fuerza * 0.6 });
     // El penacho SIEMPRE es rojo, aunque el casco sea de rareza común: es lo que hace
     // reconocible al casco de gladiador en vez de un cubo metálico cualquiera. La rareza del
     // casco solo cambia el metal (gris/azul/dorado), nunca la cresta.
@@ -333,7 +349,12 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
     cabeza.add(t.en(t.caja(0.07, 0.13, 0.03, matCasco), 0, 0.02, 0.17)); // nasal
     // Visor: ranura de ojos iluminada por delante del nasal, para que el casco no quede como un
     // cubo de metal ciego y se note que hay alguien dentro mirando.
+    // Marco oscuro del visor (el hueco donde va la ranura) y carrilleras a los lados de la cara:
+    // rompen la cúpula del casco, que de lejos se leía como una pastilla lisa.
+    const matHueco = t.mat(0x14100c, { acabado: "metal", rugosidad: 0.5 });
+    cabeza.add(t.en(t.caja(0.25, 0.065, 0.025, matHueco), 0, 0.02, 0.18));
     cabeza.add(t.en(t.caja(0.2, 0.032, 0.02, t.matLuz(0x8fe3ff, { aditivo: true })), 0, 0.02, 0.19));
+    for (const s of [-1, 1]) cabeza.add(t.en(t.caja(0.035, 0.15, 0.13, matCasco), s * 0.16, -0.07, 0.07, { ry: s * 0.35 }));
   }
   t.en(cabeza, 0, 1.47, 0);
   cuerpo.add(cabeza);
@@ -348,7 +369,7 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
     // punta) y un nervio central que marca el filo. Lo que cambia con la rareza es su brillo y la
     // guarda. Una hoja entera dorada parecia un palo mas del mismo color.
     const matFilo = t.mat(0xd7dde6, { metal: 0.8, rugosidad: 0.2, emision: esp.emision, fuerza: esp.fuerza * 0.8 });
-    const matGuarda = t.mat(esp.osc, { metal: 0.8, rugosidad: 0.35 });
+    const matGuarda = t.mat(esp.osc, { acabado: "metal" });
     arma.add(t.en(t.caja(0.062, 0.28, 0.016, matFilo), 0, 0.24, 0));  // base de la hoja
     arma.add(t.en(t.caja(0.07, 0.2, 0.016, matFilo), 0, 0.46, 0));    // vientre, más ancho
     arma.add(t.en(t.cono(0.05, 0.16, matFilo), 0, 0.64, 0));          // punta
@@ -370,17 +391,17 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
   brazoIzq.add(t.en(t.esfera(0.075, matPiel), 0, -0.38, 0));
   const escudo = t.grupo("escudo");
   if (esc) {
-    const matEsc = t.mat(esc.base, { metal: 0.8, rugosidad: 0.3, emision: esc.emision, fuerza: esc.fuerza * 0.7 });
+    const matEsc = t.mat(esc.base, { acabado: "metal", emision: esc.emision, fuerza: esc.fuerza * 0.7 });
     escudo.add(t.en(t.cilindro(0.3, 0.26, 0.055, matEsc), 0, 0, 0, { rx: Math.PI / 2 }));
     // Remate de hierro en el centro (el umbo): siempre del mismo metal oscuro, nunca del color de
     // la rareza, para que se lea como herraje de verdad y no como una gema más del escudo.
-    const matRemate = t.mat(0x3b2a1c, { metal: 0.85, rugosidad: 0.3 });
+    const matRemate = t.mat(0x3b2a1c, { acabado: "metal" });
     escudo.add(t.en(t.esfera(0.08, matRemate), 0, 0, 0.055));
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
       escudo.add(t.en(t.esfera(0.025, matRemate), Math.cos(a) * 0.19, Math.sin(a) * 0.19, 0.045));
     }
-    escudo.add(t.en(t.toro(0.29, 0.028, t.mat(esc.osc, { metal: 0.7, rugosidad: 0.4 })), 0, 0, 0.01));
+    escudo.add(t.en(t.toro(0.29, 0.028, t.mat(esc.osc, { acabado: "metal" })), 0, 0, 0.01));
     t.en(escudo, -0.14, -0.4, 0.14, { ry: 0.35 });
     brazoIzq.add(escudo);
   }
@@ -416,7 +437,16 @@ export function construirHeroe(T, equipados = [], apariencia = {}, o = {}) {
 /** Dos ojos que brillan, el detalle que más vida da a un bicho de cajas. */
 function ojos(t, col, { r = 0.045, x = 0.07, y = 0, z = 0.14, opacidad = 1 } = {}) {
   const g = t.grupo("ojos");
-  for (const s of [-1, 1]) g.add(t.en(t.esfera(r, t.matLuz(col, { opacidad, aditivo: true })), s * x, y, z));
+  // Un material para el núcleo y otro para el halo, compartidos por los dos ojos.
+  const nucleo = t.matLuz(col, { opacidad, aditivo: true });
+  // Halo: una esfera más grande y tenue del mismo color alrededor de cada ojo. Es lo que hace que
+  // la mirada «brille» contra la noche (resplandor) en vez de ser un punto de color, y da a los
+  // rivales su presencia agresiva incluso de lejos.
+  const halo = t.matLuz(col, { opacidad: 0.22 * opacidad, aditivo: true });
+  for (const s of [-1, 1]) {
+    g.add(t.en(t.esfera(r, nucleo), s * x, y, z));
+    g.add(t.en(t.esfera(r * 2.1, halo), s * x, y, z - r * 0.3));
+  }
   return g;
 }
 
@@ -531,7 +561,8 @@ const RECETAS = {
   },
 
   goblin(t, c) {
-    const m = t.mat(c.base, { rugosidad: 0.85 }), mo = t.mat(c.osc, { rugosidad: 0.9 });
+    // Piel satinada (no mate): el brillo suave en la curva de hombros y cabeza da el volumen.
+    const m = t.mat(c.base, { acabado: "piel" }), mo = t.mat(c.osc, { acabado: "piel", rugosidad: 0.72 });
     const h = humanoide(t, { alto: 1.15, ancho: 0.42, matCuerpo: m, matOsc: mo, cabezaR: 0.23, hombros: 0.9 });
     // Orejas enormes y nariz: la silueta del goblin
     for (const s of [-1, 1]) h.cabeza.add(t.en(t.cono(0.07, 0.3, m), s * 0.22, 0.04, -0.02, { rz: s * 1.3 }));
@@ -539,7 +570,7 @@ const RECETAS = {
     h.cabeza.add(ojos(t, 0xfde047, { r: 0.035, x: 0.085, y: 0.05, z: 0.19 }));
     // Daga oxidada
     const daga = t.grupo("arma");
-    daga.add(t.en(t.caja(0.05, 0.34, 0.012, t.mat(c.acento, { metal: 0.7, rugosidad: 0.5 })), 0, 0.2, 0));
+    daga.add(t.en(t.caja(0.05, 0.34, 0.012, t.mat(c.acento, { acabado: "metal" })), 0, 0.2, 0));
     daga.add(t.en(t.cilindro(0.025, 0.025, 0.1, mo), 0, 0, 0));
     t.en(daga, 0, -0.3, 0.05, { rx: -0.4 });
     h.brazoDer.add(daga);
@@ -550,7 +581,7 @@ const RECETAS = {
 
   esqueleto(t, c) {
     // Hueso desgastado: mate de verdad (0.75 → 0.82), no un brillo de hueso pulido.
-    const m = t.mat(c.base, { rugosidad: 0.82, plano: true }), mo = t.mat(c.osc, { rugosidad: 0.88, plano: true });
+    const m = t.mat(c.base, { acabado: "hueso", plano: true }), mo = t.mat(c.osc, { acabado: "hueso", plano: true });
     const h = humanoide(t, { alto: 1.7, ancho: 0.44, matCuerpo: m, matOsc: mo, cabezaR: 0.19, cuello: 0.05, hombros: 0.95 });
     // Costillas en lugar de torso macizo
     h.torso.scale.set(0.62, 1, 0.55);
@@ -561,7 +592,7 @@ const RECETAS = {
     h.cabeza.add(ojos(t, c.emision, { r: 0.04, x: 0.075, y: 0.02, z: 0.15 }));
     // Espada mellada
     const arma = t.grupo("arma");
-    arma.add(t.en(t.caja(0.07, 0.6, 0.015, t.mat(0xb8c0cc, { metal: 0.85, rugosidad: 0.45 })), 0, 0.35, 0));
+    arma.add(t.en(t.caja(0.07, 0.6, 0.015, t.mat(0xb8c0cc, { acabado: "metal" })), 0, 0.35, 0));
     arma.add(t.en(t.cilindro(0.03, 0.03, 0.14, mo), 0, 0, 0));
     t.en(arma, 0, -0.44, 0.04, { rx: -0.3 });
     h.brazoDer.add(arma);
@@ -607,16 +638,17 @@ const RECETAS = {
   },
 
   orco(t, c) {
-    const m = t.mat(c.base, { rugosidad: 0.85 }), mo = t.mat(c.osc, { rugosidad: 0.9 });
+    // Piel satinada (no mate): el brillo suave en la curva de hombros y cabeza da el volumen.
+    const m = t.mat(c.base, { acabado: "piel" }), mo = t.mat(c.osc, { acabado: "piel", rugosidad: 0.72 });
     const h = humanoide(t, { alto: 1.95, ancho: 0.72, matCuerpo: m, matOsc: mo, cabezaR: 0.26, hombros: 1.25 });
     h.cabeza.add(t.en(t.caja(0.3, 0.12, 0.2, m), 0, -0.14, 0.06)); // mandíbula
-    for (const s of [-1, 1]) h.cabeza.add(t.en(t.cono(0.035, 0.15, t.mat(0xf5f0e0, { rugosidad: 0.4 })), s * 0.1, -0.1, 0.14, { rx: 0.2 })); // colmillos
+    for (const s of [-1, 1]) h.cabeza.add(t.en(t.cono(0.035, 0.15, t.mat(0xf5f0e0, { acabado: "hueso" })), s * 0.1, -0.1, 0.14, { rx: 0.2 })); // colmillos
     // Ojos color ámbar (misma familia que el goblin, no el rojo de bestia/demonio): es lo que
     // distingue de un vistazo a un humanoide salvaje de un depredador de verdad.
     h.cabeza.add(ojos(t, 0xfde047, { r: 0.035, x: 0.1, y: 0.05, z: 0.22 }));
     // Hombreras de hierro: sin esto el orco iba desnudo de torso y el pedido de «armadura de
     // hierro con reflejo» no se notaba en el cuerpo, solo en el hacha.
-    const matHierro = t.mat(0x3b3630, { metal: 0.7, rugosidad: 0.3 });
+    const matHierro = t.mat(0x3b3630, { acabado: "metal" });
     for (const s of [-1, 1]) {
       h.torso.add(t.en(t.esfera(0.17, matHierro, 0.6), s * 0.46, 0.12, 0));
       h.torso.add(t.en(t.cono(0.05, 0.14, matHierro), s * 0.46, 0.22, 0, { rz: s * 0.3 }));
@@ -625,7 +657,7 @@ const RECETAS = {
     h.torso.add(t.en(t.toro(0.3, 0.035, matHierro), 0, -0.38, 0, { rx: Math.PI / 2 }));
     // Hacha de dos hojas
     const arma = t.grupo("arma");
-    const matHoja = t.mat(0x9ca3af, { metal: 0.85, rugosidad: 0.4 });
+    const matHoja = t.mat(0x9ca3af, { acabado: "metal" });
     arma.add(t.en(t.cilindro(0.04, 0.045, 0.95, t.mat(0x4a3526, { rugosidad: 0.95 })), 0, 0.3, 0));
     for (const s of [-1, 1]) arma.add(t.en(t.cono(0.22, 0.34, matHoja), s * 0.17, 0.7, 0, { rz: s * 1.6, esc: [1, 1, 0.22] }));
     t.en(arma, 0, -0.5, 0.08, { rx: -0.35 });
@@ -666,7 +698,7 @@ const RECETAS = {
   },
 
   golem(t, c) {
-    const m = t.mat(c.base, { rugosidad: 0.95, plano: true }), mo = t.mat(c.osc, { rugosidad: 1, plano: true });
+    const m = t.mat(c.base, { acabado: "roca", plano: true }), mo = t.mat(c.osc, { acabado: "roca", plano: true });
     const grieta = t.mat(c.acento, { emision: c.emision, fuerza: c.fuerza, rugosidad: 0.5 });
     const raiz = t.grupo("golem");
     const cuerpo = t.grupo("cuerpo");
@@ -919,7 +951,11 @@ const RECETAS = {
       cuerpo.add(t.en(t.esfera(0.035, t.matLuz(c.acento, { aditivo: true, opacidad: 0.6 })),
         Math.cos(i * 2.2) * 0.2, -0.04 + (i % 3) * 0.12, Math.sin(i * 2.2) * 0.2));
     }
-    for (const s of [-1, 1]) cuerpo.add(t.en(t.esfera(0.05, gelOsc), s * 0.12, 0.14, 0.33));
+    // Ojos: cuencas de gel oscuro con una mirada encendida dentro (antes eran solo dos bultos).
+    // La cuenca va hundida (z 0,29) y el ojo encendido por DELANTE de ella (z 0,36 + radio): si
+    // no, la cuenca opaca se lo traga y desde la cámara solo se ven dos bolas negras.
+    for (const s of [-1, 1]) cuerpo.add(t.en(t.esfera(0.055, gelOsc), s * 0.12, 0.14, 0.29));
+    cuerpo.add(ojos(t, c.emision || c.acento, { r: 0.036, x: 0.12, y: 0.14, z: 0.36 }));
     t.en(cuerpo, 0, 0.3, 0);
     raiz.add(cuerpo);
     raiz.add(t.en(t.disco(0.55, t.matLuz(c.emision || 0x000000, { opacidad: 0.3 })), 0, 0.012, 0));
@@ -941,7 +977,7 @@ const RECETAS = {
     const armas = [];
     for (const [brazo, nombre] of [[h.brazoDer, "arma"], [h.brazoIzq, "armaIzq"]]) {
       const daga = t.grupo(nombre);
-      daga.add(t.en(t.caja(0.045, 0.3, 0.012, t.mat(0xc8ccd4, { metal: 0.9, rugosidad: 0.35 })), 0, 0.18, 0));
+      daga.add(t.en(t.caja(0.045, 0.3, 0.012, t.mat(0xc8ccd4, { acabado: "metal" })), 0, 0.18, 0));
       daga.add(t.en(t.caja(0.11, 0.03, 0.03, mo), 0, 0.03, 0));
       daga.add(t.en(t.cilindro(0.022, 0.022, 0.09, rojo), 0, -0.03, 0));
       t.en(daga, 0, -0.42, 0.05, { rx: -0.35 });
@@ -960,6 +996,7 @@ const RECETAS = {
     const amarillo = t.mat(c.base, { rugosidad: 0.5, emision: c.base, fuerza: 0.2 });
     const negro = t.mat(c.osc, { rugosidad: 0.6 });
     const mAla = t.matLuz(0xffffff, { opacidad: 0.35, doble: true });
+    const mOjo = t.matLuz(0xff3b1f, { aditivo: true });   // uno para las siete: ojos rojos de enjambre
     const raiz = t.grupo("avispa");
     const cuerpo = t.grupo("cuerpo");
     const bichos = [];
@@ -972,6 +1009,7 @@ const RECETAS = {
       b.add(t.en(t.capsula(0.055, 0.1, amarillo), 0, 0, 0, { rx: 0.2 }));
       for (const k of [-0.03, 0.03]) b.add(t.en(t.cilindro(0.057, 0.057, 0.022, negro), 0, k, 0.02, { rx: 1.57 }));
       b.add(t.en(t.esfera(0.045, negro), 0, 0.02, 0.1));
+      for (const s of [-1, 1]) b.add(t.en(t.esfera(0.016, mOjo), s * 0.025, 0.035, 0.135));
       for (const s of [-1, 1]) b.add(t.en(t.plano(0.14, 0.07, mAla), s * 0.08, 0.06, -0.01, { rz: s * 0.25, rx: -0.4 }));
       t.en(b, x, y, z, { esc, ry: i * 0.9 });
       b.userData.sitio = [x, y, z];        // su hueco en la nube: se mueve alrededor de él
@@ -987,8 +1025,8 @@ const RECETAS = {
 
   /** Caballero caído: armadura entera, visera con dos luces dentro y un mandoble. */
   caballero(t, c) {
-    const acero = t.mat(c.base, { metal: 0.85, rugosidad: 0.3 });
-    const oscuro = t.mat(c.osc, { metal: 0.6, rugosidad: 0.45 });
+    const acero = t.mat(c.base, { acabado: "metal" });
+    const oscuro = t.mat(c.osc, { acabado: "metal" });
     const h = humanoide(t, { alto: 1.9, ancho: 0.62, matCuerpo: acero, matOsc: oscuro, cabezaR: 0.2, hombros: 1.15 });
     // Yelmo cerrado: la rejilla y las dos luces de dentro son lo que lo hace un muerto con armadura.
     h.cabeza.add(t.en(t.esfera(0.225, acero, 0.95), 0, 0.02, 0));
@@ -1167,7 +1205,7 @@ const RECETAS = {
   liche(t, c) {
     const tela = t.mat(c.base, { rugosidad: 0.9, doble: true });
     const telaOsc = t.mat(c.osc, { rugosidad: 0.95, doble: true });
-    const hueso = t.mat(0xe9e4d8, { rugosidad: 0.7, plano: true });
+    const hueso = t.mat(0xe9e4d8, { acabado: "hueso", plano: true });
     const verde = t.mat(c.acento, { emision: c.emision || 0x4ade80, fuerza: 0.9, rugosidad: 0.3 });
     const raiz = t.grupo("liche");
     const cuerpo = t.grupo("cuerpo");
@@ -1222,7 +1260,7 @@ const RECETAS = {
   quimera(t, c) {
     const pelo = t.mat(c.base, { rugosidad: 0.9, plano: true });
     const peloOsc = t.mat(c.osc, { rugosidad: 0.92, plano: true });
-    const cuerno = t.mat(0xe9e4d8, { rugosidad: 0.5 });
+    const cuerno = t.mat(0xe9e4d8, { acabado: "hueso" });
     const raiz = t.grupo("quimera");
     const cuerpo = t.grupo("cuerpo");
     const tronco = t.capsula(0.34, 0.6, pelo);
@@ -1308,7 +1346,7 @@ const RECETAS = {
 
   /** El jefe: un caudillo acorazado, el único que no sale del bestiario. */
   jefe(t, c) {
-    const m = t.mat(c.base, { metal: 0.8, rugosidad: 0.3 }), mo = t.mat(c.osc, { metal: 0.6, rugosidad: 0.4 });
+    const m = t.mat(c.base, { acabado: "metal" }), mo = t.mat(c.osc, { acabado: "metal" });
     const oro = t.mat(c.acento, { metal: 0.95, rugosidad: 0.2, emision: c.acento, fuerza: 0.5 });
     const h = humanoide(t, { alto: 2.5, ancho: 0.95, matCuerpo: m, matOsc: mo, cabezaR: 0.3, hombros: 1.35 });
     // Yelmo cerrado con rejilla y cuernos
@@ -1359,7 +1397,7 @@ const SILUETAS = {
     const h = humanoide(t, { alto: 1.7, ancho: 0.5, matCuerpo: m, matOsc: mo, cabezaR: 0.2, cuello: 0.03 });
     h.cabeza.add(ojos(t, c.acento, { r: 0.035, x: 0.075, y: 0.03, z: 0.17 }));
     const arma = t.grupo("arma");
-    arma.add(t.en(t.caja(0.06, 0.52, 0.015, t.mat(c.acento, { metal: 0.8, rugosidad: 0.35 })), 0, 0.3, 0));
+    arma.add(t.en(t.caja(0.06, 0.52, 0.015, t.mat(c.acento, { acabado: "metal" })), 0, 0.3, 0));
     arma.add(t.en(t.cilindro(0.028, 0.028, 0.13, mo), 0, 0, 0));
     t.en(arma, 0, -0.44, 0.05, { rx: -0.3 });
     h.brazoDer.add(arma);
