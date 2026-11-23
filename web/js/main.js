@@ -846,9 +846,9 @@ async function animarEvento(ev, c) {
     FX.sonar("rugido");
     $("#f-enemigo .retrato")?.classList.add("jefe-furioso");
   }
-  // `animarVictoriaHeroe` solo existe en el motor 3D (escena3d.js): el héroe alza espada y
-  // escudo, llueve confeti dorado y suena la fanfarria. En 2D (fx.js) no hace nada especial, así
-  // que se llama con encadenado opcional y sin esperar: es puro espectáculo.
+  // `animarVictoriaHeroe`: en 3D el héroe salta y alza espada y escudo bajo confeti dorado con
+  // fanfarria; en 2D se agacha, salta y da dos botecitos con brillo dorado. Encadenado opcional y
+  // sin esperar: es puro espectáculo y nunca puede bloquear el flujo del combate.
   if (ev.tipo === "victoria") { FX.animarMuerte("enemigo"); FX.animarVictoriaHeroe?.(); }
   if (ev.tipo === "derrota") FX.animarMuerte("heroe");
   if (!golpe && ev.dano == null && !ev.curacion && !defensa && !apoyo) await esperar(FX.reducido() ? 80 : 260);

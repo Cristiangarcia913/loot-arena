@@ -113,7 +113,12 @@ export function pasoCofre(p, rareza = 0) {
   // 0 → 0,25: sale del suelo. 0,25 → 0,5: tiembla (cuanto mejor, más tiembla).
   // 0,5 → 0,75: se abre de golpe. 0,75 → 1: se queda abierto con la luz arriba.
   const subir = x < 0.25 ? suave(x / 0.25) : 1;
-  const temblor = x > 0.22 && x < 0.52 ? Math.sin((x - 0.22) * 60) * (0.02 + r * 0.02) * (1 - (x - 0.22) / 0.3) : 0;
+  // Suspense in crescendo: el temblor CRECE en amplitud y frecuencia hasta el instante de abrirse
+  // (antes se apagaba, justo al revés de lo que pide el momento) y se corta en seco al estallar.
+  const tt = (x - 0.22) / 0.28;
+  const temblor = x > 0.22 && x < 0.5
+    ? Math.sin((x - 0.22) * (45 + 70 * tt)) * (0.02 + r * 0.02) * (0.25 + 0.75 * tt * tt)
+    : 0;
   const abrir = x <= 0.5 ? 0 : suave(Math.min(1, (x - 0.5) / 0.22));
   const tapa = abrir * (1.5 + r * 0.25);
   const luz = x <= 0.5 ? 0 : Math.min(1, (x - 0.5) / 0.15);

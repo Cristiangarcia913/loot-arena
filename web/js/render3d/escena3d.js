@@ -29,6 +29,7 @@ import { claveDeNombre, ARENA } from "./paleta.js";
 import { BESTIARIO, metadatos3d } from "../combat.js";
 import { Director } from "./camara.js";
 import { construirCofre, pasoCofre, rarezaValida, DURACION, CHISPAS } from "./cofre.js";
+import { atrasSalida, muelle, aplastar, campana, caida, ruido1d, tramo, suaveCubica } from "./curvas.js";
 import { descriptor, elegir, viaja } from "./ataques.js";
 import { revelarBotin as fxRevelarBotin } from "../fx.js";
 import { iconoEstado, iconoIntencion } from "../sprites.js";
@@ -77,7 +78,6 @@ const otroLado = (q) => (lado(q) === "heroe" ? "enemigo" : "heroe");
 const dur = (ms) => duracion(ms, reducido());
 const el = (tag, clase, html) => { const n = document.createElement(tag); if (clase) n.className = clase; if (html != null) n.innerHTML = html; return n; };
 const txt = (tag, clase, texto) => { const n = document.createElement(tag); if (clase) n.className = clase; n.textContent = texto; return n; };
-const suave = (p) => (p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2);
 const salida = (p) => 1 - (1 - p) ** 3;
 
 /** Igual que en fx.js: nombre y descripción de cada estado, para los chips del HUD. */
@@ -402,7 +402,7 @@ async function arrancar() {
   // reflejar salvo los puntos de luz y se ve casi negro. Un cielo procedural (noche arriba, franja
   // cálida de antorchas en el horizonte, arena abajo) convertido UNA vez en PMREM da a armaduras y
   // filos su brillo sin coste por fotograma. El perfil bajo no lo paga.
-  E.entorno = crearEntorno(T, render, E.calidad);
+  try { E.entorno = crearEntorno(T, render, E.calidad); } catch { E.entorno = null; }
   if (E.entorno) { escena.environment = E.entorno; escena.environmentIntensity = INTENSIDAD_ENTORNO; }
 
   E.rotulos = new Rotulos(T);
@@ -569,18 +569,20 @@ function bucle(t) {
   }
   const s = E.tiempo;
 
-  animarEscenario(E.esc, s, reducido());
-  reposo("heroe", s);
-  reposo("enemigo", s);
+  try { animarEscenario(E.esc, s, reducido()); } catch { /* decorado: no detiene el bucle */ }
+  try { reposo("heroe", s); } catch { /* un fallo aquí no puede parar el dibujado */ }
+  try { reposo("enemigo", s); } catch { /* idem */ }
   // Clips embebidos de un modelo externo (ver `criaturaDesdeModelo`): el mismo reloj que el resto
   // de la escena, así que el hit-stop los congela igual que a la respiración procedural.
   const dtMixer = reducido() ? 0 : dtAnimacion;
-  E.lados.heroe?.criatura?.mixer?.update(dtMixer);
-  E.lados.enemigo?.criatura?.mixer?.update(dtMixer);
-  pasarTweens(t);
-  colocarCamara(s, brutoDt);
+  try {
+    E.lados.heroe?.criatura?.mixer?.update(dtMixer);
+    E.lados.enemigo?.criatura?.mixer?.update(dtMixer);
+    pasarTweens(t);
+    colocarCamara(s, brutoDt);
+  } catch { /* seguimos dibujando */ }
 
-  E.render.render(E.escena, E.camara);
+  try { E.render.render(E.escena, E.camara); } catch { /* fotograma perdido, el bucle sigue */ }
 
   // Un hueco enorme entre fotogramas no es que el equipo vaya lento: es que el navegador ha
   // estrangulado la página (pestaña de fondo, ventana tapada, el sistema ocupado). Si se cuenta
@@ -639,10 +641,13 @@ function colocarCamara(s, dt = 1 / 60) {
     const k = Math.max(0, (sk.hasta - ahora) / sk.dur);
     if (k <= 0) { sk.amp = 0; }
     else {
+      // Ruido suave (no `Math.random()` por fotograma): la cámara se SACUDE con un movimiento
+      // continuo que decae, como un plano de cámara al hombro, en vez de temblar a saltos.
       const f = sk.amp * k * k;
-      x += azar(-1, 1) * f;
-      y += azar(-1, 1) * f * 0.7;
-      z += azar(-1, 1) * f * 0.35;
+      const tt = ahora / 1000 * 32;
+      x += ruido1d(tt, 1) * f;
+      y += ruido1d(tt, 2) * f * 0.7;
+      z += ruido1d(tt, 3) * f * 0.35;
     }
   }
   c.position.set(x, y, z);
@@ -674,8 +679,15 @@ function reposo(q, s) {
       cuerpo.rotation.y = Math.sin(s * 0.5 + fase) * 0.16 * f;
       cuerpo.rotation.z = Math.sin(s * 0.7 + fase) * 0.05 * f;
     } else {
-      cuerpo.position.y = baseY + Math.sin(s * 1.7 + fase) * 0.022 * f;
-      cuerpo.rotation.z = Math.sin(s * 0.85 + fase) * 0.018 * f;
+      // Respiración con squash & stretch: el pecho se estira al inspirar y se ensancha al soltar el
+      // aire, conservando el volumen. Mucho más vivo que solo subir y bajar.
+      const respira = Math.sin(s * 1.7 + fase);
+      const [xz, y] = aplastar(respira * 0.014 * f);
+      const be = cuerpo.userData.baseEsc ?? (cuerpo.userData.baseEsc = [cuerpo.scale.x, cuerpo.scale.y, cuerpo.scale.z]);
+      cuerpo.scale.set(be[0] * xz, be[1] * y, be[2] * xz);
+      cuerpo.position.y = baseY + respira * 0.012 * f;
+      // Cambio de peso lento y no periódico (ruido): nadie se balancea como un metrónomo.
+      cuerpo.rotation.z = ruido1d(s * 0.6, fase) * 0.022 * f;
     }
   } else if (cr.externo) {
     // Un modelo externo (dragon.glb y cualquier otro `.glb` futuro) no trae piezas con nombre que
@@ -689,7 +701,23 @@ function reposo(q, s) {
     raiz.rotation.z = Math.sin(s * 0.8 + fase) * 0.025 * f;
   }
   if (quieto) return;
-  if (p?.cabeza) p.cabeza.rotation.y = Math.sin(s * 0.45 + fase) * 0.17;
+  if (p?.cabeza) {
+    // La cabeza mira a su aire con ruido (no un vaivén fijo) y acompaña la respiración.
+    p.cabeza.rotation.y = ruido1d(s * 0.35, fase + 4) * 0.2;
+    const baseCx = p.cabeza.userData.baseRx ?? (p.cabeza.userData.baseRx = p.cabeza.rotation.x);
+    if (!E.tweens.some((tw) => tw.lado === q)) p.cabeza.rotation.x = baseCx + Math.sin(s * 1.7 + fase - 0.6) * 0.025;
+  }
+  // Movimiento secundario de brazos (héroe y humanoides con brazos con nombre): se mecen con la
+  // respiración un instante DESPUÉS del pecho (desfase), que es lo que da sensación de peso.
+  for (const [i, brazo] of [p?.brazoDer, p?.brazoIzq].entries()) {
+    if (!brazo) continue;
+    const base = brazo.userData.baseRz ?? (brazo.userData.baseRz = brazo.rotation.z);
+    brazo.rotation.z = base + (i ? 1 : -1) * Math.sin(s * 1.7 + fase - 0.9) * 0.035;
+  }
+  if (p?.arma) {
+    const base = p.arma.userData.baseRz ?? (p.arma.userData.baseRz = p.arma.rotation.z);
+    p.arma.rotation.z = base + Math.sin(s * 1.7 + fase - 1.3) * 0.04;
+  }
   if (p?.alas) for (const [i, a] of p.alas.entries()) a.rotation.z = (i ? 1 : -1) * (0.1 + Math.sin(s * 1.9 + fase) * 0.26);
   if (p?.cola) {
     let n = p.cola, i = 0;
@@ -971,23 +999,43 @@ function aplicarEnemigo() {
   if (f) { f.classList.toggle("jefe", !!e.jefe); f.dataset.clave = e.clave; }
   precompilar(cr.raiz);
 
-  // Entrada: llega desde el fondo, se planta y levanta polvo.
+  // Entrada en tres tiempos: SALTA desde el fondo describiendo un arco (estirado en el aire),
+  // ATERRIZA aplastándose por su peso (squash) y se ASIENTA con un rebote de muelle. Un jefe salta
+  // más bajo y cae más pesado: más aplastado, más polvo y sacudida al tocar suelo.
   if (!reducido()) {
+    const jefe = !!e.jefe;
+    const ms = jefe ? 1050 : 680;
+    const aterriza = 0.62;
+    const alto = jefe ? 0.45 : 0.85;
+    const golpeSuelo = jefe ? 0.24 : 0.16;
     L.mov.position.set(0, 0, -3.4);
-    L.mov.scale.setScalar(0.75);
-    const ms = e.jefe ? 900 : 520;
+    L.mov.scale.setScalar(0.8);
     animar({
       ms, lado: "enemigo",
       al: (p) => {
-        const k = salida(p);
-        L.mov.position.z = -3.4 * (1 - k);
-        L.mov.scale.setScalar(0.75 + 0.25 * k + Math.sin(p * Math.PI) * 0.06);
+        if (p < aterriza) {
+          const q = p / aterriza;
+          L.mov.position.z = -3.4 * (1 - suaveCubica(q));
+          L.mov.position.y = campana(q) * alto;
+          const crece = 0.8 + 0.2 * suaveCubica(q);
+          const [xz, y] = aplastar(campana(q) * 0.1);          // estirado en el vuelo
+          L.mov.scale.set(crece * xz, crece * y, crece * xz);
+        } else {
+          const q = (p - aterriza) / (1 - aterriza);
+          L.mov.position.set(0, 0, 0);
+          const [xz, y] = aplastar(-golpeSuelo * muelle(q, 2.2, 4.5)); // aplastado y rebota
+          L.mov.scale.set(xz, y, xz);
+        }
       },
       fin: () => { L.mov.position.set(0, 0, 0); L.mov.scale.setScalar(1); },
     });
-    setTimeout(() => polvoDePisada("enemigo"), ms * 0.62);
+    setTimeout(() => {
+      polvoDePisada("enemigo");
+      if (jefe) polvoDePisada("enemigo");
+      sacudir(jefe ? 14 : 5, jefe ? 520 : 260);
+    }, dur(ms * aterriza));
   }
-  if (e.jefe) { sacudir(16, 700); destello(0xb91c1c, 0.45, 500); }
+  if (e.jefe) { destello(0xb91c1c, 0.45, 500); if (reducido()) sacudir(16, 700); }
   pintarAuraEstados("enemigo");
   aplicarEncuadre();   // un dragón necesita más plano que una rata
   plano("aparicion", "enemigo");
@@ -1381,10 +1429,29 @@ export function animarAtaque(quien, { critico = false, brutal = false, animacion
     ms, lado: q, cumplirEn: imp,
     al: (p) => {
       // 0 → imp: se prepara (retrocede o se yergue) y se lanza. imp → 1: vuelve a su sitio.
-      let k;
-      if (p < imp * 0.55) k = -d.impulso * (p / (imp * 0.55));
-      else if (p < imp) k = -d.impulso + (1 + d.impulso) * salida((p - imp * 0.55) / (imp * 0.45));
-      else k = 1 - suave((p - imp) / (1 - imp));
+      // Tres tiempos de animador: CARGA (se echa atrás frenando, como quien aguanta el golpe), GOLPE
+      // (sale disparado) y RECUPERACIÓN (vuelve pasándose un poco de su sitio y se asienta: el
+      // follow-through que da peso). Además squash & stretch: se aplasta al cargar, se estira al
+      // lanzarse y se aplasta en el contacto, temblando con un muelle que se apaga.
+      const carga = imp * 0.55;
+      let k, deform;
+      if (p < carga) {
+        const q = p / carga;
+        k = -d.impulso * Math.sin(q * Math.PI * 0.5);
+        deform = -0.07 * q;
+      } else if (p < imp) {
+        const q = (p - carga) / (imp - carga);
+        k = -d.impulso + (1 + d.impulso) * salida(q);
+        deform = -0.07 * (1 - q) + 0.07 * Math.sin(q * Math.PI);
+      } else {
+        const q = (p - imp) / (1 - imp);
+        k = 1 - atrasSalida(q, 1.4);
+        deform = -0.06 * muelle(q, 1.6, 6);
+      }
+      if (!pulsoDeGrito) {
+        const [xz, y] = aplastar(deform);
+        L.mov.scale.set(xz, y, xz);
+      }
 
       L.ancla.position.x = miX + recorrido * d.avance * k;
       L.mov.position.y = Math.sin(Math.max(0, Math.min(1, k)) * Math.PI) * d.alzar;
@@ -1401,7 +1468,7 @@ export function animarAtaque(quien, { critico = false, brutal = false, animacion
       L.ancla.position.x = miX;
       L.mov.position.set(0, 0, 0);
       L.mov.rotation.y = 0;
-      if (pulsoDeGrito) L.mov.scale.setScalar(1);
+      L.mov.scale.setScalar(1);
       if (arma) arma.rotation.x = armaBase;
       if (cabeza) cabeza.rotation.x = cabezaBase;
       if (cuerpo) cuerpo.rotation.x = cuerpoBase;
@@ -1636,15 +1703,20 @@ export function animarDefensa(quien) {
     fin: () => { L.mov.remove(onda); geo.dispose(); mat.dispose(); },
   });
 
-  // Encogida defensiva: breve, el cuerpo se agacha un poco tras alzar el escudo.
+  // Guardia: se AGAZAPA rápido tras el escudo (aplastado, un paso atrás) y vuelve a erguirse con
+  // un pequeño rebote de muelle, en vez de bajar y subir como un ascensor.
+  const atras = Math.sign(L.baseX ?? L.ancla.position.x) || 1;
+  const baseDef = L.baseX ?? L.ancla.position.x;
   animar({
-    ms: dur(300), lado: q,
+    ms: dur(420), lado: q,
     al: (p) => {
-      const k = Math.sin(Math.min(1, p / 0.5) * Math.PI);
-      L.mov.position.y = -0.05 * k;
-      L.mov.scale.setScalar(1 - 0.03 * k);
+      const k = p < 0.22 ? salida(p / 0.22) : muelle((p - 0.22) / 0.78, 1.8, 5);
+      const [xz, y] = aplastar(-0.09 * k);
+      L.mov.scale.set(xz, y, xz);
+      L.mov.position.y = -0.04 * Math.max(0, k);
+      L.ancla.position.x = baseDef + atras * 0.08 * Math.max(0, k);
     },
-    fin: () => { L.mov.position.y = 0; L.mov.scale.setScalar(1); },
+    fin: () => { L.mov.position.y = 0; L.mov.scale.setScalar(1); L.ancla.position.x = baseDef; },
   });
   return esperar(dur(260));
 }
@@ -1670,14 +1742,19 @@ export async function animarGolpe(quien, dano, { critico = false, bloqueado = fa
     if (!E.listo || !L?.criatura) return esperar(dur(380));
     const base = L.baseX ?? L.ancla.position.x;
     const fuera = Math.sign(base) || 1;
+    // Esquiva: se aparta de golpe (salida rápida, inclinado y agachado: el cuerpo va por delante
+    // del giro) y vuelve con un sobreimpulso que lo asienta en su sitio.
     return animar({
-      ms: dur(380), lado: q,
+      ms: dur(420), lado: q,
       al: (p) => {
-        const k = Math.sin(p * Math.PI);
-        L.ancla.position.x = base + fuera * 0.45 * k;
-        L.mov.rotation.y = fuera * 0.4 * k;
+        const k = p < 0.35 ? salida(p / 0.35) : 1 - atrasSalida((p - 0.35) / 0.65, 1.2);
+        L.ancla.position.x = base + fuera * 0.5 * k;
+        L.mov.rotation.y = fuera * 0.45 * k;
+        L.mov.rotation.z = fuera * 0.16 * k;
+        const [xz, y] = aplastar(-0.06 * Math.max(0, k));
+        L.mov.scale.set(xz, y, xz);
       },
-      fin: () => { L.ancla.position.x = base; L.mov.rotation.y = 0; },
+      fin: () => { L.ancla.position.x = base; L.mov.rotation.set(0, 0, 0); L.mov.scale.setScalar(1); },
     });
   }
 
@@ -1715,15 +1792,22 @@ export async function animarGolpe(quien, dano, { critico = false, bloqueado = fa
     const base = L.baseX ?? L.ancla.position.x;
     const fuera = Math.sign(base) || 1;
     const empuje = (critico ? 0.5 : bloqueado ? 0.14 : 0.3);
+    // Reacción al golpe: el impacto lo EMPUJA de golpe (salida muy rápida) y lo aplasta; después
+    // el cuerpo se tambalea con un muelle amortiguado (oscila y se apaga) en vez de volver en
+    // línea recta. Un crítico tambalea más y más tiempo.
+    const ms = dur(critico ? 620 : 480);
     animar({
-      ms: dur(420), lado: q,
+      ms, lado: q,
       al: (p) => {
-        const k = p < 0.3 ? p / 0.3 : 1 - salida((p - 0.3) / 0.7);
-        L.ancla.position.x = base + fuera * empuje * k;
-        L.mov.rotation.z = -fuera * 0.14 * k;
+        const golpe = 0.14;
+        const k = p < golpe ? salida(p / golpe) : muelle((p - golpe) / (1 - golpe), critico ? 2.6 : 2, critico ? 4 : 5);
+        L.ancla.position.x = base + fuera * empuje * Math.max(-0.25, k);
+        L.mov.rotation.z = -fuera * (critico ? 0.2 : 0.14) * k;
         L.mov.rotation.x = 0.1 * k;
+        const [xz, y] = aplastar(-(bloqueado ? 0.05 : critico ? 0.13 : 0.09) * Math.max(0, k));
+        L.mov.scale.set(xz, y, xz);
       },
-      fin: () => { L.ancla.position.x = base; L.mov.rotation.set(0, 0, 0); },
+      fin: () => { L.ancla.position.x = base; L.mov.rotation.set(0, 0, 0); L.mov.scale.setScalar(1); },
     });
   }
   await parada;
@@ -1842,14 +1926,40 @@ export function animarMuerte(quien) {
   for (const m of mats) { m.userData.opBase = m.opacity ?? 1; m.transparent = true; }
   const fuera = Math.sign(L.baseX ?? L.ancla.position.x) || 1;
 
+  // Coreografía de caída en cuatro tiempos (antes era un único ease-out: flotaba hacia el suelo):
+  //  1. TAMBALEO: se yergue un instante echándose hacia atrás (el golpe final aún lo empuja).
+  //  2. DESPLOME: cae hacia fuera ACELERANDO, como un peso muerto (gravedad, ease-in).
+  //  3. IMPACTO: al tocar suelo rebota un par de veces, se aplasta, levanta polvo y sacude.
+  //  4. DISOLUCIÓN: ya en el suelo, se desvanece.
+  const ms = dur(1250);
+  const fases = [[0.16, null], [0.5, caida], [0.78, null], [1, null]];
+  let impactado = false;
   return animar({
-    ms: dur(900), lado: q,
+    ms, lado: q,
     al: (p) => {
-      const k = salida(p);
-      L.mov.rotation.z = fuera * 0.9 * k;          // se derrumba hacia fuera
-      L.mov.position.y = -0.1 * k;
-      L.mov.scale.setScalar(1 - 0.12 * k);
-      for (const m of mats) m.opacity = (m.userData.opBase ?? 1) * Math.max(0, 1 - Math.max(0, (p - 0.25) / 0.75));
+      const { i, q: t } = tramo(p, fases);
+      let giro, baja, deform = 0;
+      if (i === 0) { giro = -fuera * 0.12 * campana(t); baja = -0.04 * campana(t); deform = 0.05 * campana(t); }
+      else if (i === 1) { giro = fuera * 1.35 * t; baja = 0.12 * t; }
+      else {
+        if (!impactado) {
+          impactado = true;
+          polvoDePisada(q);
+          sacudir(cr.alto > 2 ? 12 : 6, 320);
+        }
+        // Botes contra el suelo: arrancan EN el suelo (sin salto al empezar) y se apagan.
+        const bote = i === 2 ? Math.abs(Math.sin(t * Math.PI * 2)) * Math.exp(-4 * t) : 0;
+        giro = fuera * (1.35 - 0.14 * bote);
+        baja = 0.12;
+        deform = i === 2 ? -0.1 * muelle(t, 2, 5) : 0;
+      }
+      L.mov.rotation.z = giro;
+      L.mov.position.y = -baja;
+      const [xz, y] = aplastar(deform);
+      const encoge = 1 - 0.1 * Math.max(0, (p - 0.5) / 0.5);
+      L.mov.scale.set(xz * encoge, y * encoge, xz * encoge);
+      const desvanece = Math.max(0, (p - 0.62) / 0.38);
+      for (const m of mats) m.opacity = (m.userData.opBase ?? 1) * (1 - desvanece);
     },
     fin: () => {
       cr.raiz.visible = false;
@@ -1900,19 +2010,34 @@ export function animarVictoriaHeroe() {
   const baseDer = brazoDer?.rotation.x ?? 0;
   const baseIzq = brazoIzq?.rotation.x ?? 0;
   const baseY = L.mov.position.y;
+  // Coreografía: se AGACHA para tomar impulso (squash), SALTA estirado alzando los brazos (que
+  // llegan arriba pasándose un poco: sobreimpulso), aterriza aplastándose, AGUANTA la pose con dos
+  // «puños al aire» y vuelve a la guardia suavemente.
+  const fases = [[0.1, null], [0.3, null], [0.4, null], [0.82, null], [1, suaveCubica]];
   return animar({
-    ms: dur(1700), lado: "heroe",
+    ms: dur(2000), lado: "heroe",
     al: (p2) => {
-      // 0→0.25 alza los brazos (con un pequeño salto); 0.25→0.75 los mantiene en alto; resto: vuelve.
-      const subir = p2 < 0.25 ? salida(p2 / 0.25) : p2 < 0.75 ? 1 : 1 - suave((p2 - 0.75) / 0.25);
-      if (brazoDer) brazoDer.rotation.x = baseDer - 2.5 * subir;
-      if (brazoIzq) brazoIzq.rotation.x = baseIzq - 2.1 * subir;
-      L.mov.position.y = baseY + (p2 < 0.25 ? Math.sin((p2 / 0.25) * Math.PI) * 0.12 : 0);
+      const { i, q: t } = tramo(p2, fases);
+      let brazos = 0, salto = 0, deform = 0, bombeo = 0;
+      if (i === 0) { deform = -0.1 * Math.sin(t * Math.PI * 0.5); }
+      else if (i === 1) {
+        brazos = atrasSalida(t, 2);
+        salto = campana(t) * 0.22;
+        deform = -0.1 * (1 - t) + 0.08 * campana(t);
+      } else if (i === 2) { brazos = 1; deform = -0.08 * muelle(t, 2, 5); }
+      else if (i === 3) { brazos = 1; bombeo = Math.max(0, Math.sin(t * Math.PI * 4)) * 0.22; }
+      else { brazos = 1 - t; }
+      if (brazoDer) brazoDer.rotation.x = baseDer - 2.5 * brazos + bombeo;
+      if (brazoIzq) brazoIzq.rotation.x = baseIzq - 2.1 * brazos + bombeo * 0.8;
+      L.mov.position.y = baseY + salto;
+      const [xz, y] = aplastar(deform);
+      L.mov.scale.set(xz, y, xz);
     },
     fin: () => {
       if (brazoDer) brazoDer.rotation.x = baseDer;
       if (brazoIzq) brazoIzq.rotation.x = baseIzq;
       L.mov.position.y = baseY;
+      L.mov.scale.setScalar(1);
     },
   });
 }

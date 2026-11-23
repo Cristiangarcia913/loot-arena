@@ -256,8 +256,8 @@ export function construirEscenario(T, o = {}) {
 
   // ── Luces generales ──
   // Intensidades medidas: ambiente 1,1 + clave 1,5 + antorchas fuertes lavaba el color de todo.
-  const ambiente = new T.AmbientLight(0x3a2a20, 0.6);
-  const hemisferio = new T.HemisphereLight(0x5b4636, 0x1a120c, 0.35);
+  const ambiente = new T.AmbientLight(0xffffff, 0.7);
+  const hemisferio = new T.HemisphereLight(0x87ceeb, 0x3d2714, 0.8);
   // Luz «clave»: la que define el volumen de las criaturas. Viene de arriba y, sobre todo, DE LA
   // CÁMARA (z positivo): con el fondo ya no negro sino el cielo azul de la niebla, lo que faltaba
   // para que la cara y el pecho del rival no se queden en penumbra es más potencia frontal, no más

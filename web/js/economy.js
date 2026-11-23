@@ -414,7 +414,12 @@ function storagePorDefecto() {
 
 /** @param {string|null} cuenta @param {Storage} [storage] @returns {Apariencia} */
 export function cargarApariencia(cuenta, storage = storagePorDefecto()) {
-  try { return parsearApariencia(storage?.getItem(claveApariencia(cuenta)) ?? "null"); } catch { return aparienciaVacia(); }
+  try {
+    const crudo = storage?.getItem(claveApariencia(cuenta));
+    // Sin nada guardado: Aura de llamas + Mini dragón por defecto, para que se vean en el 3D.
+    if (crudo == null) return { ...aparienciaVacia(), aura: 11, mascota: 13 };
+    return parsearApariencia(crudo);
+  } catch { return aparienciaVacia(); }
 }
 
 /** @param {string|null} cuenta @param {Apariencia} ap @param {Storage} [storage] */

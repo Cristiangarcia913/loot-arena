@@ -18,6 +18,7 @@ import {
   iconoObjeto, PALETA_RAREZA, RANURA_COSMETICO, APARIENCIA_VACIA,
 } from "./sprites.js";
 import { toast } from "./ui.js";
+import { ruido1d, muelle, atrasSalida } from "./render3d/curvas.js";
 
 /** Enlace de la hazaña compartida (ver `mostrarResultado`). */
 const URL_JUEGO = "https://cristiangarcia913.itch.io/loot-arena";
@@ -433,10 +434,15 @@ function sincronizarConMain() {
  */
 export function sacudir(fuerza = 8, ms = 380, objetivo = E.raiz) {
   if (!objetivo || reducido()) return;
+  // Ruido suave que decae al cuadrado (como la cámara 3D): una sacudida continua, no 8 saltos
+  // aleatorios. La semilla cambia en cada golpe para que dos sacudidas no sean idénticas.
   const kf = [];
-  for (let i = 0; i <= 8; i++) {
-    const k = 1 - i / 8;
-    kf.push({ transform: i === 8 ? "none" : `translate(${azar(-1, 1) * fuerza * k}px, ${azar(-1, 1) * fuerza * k * 0.6}px) rotate(${azar(-1, 1) * fuerza * 0.06 * k}deg)` });
+  const pasos = 16, semilla = Math.random() * 100;
+  for (let i = 0; i <= pasos; i++) {
+    const k = (1 - i / pasos) ** 2;
+    const t = (i / pasos) * (ms / 1000) * 30;
+    kf.push({ transform: i === pasos ? "none"
+      : `translate(${ruido1d(t, semilla) * fuerza * k}px, ${ruido1d(t, semilla + 1) * fuerza * k * 0.6}px) rotate(${ruido1d(t, semilla + 2) * fuerza * 0.06 * k}deg)` });
   }
   objetivo.animate(kf, { duration: ms, easing: "linear" });
 }
@@ -618,19 +624,34 @@ export async function animarGolpe(quien, dano, { critico = false, bloqueado = fa
   if (esq) {
     sonar("esquiva");
     numeroFlotante(quien, fallo ? "¡Fallas!" : "¡ESQUIVADO!", fallo ? "fallas" : "esquiva");
-    s?.animate([{ transform: "none" }, { transform: `translateX(${lado(quien) === "heroe" ? -26 : 26}px) skewX(-8deg)`, opacity: 0.5 }, { transform: "none" }], { duration: 380, easing: "ease-out" });
-    return esperar(380);
+    // Se aparta de golpe agachándose, aguanta un instante y vuelve pasándose un poco de su sitio.
+    const d = lado(quien) === "heroe" ? -1 : 1;
+    s?.animate([
+      { transform: "none" },
+      { transform: `translateX(${d * 30}px) skewX(${-d * 9}deg) scale(1.04, .94)`, opacity: 0.55, offset: 0.3, easing: "ease-in-out" },
+      { transform: `translateX(${d * 26}px) skewX(${-d * 6}deg) scale(1.03, .96)`, opacity: 0.6, offset: 0.45, easing: "cubic-bezier(.3,1.5,.5,1)" },
+      { transform: "none", opacity: 1 },
+    ], { duration: 420, easing: "cubic-bezier(.2,.9,.3,1)" });
+    return esperar(420);
   }
   sonar(bloqueado ? "bloqueo" : critico ? "critico" : "golpe");
   const parada = hitStop(critico ? 120 : 75);
   const dir = lado(quien) === "heroe" ? -1 : 1;
   if (s && !reducido()) {
-    s.animate([
-      { filter: "brightness(4) saturate(0)", transform: `translateX(${dir * (critico ? 18 : 10)}px) scale(.95)` },
-      { filter: "brightness(1)", transform: `translateX(${dir * 5}px)`, offset: 0.35 },
-      { filter: "brightness(2.5) saturate(0)", offset: 0.5 },
-      { filter: "none", transform: "none" },
-    ], { duration: 420, easing: "ease-out" });
+    // Impacto: destello blanco, empujón y aplastamiento; después tambaleo de muelle amortiguado
+    // (oscila y se apaga) en vez de volver en línea recta. Un crítico tambalea más.
+    const emp = critico ? 20 : bloqueado ? 6 : 12;
+    const kf = [{ filter: "brightness(4) saturate(0)", transform: `translateX(${dir * emp}px) rotate(${dir * (critico ? 7 : 4)}deg) scale(1.08, .9)` }];
+    const n = 7;
+    for (let i = 1; i <= n; i++) {
+      const m = muelle(i / n, critico ? 2.6 : 2, critico ? 4 : 5);
+      kf.push({
+        transform: i === n ? "none" : `translateX(${dir * emp * m}px) rotate(${dir * (critico ? 7 : 4) * m}deg) scale(${1 + 0.06 * Math.max(0, m)}, ${1 - 0.08 * Math.max(0, m)})`,
+        filter: i === 2 ? "brightness(2.2) saturate(.2)" : "none",
+      });
+    }
+    s.style.transformOrigin = "50% 100%";
+    s.animate(kf, { duration: critico ? 600 : 460, easing: "linear" });
   }
   const f = luchador(quien);
   f?.classList.remove("golpeado"); void f?.offsetWidth; f?.classList.add("golpeado");
@@ -801,12 +822,44 @@ export function animarMuerte(quien) {
   const c = centro(s, E.raiz);
   const cols = lado(quien) === "heroe" ? ["#e8b88f", "#a0703f", "#9b2c2c"] : (COLOR_ENEMIGO[E.enemigo?.clave] ?? ["#9ca3af", "#4b5563"]);
   E.part?.emitir(c.x, c.y, { n: 90, colores: [...cols, "#fff"], vel: [10, 70], ang: [-Math.PI, 0], g: -60, vida: [0.6, 1.6], tam: [1.5, 3.5], forma: "rect", area: [c.w * 0.55, c.h * 0.7], aditivo: false, arrastre: 0.985 });
-  const a = s.animate([
-    { opacity: 1, filter: "none", transform: "none" },
-    { opacity: 0.9, filter: "brightness(2.5) saturate(.3)", transform: "translateY(-4px)", offset: 0.25 },
-    { opacity: 0, filter: "brightness(3) blur(6px)", transform: "translateY(-14px) scale(.92)" },
-  ], { duration: reducido() ? 200 : 900, easing: "ease-in", fill: "forwards" });
+  // Tambaleo hacia atrás, desplome hacia fuera ACELERANDO (ease-in: peso muerto), bote contra el
+  // suelo y disolución. Pivota en los pies para que caiga de verdad en vez de flotar hacia arriba.
+  const fuera = lado(quien) === "heroe" ? -1 : 1;
+  s.style.transformOrigin = "50% 100%";
+  const a = s.animate(reducido() ? [{ opacity: 1 }, { opacity: 0 }] : [
+    { opacity: 1, filter: "none", transform: "none", easing: "ease-out" },
+    { opacity: 1, filter: "brightness(2.5) saturate(.3)", transform: `rotate(${-fuera * 6}deg) translateY(-6px) scale(.97, 1.04)`, offset: 0.16, easing: "cubic-bezier(.55,0,1,.45)" },
+    { opacity: 1, filter: "brightness(1.3)", transform: `rotate(${fuera * 84}deg) scale(1.06, .92)`, offset: 0.5, easing: "ease-out" },
+    { opacity: 1, filter: "none", transform: `rotate(${fuera * 74}deg) translateY(-6px)`, offset: 0.6, easing: "ease-in" },
+    { opacity: 0.9, filter: "none", transform: `rotate(${fuera * 84}deg)`, offset: 0.7 },
+    { opacity: 0, filter: "brightness(2) blur(6px)", transform: `rotate(${fuera * 84}deg) translateY(4px) scale(.9)` },
+  ], { duration: reducido() ? 200 : 1200, fill: "forwards" });
+  setTimeout(() => { if (!reducido()) sacudir(5, 260); }, 600);
   return a.finished.then(() => { s.style.opacity = "0"; a.cancel(); }).catch(() => {});
+}
+
+/**
+ * Pose de victoria en 2D (la versión 3D vive en escena3d.js): se agacha para tomar impulso, salta
+ * estirado, aterriza aplastándose y da dos botecitos de alegría, con un brillo dorado. Puro
+ * espectáculo: no se espera y no hace nada con movimiento reducido.
+ * @returns {Promise<void>}
+ */
+export function animarVictoriaHeroe() {
+  const s = spriteDe("heroe");
+  if (!s || reducido() || s.classList.contains("muerto")) return Promise.resolve();
+  s.style.transformOrigin = "50% 100%";
+  const a = s.animate([
+    { transform: "none", filter: "none", easing: "ease-out" },
+    { transform: "scale(1.08, .88)", offset: 0.12, easing: "cubic-bezier(.2,.8,.4,1)" },
+    { transform: "translateY(-38px) scale(.94, 1.08)", filter: "drop-shadow(0 0 16px #fde047) brightness(1.3)", offset: 0.34, easing: "cubic-bezier(.6,0,1,.6)" },
+    { transform: "scale(1.1, .88)", offset: 0.48, easing: "ease-out" },
+    { transform: "translateY(-12px) scale(.97, 1.03)", offset: 0.6, easing: "ease-in" },
+    { transform: "scale(1.04, .95)", offset: 0.7, easing: "ease-out" },
+    { transform: "translateY(-8px)", offset: 0.8, easing: "ease-in" },
+    { transform: "none", filter: "drop-shadow(0 0 8px #fde047)", offset: 0.9 },
+    { transform: "none", filter: "none" },
+  ], { duration: 1500 });
+  return a.finished.then(() => {}).catch(() => {});
 }
 
 /** Vuelve a mostrar un sprite tras animarMuerte (el héroe al empezar otra expedición). */
@@ -838,18 +891,25 @@ export function mostrarEnemigo(enemigo, { interno = false } = {}) {
   s.innerHTML = spriteEnemigo(clave, { jefe, emoji: enemigo.emoji });
   sonar("aparicion");
   if (!reducido()) {
+    // Salta desde fuera describiendo un arco (estirado en el aire), aterriza aplastándose por su
+    // peso y rebota hasta asentarse. El jefe salta más bajo y cae más aplastado.
+    const alto = jefe ? 30 : 56, sq = jefe ? 0.8 : 0.86;
+    s.style.transformOrigin = "50% 100%";
     s.animate([
-      { transform: "translateX(60px) scale(.7)", opacity: 0, filter: "brightness(0)" },
-      { transform: "translateX(-6px) scale(1.04)", opacity: 1, filter: "brightness(.4)", offset: 0.6 },
+      { transform: "translate(70px, 0) scale(.75)", opacity: 0, filter: "brightness(0)", easing: "cubic-bezier(.3,.6,.5,1)" },
+      { transform: `translate(30px, -${alto}px) scale(.88, 1.06)`, opacity: 1, filter: "brightness(.5)", offset: 0.35, easing: "cubic-bezier(.5,0,1,.6)" },
+      { transform: `translate(0, 0) scale(${2 - sq}, ${sq})`, opacity: 1, filter: "none", offset: 0.62, easing: "ease-out" },
+      { transform: "translateY(-6px) scale(.97, 1.04)", offset: 0.8, easing: "ease-in" },
       { transform: "none", opacity: 1, filter: "none" },
-    ], { duration: jefe ? 900 : 520, easing: "cubic-bezier(.2,.8,.3,1)" });
+    ], { duration: jefe ? 1050 : 680 });
     setTimeout(() => {
       const c = centro(s, E.raiz);
       E.part?.emitir(c.x, c.y + c.h * 0.42, { n: 26, colores: ["#a08060", "#6b5440", "#d6c2a0"], vel: [30, 120], ang: [-Math.PI, 0], g: 120, vida: [0.4, 0.9], tam: [2, 4], aditivo: false, area: [c.w * 0.7, 4] });
-    }, jefe ? 540 : 320);
+      if (jefe) sacudir(12, 480);
+    }, jefe ? 650 : 420);
   }
   if (jefe) {
-    sacudir(16, 700);
+    // La sacudida fuerte va al ATERRIZAR (ver la entrada de arriba), no al aparecer en el aire.
     destello("#b91c1c", 0.45, 500);
     anunciar(enemigo.jefeDeRacha ? "👑 ¡JEFE DE ARENA!" : "¡JEFE!", enemigo.titulo ?? enemigo.nombre, "anuncio-jefe");
   }

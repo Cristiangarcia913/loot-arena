@@ -161,12 +161,12 @@ test("persistencia de la apariencia por dirección con storage inyectable", () =
   assert.equal(E.cargarApariencia(A.toLowerCase(), storage).sombrero, 5);
   assert.equal(E.cargarApariencia(B, storage).mascota, 12);
   assert.equal(E.cargarApariencia(B, storage).sombrero, null);
-  assert.deepEqual(E.cargarApariencia("0xnadie", storage), E.aparienciaVacia());
+  assert.deepEqual(E.cargarApariencia("0xnadie", storage), { ...E.aparienciaVacia(), aura: 11, mascota: 13 }); // por defecto: aura + dragón
   // storage roto o ausente: no lanza
   const roto = { getItem() { throw new Error("bloqueado"); }, setItem() { throw new Error("bloqueado"); } };
   assert.deepEqual(E.cargarApariencia(A, roto), E.aparienciaVacia());
   assert.doesNotThrow(() => E.guardarApariencia(A, E.aparienciaVacia(), roto));
-  assert.deepEqual(E.cargarApariencia(A, null), E.aparienciaVacia());
+  assert.deepEqual(E.cargarApariencia(A, null), { ...E.aparienciaVacia(), aura: 11, mascota: 13 });
 });
 
 test("direcciones: deployments.json con oro/cosmeticos/mercado de la red activa", async () => {
