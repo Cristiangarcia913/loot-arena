@@ -16,6 +16,9 @@
 import { HABILIDADES, HABILIDADES_BASE, habilidad, iniciarHabilidades, usarHabilidad, avanzarEnfriamientos } from "./skills.js";
 import { EFECTO as EFECTO_SET } from "./conjuntos.js";
 
+/** Interruptores de depuración (panel Admin). `modoDios`: el héroe no pierde vida. */
+export const dev = { modoDios: false };
+
 export const STATS_BASE = Object.freeze({ vida: 100, ataque: 10, defensa: 5 });
 export const NIVEL_MIN = 1;
 export const NIVEL_MAX = 10;
@@ -949,7 +952,7 @@ function inicioTurno({ c, emit }, quien) {
   for (const e of q.estados) {
     if (e.turnos <= 0) continue;
     if (e.tipo === "veneno" || e.tipo === "sangrado") {
-      const dano = Math.min(q.vida, e.valor);
+      const dano = quien === "jugador" && dev.modoDios ? 0 : Math.min(q.vida, e.valor);
       q.vida -= dano;
       if (quien === "enemigo") c.resumen.danoHecho += dano; else c.resumen.danoRecibido += dano;
       const ico = e.tipo === "veneno" ? "🧪" : "🩸";
@@ -965,7 +968,7 @@ function inicioTurno({ c, emit }, quien) {
   // Maldición de un Modificador de Arena (p. ej. Furia Sangrienta): sangra al héroe al empezar
   // su turno, igual que veneno/sangrado pero sin estado ni cuenta atrás (dura toda la racha).
   if (quien === "jugador" && q.vidaPorTurno > 0 && q.vida > 0) {
-    const dano = Math.min(q.vida, Math.max(1, Math.round(q.vidaMax * q.vidaPorTurno)));
+    const dano = dev.modoDios ? 0 : Math.min(q.vida, Math.max(1, Math.round(q.vidaMax * q.vidaPorTurno)));
     q.vida -= dano;
     c.resumen.danoRecibido += dano;
     emit({
@@ -1074,6 +1077,7 @@ function golpear({ c, rng }, de, opts = {}) {
     bloqueado = true;
   }
   dano = Math.max(1, Math.round(dano));
+  if (dev.modoDios && a !== "jugador") dano = 0; // Panel admin: el héroe no recibe daño
   const bruto = dano;
   let absorbido = 0;
   const esc = ob.estados.find((e) => e.tipo === "escudo" && e.valor > 0);

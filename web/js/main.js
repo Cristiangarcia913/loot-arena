@@ -29,6 +29,7 @@ import { catalogoRotativo, semillaDelDia, ofertaDelDiaCosmetico } from "./econom
 import * as BL from "./botin-local.js";
 import { CLAVE_HISTORIAL_LOCAL, anadirEntrada, parsearHistorial, serializarHistorial } from "./historial-local.js";
 import { crearContrato, hayCodigo, leerInventario, transferir, propietarioDe, enlacesExplorador } from "./chain.js";
+import { iniciarAdmin } from "./admin.js";
 import { $, h, enlace, acortar, toast, esperar } from "./ui.js";
 import { leer, guardar } from "./storage.js";
 
@@ -886,7 +887,7 @@ async function terminarExpedicion() {
   }
 }
 
-function explorar() {
+function explorar(forzarClave = null) {
   if (enCurso() || S.animando) return;
   if (!S.expedicion) nuevaExpedicion();
   const v = S.progreso.victorias;
@@ -900,7 +901,8 @@ function explorar() {
   const nivelA = C.nivelArena(v);
   // Los dos primeros combates son de nivel 1 para que el jugador nuevo aprenda sin frustrarse.
   const nivel = jefe || v < 2 ? nivelA : C.nivelEnemigo(nivelA);
-  const base = TUT.tutorialActivo() ? TUT.combateTutorial()
+  const base = forzarClave ? C.generarEnemigoDe(forzarClave, C.NIVEL_MAX, { jefe: true })
+    : TUT.tutorialActivo() ? TUT.combateTutorial()
     : C.generarEnemigo(nivel, Math.random, { jefe, evitarClave: S.ultimoEnemigoClave });
   S.ultimoEnemigoClave = base.clave;
   // A mayor racha, más duro el rival (vida, ataque y potencia de sus estados), sin techo.
@@ -1384,6 +1386,11 @@ async function montarSeccionCadena() {
 // ───────────────────────── Arranque ─────────────────────────
 
 async function iniciar() {
+  iniciarAdmin({
+    S, C, T, BL, E, leerBotinLocal, guardar, leer, enModoDemo, toast, renderCabecera, cargarInventario,
+    explorar: (clave) => { if (enCurso()) { S.combate = null; } S.animando = false; explorar(clave); },
+    enCurso, alTerminar, renderLuchadores, renderBotones,
+  });
   EMO.iniciar();
   conectarBoton3D();
   await elegirMotor();
