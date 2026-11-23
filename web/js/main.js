@@ -691,13 +691,18 @@ async function confirmarTransferencia(ev) {
   if (to.toLowerCase() === S.cuenta.toLowerCase()) { err.textContent = "Esa es tu propia dirección."; return; }
   $("#dlg-transfer").close();
 
-  const from = S.cuenta;
   S.transfiriendo.add(item.tokenId);
   renderInventario();
   try {
-    const dueno = await propietarioDe(S.contrato, item.tokenId);
-    if (!dueno) { toast("Este objeto es local. Mintéalo on-chain para poder transferirlo a otra wallet.", "info", 7000); return; }
-    if (dueno.toLowerCase() !== from.toLowerCase()) { toast("Tu wallet actual no es la propietaria de este objeto.", "error", 7000); return; }
+    const signer = await S.provider.getSigner();
+    const cuentaActiva = await signer.getAddress();
+    const from = cuentaActiva;
+    const duenoOnChain = await propietarioDe(S.contrato, item.tokenId);
+    if (!duenoOnChain) { toast("Este objeto es local. Mintéalo on-chain para poder transferirlo a otra wallet.", "info", 7000); return; }
+    if (duenoOnChain.toLowerCase() !== cuentaActiva.toLowerCase()) {
+      toast("No puedes transferir este objeto: pertenece a otra cuenta (" + acortar(duenoOnChain) + "). Cambia en MetaMask a la cuenta propietaria para enviarlo.", "error", 9000);
+      return;
+    }
     toast("Confirma la transferencia en MetaMask…", "info");
     const gas = await GAS.asegurarGas({ provider: S.provider, cuenta: from, serverUrl: S.cfg.serverUrl, onEstado: (m) => m && toast(m, "info", 4000) });
     if (!gas.ok) { toast(gas.mensaje || "No tienes ETH de Sepolia para el gas.", "error", 8000); return; }
@@ -708,7 +713,8 @@ async function confirmarTransferencia(ev) {
     guardarEquipo();
     toast(h("span", {}, `✔ «${item.nombre}» enviado a ${acortar(to)}. `, enlace(S.links.tx(tx.hash), "Etherscan ↗")), "ok", 9000);
   } catch (e) {
-    toast(`Transferencia fallida: ${W.mensajeError(e)}`, "error", 8000);
+    const motivo = e.reason || e.shortMessage || e.message || W.mensajeError(e);
+    toast(`Transferencia fallida: ${motivo}`, "error", 8000);
   } finally {
     S.transfiriendo.delete(item.tokenId);
     await cargarInventario();
