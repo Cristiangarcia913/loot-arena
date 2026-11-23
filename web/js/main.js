@@ -982,7 +982,15 @@ function statsSatisfaccion() {
  * Cierra la "Radiografía de Satisfacción" emocional (si hubo cámara) y, detrás, la mini-encuesta
  * de 5 segundos. El historial emocional se copia ANTES de `mostrarResumenSesion`, que lo vacía.
  */
+let motivoEncuesta = false;
+const claveEncuesta = "encuesta_mostrada";
+function encuestaYaMostrada() { try { return sessionStorage.getItem(claveEncuesta) === "true"; } catch { return true; } }
+
 async function evaluarSesion() {
+  // Sin spam: solo una vez por sesión y solo tras perder racha >= 5 o vencer al Jefe Supremo (5/10).
+  if (!motivoEncuesta || encuestaYaMostrada()) return;
+  motivoEncuesta = false;
+  try { sessionStorage.setItem(claveEncuesta, "true"); } catch { /* sin storage */ }
   const historialEmocion = EMO.obtenerHistorial();
   await EMO.mostrarResumenSesion();
   await SAT.mostrarEncuesta({ stats: statsSatisfaccion(), historialEmocion, serverUrl: S.cfg?.serverUrl });
@@ -1022,6 +1030,7 @@ async function alTerminar(fin) {
     const nivelAhora = P.infoXp(S.progreso).nivel;
     if (r.subioNivel || nivelAhora !== nivelAntes) { FX.subidaDeNivel(nivelAhora); ENG.registrarEvento({ tipo: "nivel", valor: nivelAhora }); }
     ENG.registrarEvento({ tipo: "racha", valor: r.racha });
+    if (c.enemigo.jefe && (r.racha === 5 || r.racha === 10)) motivoEncuesta = true;
     // El botín se pide ya (el servidor tarda unos segundos en mintear) mientras se ve el resumen.
     const botin = pedirBotin(c.enemigo);
     const eleccion = await FX.mostrarResultado({ tipo: "victoria", ...resumen, xp: r.xp, racha: r.racha, jefe: !!c.enemigo.jefe });
@@ -1035,6 +1044,7 @@ async function alTerminar(fin) {
 
   if (fin === "derrota") {
     const perdiaRacha = S.progreso.racha > 0;
+    if (S.progreso.racha >= 5) motivoEncuesta = true;
     S.progreso = P.aplicarDerrota(S.progreso);
     EMO.capturarPico(perdiaRacha ? "racha_perdida" : "derrota");
   } else S.progreso = P.aplicarHuida(S.progreso);
@@ -1406,9 +1416,9 @@ async function iniciar() {
   $("#form-transfer").addEventListener("submit", confirmarTransferencia);
   $("#tr-cancel").addEventListener("click", () => $("#dlg-transfer").close());
   $("#tr-to").addEventListener("input", () => { $("#tr-error").textContent = ""; });
-  $("#btn-evaluar-juego")?.addEventListener("click", () => SAT.mostrarEncuesta({
+  $("#btn-evaluar-juego")?.addEventListener("click", () => { try { sessionStorage.setItem(claveEncuesta, "true"); } catch { /* */ } return SAT.mostrarEncuesta({
     stats: statsSatisfaccion(), historialEmocion: EMO.obtenerHistorial(), serverUrl: S.cfg?.serverUrl,
-  }));
+  }); });
 
   try {
     S.cfg = await cargarConfig();
