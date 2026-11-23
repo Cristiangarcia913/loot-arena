@@ -1,5 +1,7 @@
 // Lecturas y escrituras al contrato GameItem (SPEC.md §1).
+import { ETHERS_URL } from "../config/config.js";
 import { normalizarItem } from "./equipment.js";
+import { nombreRevert } from "./wallet-errores.js";
 
 export function crearContrato(ethers, cfg) {
   const provider = new ethers.BrowserProvider(window.ethereum);
@@ -27,7 +29,16 @@ export async function propietarioDe(contrato, tokenId) {
 
 export async function transferir(provider, contrato, from, to, tokenId) {
   const signer = await provider.getSigner();
-  return contrato.connect(signer)["safeTransferFrom(address,address,uint256)"](from, to, tokenId);
+  const c = contrato.connect(signer);
+  const ethers = await import(ETHERS_URL);
+  const destino = (ethers.getAddress ?? ethers.ethers.getAddress)(to);
+  try {
+    return await c["safeTransferFrom(address,address,uint256)"](from, destino, tokenId);
+  } catch (e) {
+    // Receptor que no implementa onERC721Received: transferFrom directo.
+    if (nombreRevert(e) === "ERC721InvalidReceiver") return c.transferFrom(from, destino, tokenId);
+    throw e;
+  }
 }
 
 export function enlacesExplorador(net, address) {

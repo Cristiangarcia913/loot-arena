@@ -1,3 +1,4 @@
+import { nombreRevert } from "./wallet-errores.js";
 // MetaMask (EIP-1193) + carga perezosa de ethers v6 desde CDN.
 import { ETHERS_URL } from "../config/config.js";
 
@@ -45,7 +46,17 @@ export function escuchar({ onCuentas, onRed }) {
 }
 
 /** Mensaje legible en español para errores de MetaMask / ethers. */
+const ERRORES_ERC721 = {
+  ERC721InvalidReceiver: "La dirección destino no es válida o no puede recibir NFTs.",
+  ERC721IncorrectOwner: "Tu cuenta no es la dueña de este objeto en la blockchain.",
+  ERC721InsufficientApproval: "No tienes autorización para transferir este objeto.",
+  ERC721NonexistentToken: "El objeto no existe en la blockchain.",
+  ERC721InvalidSender: "El remitente de la transferencia no es válido.",
+};
+
 export function mensajeError(e) {
+  const rev = nombreRevert(e);
+  if (rev && ERRORES_ERC721[rev]) return ERRORES_ERC721[rev];
   const code = e?.code ?? e?.info?.error?.code;
   if (code === 4001 || code === "ACTION_REJECTED") return "Has rechazado la operación en MetaMask.";
   if (code === -32002) return "Ya hay una solicitud pendiente: abre MetaMask para continuar.";
