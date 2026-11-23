@@ -553,6 +553,14 @@ export const CLAVES_JEFE_ARENA = Object.freeze(["quimera", "golem", "dragon"]);
 /** Probabilidad de que un combate de Jefe elija una de `CLAVES_JEFE_ARENA` en vez de la ventana normal. */
 const PROB_JEFE_ICONICO = 0.75;
 
+/** Probabilidad de que un combate normal saque una criatura de TODO el bestiario (comodín) en vez de la ventana del nivel. */
+const PROB_COMODIN = 0.2;
+/** Las 20 criaturas rotan en la arena: casi siempre la ventana del nivel (suelo del balance), a veces cualquiera. */
+function claveArena(nivel, rng) {
+  if (rng() < PROB_COMODIN) return BESTIARIO[randInt(0, BESTIARIO.length - 1, rng)].clave;
+  return claveDeNivel(nivel, rng).clave;
+}
+
 /**
  * Genera un enemigo del nivel dado, eligiendo criatura acorde al nivel (o, si es un combate de
  * Jefe, con preferencia fuerte por los grandes jefes de `CLAVES_JEFE_ARENA`).
@@ -567,9 +575,9 @@ const PROB_JEFE_ICONICO = 0.75;
 export function generarEnemigo(nivel, rng = Math.random, { jefe = false, evitarClave = null } = {}) {
   let clave = jefe && rng() < PROB_JEFE_ICONICO
     ? CLAVES_JEFE_ARENA[randInt(0, CLAVES_JEFE_ARENA.length - 1, rng)]
-    : claveDeNivel(nivel, rng).clave;
+    : claveArena(nivel, rng);
   if (evitarClave && clave === evitarClave) {
-    const alternativas = (jefe ? CLAVES_JEFE_ARENA : ventanaDeNivel(nivel).map((b) => b.clave))
+    const alternativas = (jefe ? CLAVES_JEFE_ARENA : BESTIARIO.map((b) => b.clave))
       .filter((c) => c !== evitarClave);
     if (alternativas.length) clave = alternativas[randInt(0, alternativas.length - 1, rng)];
   }

@@ -20,6 +20,26 @@ import {
 import { toast } from "./ui.js";
 import { ruido1d, muelle, atrasSalida } from "./render3d/curvas.js";
 
+/** Copia con fallback para iframes (Itch.io) donde la Permissions Policy bloquea `navigator.clipboard`. */
+async function copiarTexto(texto) {
+  try {
+    await navigator.clipboard.writeText(texto);
+    return true;
+  } catch { /* se prueba el método clásico */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = texto;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:0;left:-9999px;opacity:0";
+    document.body.append(ta);
+    ta.select();
+    ta.setSelectionRange(0, texto.length);
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return !!ok;
+  } catch { return false; }
+}
+
 /** Enlace de la hazaña compartida (ver `mostrarResultado`). */
 const URL_JUEGO = "https://cristiangarcia913.itch.io/loot-arena";
 /** Racha mínima (estrictamente mayor que esto) para ofrecer compartir sin haber vencido a un jefe. */
@@ -1404,10 +1424,14 @@ export function mostrarResultado(resumen = {}) {
     compartir.addEventListener("click", async () => {
       const mensaje = `🏆 ¡Acabo de derrotar a ${resumen.enemigo ?? "un rival"} con Racha ${Number(resumen.racha) || 0} en Loot Arena! `
         + `¿Tienes agallas para superarme? ⚔️ Juega gratis aquí: ${URL_JUEGO}`;
-      try {
-        await navigator.clipboard.writeText(mensaje);
+      const ok = await copiarTexto(mensaje);
+      if (ok) {
+        const previo = compartir.textContent;
+        compartir.textContent = "✅ ¡Copiado al portapapeles!";
+        compartir.style.color = "#2ecc71";
+        setTimeout(() => { compartir.textContent = previo; compartir.style.color = ""; }, 2500);
         toast("¡Copiado al portapapeles! Reta a tus amigos", "ok", 3500);
-      } catch {
+      } else {
         toast("No se pudo copiar: copia el mensaje a mano.", "error", 4000);
       }
     });
