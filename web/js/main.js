@@ -28,7 +28,7 @@ import { mostrarAnuncioRecompensado } from "./anuncios.js";
 import { catalogoRotativo, semillaDelDia, ofertaDelDiaCosmetico } from "./economy.js";
 import * as BL from "./botin-local.js";
 import { CLAVE_HISTORIAL_LOCAL, anadirEntrada, parsearHistorial, serializarHistorial } from "./historial-local.js";
-import { crearContrato, hayCodigo, leerInventario, transferir, enlacesExplorador } from "./chain.js";
+import { crearContrato, hayCodigo, leerInventario, transferir, propietarioDe, enlacesExplorador } from "./chain.js";
 import { $, h, enlace, acortar, toast, esperar } from "./ui.js";
 import { leer, guardar } from "./storage.js";
 
@@ -402,7 +402,8 @@ function aplicarRecompensa(r) {
     toast(`🧪 +${r.cantidad} poción(es) para tu expedición`, "ok", 3500);
     renderBotones();
   } else if (r.tipo === "diario") {
-    T.refrescarSaldo?.();
+    // Simulada: suma al instante. En cadena lo abona el servidor: solo se relee el saldo.
+    if (r.oro > 0) T.ganarOro?.(r.oro); else T.refrescarSaldo?.();
   }
 }
 
@@ -680,6 +681,11 @@ async function confirmarTransferencia(ev) {
   const item = itemATransferir;
   const to = $("#tr-to").value.trim();
   const err = $("#tr-error");
+  if (item.local || !S.cuenta || !S.provider || !S.contrato) {
+    err.textContent = "Este objeto es local. Mintéalo on-chain para poder transferirlo a otra wallet.";
+    toast(err.textContent, "info", 6000);
+    return;
+  }
   if (!S.ethers.isAddress(to)) { err.textContent = "Dirección no válida (0x + 40 caracteres hexadecimales, checksum correcto)."; return; }
   if (to.toLowerCase() === ZERO_ADDRESS) { err.textContent = "No puedes enviar a la dirección cero."; return; }
   if (to.toLowerCase() === S.cuenta.toLowerCase()) { err.textContent = "Esa es tu propia dirección."; return; }
@@ -689,6 +695,9 @@ async function confirmarTransferencia(ev) {
   S.transfiriendo.add(item.tokenId);
   renderInventario();
   try {
+    const dueno = await propietarioDe(S.contrato, item.tokenId);
+    if (!dueno) { toast("Este objeto es local. Mintéalo on-chain para poder transferirlo a otra wallet.", "info", 7000); return; }
+    if (dueno.toLowerCase() !== from.toLowerCase()) { toast("Tu wallet actual no es la propietaria de este objeto.", "error", 7000); return; }
     toast("Confirma la transferencia en MetaMask…", "info");
     const gas = await GAS.asegurarGas({ provider: S.provider, cuenta: from, serverUrl: S.cfg.serverUrl, onEstado: (m) => m && toast(m, "info", 4000) });
     if (!gas.ok) { toast(gas.mensaje || "No tienes ETH de Sepolia para el gas.", "error", 8000); return; }

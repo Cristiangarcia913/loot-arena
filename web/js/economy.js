@@ -864,6 +864,7 @@ export function crearEconomiaSimulada({
     direcciones: null,
     _estado: e,
     saldoOro: async () => e.oro,
+    ganarOro: (cant) => { e.oro += aUnidades(cant); return e.oro; },
     saldoEth: async () => e.eth,
     precioVenta: async (it) => precioVentaLocal(e.inv.get(String(it.tokenId)) ?? it),
     recompensaEth: async (it) => recompensaEthLocal(e.inv.get(String(it.tokenId)) ?? it),

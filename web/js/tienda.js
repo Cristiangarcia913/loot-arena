@@ -213,6 +213,13 @@ export async function refrescarSaldo() {
   return info;
 }
 
+/** Suma ORO a la economía simulada (en cadena lo paga el servidor) y refresca el saldo. */
+export async function ganarOro(cant) {
+  if (!activo() || !(cant > 0)) return null;
+  S.eco.ganarOro?.(cant);
+  return refrescarSaldo();
+}
+
 /** Apariencia guardada para `cuenta` (localStorage por dirección; null → "invitado"). */
 export function aparienciaGuardada(cuenta) {
   return cargarApariencia(cuenta ?? null);

@@ -20,6 +20,11 @@ export async function leerInventario(contrato, owner) {
 }
 
 /** safeTransferFrom(from, to, tokenId) firmado con MetaMask. Devuelve la tx enviada. */
+/** Dueño on-chain del token, o null si no existe (no minteado). */
+export async function propietarioDe(contrato, tokenId) {
+  try { return await contrato.ownerOf(tokenId); } catch { return null; }
+}
+
 export async function transferir(provider, contrato, from, to, tokenId) {
   const signer = await provider.getSigner();
   return contrato.connect(signer)["safeTransferFrom(address,address,uint256)"](from, to, tokenId);
