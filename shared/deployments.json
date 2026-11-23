@@ -17,6 +17,8 @@
     "cosmeticos": "0xfe09222b51A2b91F54d42e7bE4ca1E84591F9604",
     "mercado": "0xC02683814b25c4a99998aD359D336b4A15F83E2f",
     "recompensas": "0x67436408fe590dA830E783dc20345CccBCDbEE56",
-    "bloqueDespliegue": 12072405
+    "bloqueDespliegue": 12072405,
+    "mercadoP2P": "0xa4f3B160b6AEBC958EB9e59075D19b885b394f11",
+    "bloqueMercadoP2P": 12197606
   }
 }

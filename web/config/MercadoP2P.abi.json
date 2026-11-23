@@ -1,0 +1,1056 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "gameItem_",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "oro_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "bps",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maximo",
+        "type": "uint256"
+      }
+    ],
+    "name": "ComisionExcesiva",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "CompradorEsVendedor",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "EnforcedPause",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "EstaListado",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ExpectedPause",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "precio",
+        "type": "uint256"
+      }
+    ],
+    "name": "MismoPrecio",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "dueno",
+        "type": "address"
+      }
+    ],
+    "name": "NoEresDueno",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "vendedor",
+        "type": "address"
+      }
+    ],
+    "name": "NoEresVendedor",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "dueno",
+        "type": "address"
+      }
+    ],
+    "name": "NoEsNuestro",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "NoListado",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tienes",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "necesitas",
+        "type": "uint256"
+      }
+    ],
+    "name": "OroInsuficiente",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "PrecioCero",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "precio",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maximo",
+        "type": "uint256"
+      }
+    ],
+    "name": "PrecioExcesivo",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "precio",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maximo",
+        "type": "uint256"
+      }
+    ],
+    "name": "PrecioSubio",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ReentrancyGuardReentrantCall",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "aprobado",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "necesitas",
+        "type": "uint256"
+      }
+    ],
+    "name": "SinAprobacionOro",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "YaListado",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "vendedor",
+        "type": "address"
+      }
+    ],
+    "name": "Cancelado",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "anterior",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "nueva",
+        "type": "uint256"
+      }
+    ],
+    "name": "ComisionCambiada",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "vendedor",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint8",
+        "name": "rareza",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "precio",
+        "type": "uint256"
+      }
+    ],
+    "name": "Listado",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "a",
+        "type": "address"
+      }
+    ],
+    "name": "NftPerdidoDevuelto",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "Paused",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "vendedor",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "anterior",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "nuevo",
+        "type": "uint256"
+      }
+    ],
+    "name": "PrecioCambiado",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "vendedor",
+        "type": "address"
+      }
+    ],
+    "name": "Rescatado",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "Unpaused",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "vendedor",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "comprador",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "precio",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "comision",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "rareza",
+        "type": "uint8"
+      }
+    ],
+    "name": "Vendido",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "COMISION_MAXIMA",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "PRECIO_MAXIMO",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "nuevo",
+        "type": "uint256"
+      }
+    ],
+    "name": "cambiarPrecio",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "cancelar",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "comisionBps",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "comprar",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "precio",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "comision",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "precioMaximo",
+        "type": "uint256"
+      }
+    ],
+    "name": "comprarHasta",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "precio",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "comision",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "precio",
+        "type": "uint256"
+      }
+    ],
+    "name": "desglose",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "comision",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "neto",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "a",
+        "type": "address"
+      }
+    ],
+    "name": "devolverNftPerdido",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "estaListado",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "estadisticaRareza",
+    "outputs": [
+      {
+        "internalType": "uint128",
+        "name": "volumen",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint96",
+        "name": "ventas",
+        "type": "uint96"
+      },
+      {
+        "internalType": "uint32",
+        "name": "ultimoDia",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "gameItem",
+    "outputs": [
+      {
+        "internalType": "contract IGameItemP2P",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "listado",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "vendedor",
+            "type": "address"
+          },
+          {
+            "internalType": "uint8",
+            "name": "rareza",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint64",
+            "name": "creado",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "precio",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct MercadoP2P.Oferta",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "desde",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "cuantos",
+        "type": "uint256"
+      }
+    ],
+    "name": "listados",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "tokenId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "vendedor",
+            "type": "address"
+          },
+          {
+            "internalType": "uint8",
+            "name": "rareza",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint64",
+            "name": "creado",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "precio",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct MercadoP2P.OfertaVista[]",
+        "name": "lista",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "vendedor",
+        "type": "address"
+      }
+    ],
+    "name": "listadosDe",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "tokenId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "vendedor",
+            "type": "address"
+          },
+          {
+            "internalType": "uint8",
+            "name": "rareza",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint64",
+            "name": "creado",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "precio",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct MercadoP2P.OfertaVista[]",
+        "name": "lista",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "precioOro",
+        "type": "uint256"
+      }
+    ],
+    "name": "listar",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "rareza",
+        "type": "uint8"
+      }
+    ],
+    "name": "mercadoRareza",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "volumen",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "ventas",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "medio",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "mercadoTotal",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "volumen",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "ventas",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "medio",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "quemado",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "oro",
+    "outputs": [
+      {
+        "internalType": "contract LootGold",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "oroQuemado",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "pausar",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "paused",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "reanudar",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "rescatar",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "bps",
+        "type": "uint256"
+      }
+    ],
+    "name": "setComision",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "totalListados",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "totalMercado",
+    "outputs": [
+      {
+        "internalType": "uint128",
+        "name": "volumen",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint96",
+        "name": "ventas",
+        "type": "uint96"
+      },
+      {
+        "internalType": "uint32",
+        "name": "ultimoDia",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
