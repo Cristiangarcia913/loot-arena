@@ -713,7 +713,8 @@ async function confirmarTransferencia(ev) {
     guardarEquipo();
     toast(h("span", {}, `✔ «${item.nombre}» enviado a ${acortar(to)}. `, enlace(S.links.tx(tx.hash), "Etherscan ↗")), "ok", 9000);
   } catch (e) {
-    const motivo = e.reason || e.shortMessage || e.message || W.mensajeError(e);
+    console.error("Error al transferir:", e);
+    const motivo = W.mensajeError(e);
     toast(`Transferencia fallida: ${motivo}`, "error", 8000);
   } finally {
     S.transfiriendo.delete(item.tokenId);

@@ -22,7 +22,7 @@ export const TIMEOUT_TX_MS = 180000;
 
 /** Errores personalizados de los contratos de Loot Arena (nombres, sin argumentos). */
 const ERRORES_CONOCIDOS = Object.freeze([
-  "SaldoInsuficiente", "ERC20InsufficientBalance", "ERC721InsufficientApproval", "ERC721InvalidOperator",
+  "SaldoInsuficiente", "ERC20InsufficientBalance", "ERC721InsufficientApproval", "ERC721InvalidOperator", "ERC721InvalidReceiver", "ERC721InvalidSender",
   "NoEresDueno", "ERC721IncorrectOwner", "ERC721NonexistentToken", "NoALaVenta", "CosmeticoInexistente",
   "CofreVacio", "YaReclamada", "CantidadCero", "ListaVacia", "RarezaInvalida", "SaldoEthInsuficiente",
   "ERC1155InsufficientBalance", "SoloRecompensas",
@@ -31,11 +31,24 @@ const ERRORES_CONOCIDOS = Object.freeze([
   "PrecioCero", "PrecioExcesivo", "MismoPrecio",
 ]);
 
+/** Selectores de 4 bytes de los errores ERC721 de OpenZeppelin v5. */
+const SELECTORES_ERC721 = Object.freeze({
+  "0x177e802f": "ERC721InsufficientApproval",
+  "0x64282d7f": "ERC721InvalidReceiver",
+  "0x89c621e0": "ERC721IncorrectOwner",
+  "0x7e273289": "ERC721NonexistentToken",
+  "0x485cc955": "ERC721InvalidSender",
+  "0x5b08ba18": "ERC721InvalidOperator",
+  "0xa9fbf51f": "ERC721InvalidApprover",
+});
+
 /** Revert por nombre → [código, texto, acción]. */
 const POR_REVERT = Object.freeze({
   SaldoInsuficiente: ["sin-oro", "No tienes ORO suficiente para esta operación.", "refrescar"],
   ERC20InsufficientBalance: ["sin-oro", "No tienes ORO suficiente para esta operación.", "refrescar"],
-  ERC721InsufficientApproval: ["sin-permiso", "El Mercado no tiene permiso para mover tus objetos (¿revocaste el permiso?). Vuelve a intentarlo y acepta el permiso.", "reintentar"],
+  ERC721InsufficientApproval: ["sin-permiso", "No tienes autorización para transferir este objeto (tu cuenta activa en MetaMask no es la dueña en la blockchain).", "refrescar"],
+  ERC721InvalidReceiver: ["receptor-invalido", "La dirección destino no es válida o no puede recibir NFTs.", null],
+  ERC721InvalidSender: ["remitente-invalido", "El remitente de la transferencia no es válido.", null],
   ERC721InvalidOperator: ["sin-permiso", "El Mercado no tiene permiso para mover tus objetos (¿revocaste el permiso?). Vuelve a intentarlo y acepta el permiso.", "reintentar"],
   NoEresDueno: ["no-dueno", "Ese objeto ya no es tuyo (¿lo vendiste o transferiste?). Actualiza el inventario.", "refrescar"],
   ERC721IncorrectOwner: ["no-dueno", "Ese objeto ya no es tuyo (¿lo vendiste o transferiste?). Actualiza el inventario.", "refrescar"],
@@ -93,6 +106,11 @@ export function esFalloDeRed(e) {
 export function nombreRevert(e) {
   const directo = e?.revert?.name ?? e?.errorName;
   if (typeof directo === "string" && directo) return directo;
+  const data = e?.data ?? e?.info?.error?.data ?? e?.error?.data;
+  if (typeof data === "string" && data.startsWith("0x") && data.length >= 10) {
+    const sel = SELECTORES_ERC721[data.slice(0, 10).toLowerCase()];
+    if (sel) return sel;
+  }
   const msg = textoError(e);
   const m = msg.match(/custom error '?"?(\w+)/i) ?? msg.match(/reverted with (?:the )?(?:custom )?error '?"?(\w+)/i);
   if (m) return m[1];

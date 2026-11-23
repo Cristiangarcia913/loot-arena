@@ -49,7 +49,7 @@ export function escuchar({ onCuentas, onRed }) {
 const ERRORES_ERC721 = {
   ERC721InvalidReceiver: "La dirección destino no es válida o no puede recibir NFTs.",
   ERC721IncorrectOwner: "Tu cuenta no es la dueña de este objeto en la blockchain.",
-  ERC721InsufficientApproval: "No tienes autorización para transferir este objeto.",
+  ERC721InsufficientApproval: "No tienes autorización para transferir este objeto (tu cuenta activa en MetaMask no es la dueña en la blockchain).",
   ERC721NonexistentToken: "El objeto no existe en la blockchain.",
   ERC721InvalidSender: "El remitente de la transferencia no es válido.",
 };

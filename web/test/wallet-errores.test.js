@@ -38,7 +38,7 @@ test("sin ETH para gas (INSUFFICIENT_FUNDS) → faucet", () => {
 test("revert decodificado por nombre → mensaje en español y acción", () => {
   const casos = [
     ["SaldoInsuficiente", "sin-oro", /ORO suficiente/, "refrescar"],
-    ["ERC721InsufficientApproval", "sin-permiso", /permiso/, "reintentar"],
+    ["ERC721InsufficientApproval", "sin-permiso", /autorización/, "refrescar"],
     ["NoEresDueno", "no-dueno", /ya no es tuyo/, "refrescar"],
     ["ERC721IncorrectOwner", "no-dueno", /ya no es tuyo/, "refrescar"],
     ["NoALaVenta", "no-a-la-venta", /a la venta/, null],
