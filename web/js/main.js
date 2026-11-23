@@ -29,7 +29,6 @@ import { catalogoRotativo, semillaDelDia, ofertaDelDiaCosmetico } from "./econom
 import * as BL from "./botin-local.js";
 import { CLAVE_HISTORIAL_LOCAL, anadirEntrada, parsearHistorial, serializarHistorial } from "./historial-local.js";
 import { crearContrato, hayCodigo, leerInventario, transferir, propietarioDe, enlacesExplorador } from "./chain.js";
-import { iniciarAdmin } from "./admin.js";
 import { $, h, enlace, acortar, toast, esperar } from "./ui.js";
 import { leer, guardar } from "./storage.js";
 
@@ -1386,11 +1385,6 @@ async function montarSeccionCadena() {
 // ───────────────────────── Arranque ─────────────────────────
 
 async function iniciar() {
-  iniciarAdmin({
-    S, C, T, BL, E, leerBotinLocal, guardar, leer, enModoDemo, toast, renderCabecera, cargarInventario,
-    explorar: (clave) => { if (enCurso()) { S.combate = null; } S.animando = false; explorar(clave); },
-    enCurso, alTerminar, renderLuchadores, renderBotones,
-  });
   EMO.iniciar();
   conectarBoton3D();
   await elegirMotor();

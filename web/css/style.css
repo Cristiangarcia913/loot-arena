@@ -995,14 +995,3 @@ body.app { height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-
 }
 
 /* Panel Admin / Dev (F2) */
-.btn-admin { opacity: .55; font-size: .8rem; }
-.btn-admin:hover, .btn-admin:focus-visible { opacity: 1; }
-.dlg-admin { background: #0b0d14; border-color: #00e5ff; box-shadow: 0 0 24px rgba(0, 229, 255, .25), var(--sombra); color: #d6f6ff; }
-.dlg-admin h3 { color: #00e5ff; text-shadow: 0 0 8px rgba(0, 229, 255, .6); letter-spacing: .08em; }
-.dlg-admin select, .dlg-admin input[type=number] { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #00e5ff66; background: #05070c; color: #d6f6ff; }
-.adm-tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-.adm-tabs button { flex: 1; padding: 6px 8px; background: #05070c; color: #8fdcec; border: 1px solid #00e5ff44; border-radius: 6px; cursor: pointer; }
-.adm-tabs button.activa { background: #00e5ff22; color: #00e5ff; border-color: #00e5ff; box-shadow: 0 0 8px #00e5ff55; }
-.adm-btn { display: block; width: 100%; margin-top: 10px; }
-.adm-check { display: flex !important; align-items: center; gap: 8px; color: #d6f6ff !important; }
-.adm-check input { width: auto; }

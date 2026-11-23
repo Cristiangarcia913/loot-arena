@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Loot Arena · Portal Admin</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b0d14; --panel:#11141f; --acento:#00e5ff; --txt:#d6f6ff; --mut:#7f93a8; --err:#ff5a6e; --ok:#4ade80; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--txt); font:15px/1.5 system-ui,sans-serif; min-height:100vh; }
+    main { max-width:720px; margin:0 auto; padding:24px 16px 48px; }
+    h1 { color:var(--acento); letter-spacing:.08em; text-shadow:0 0 8px rgba(0,229,255,.5); font-size:1.4rem; }
+    h2 { font-size:1rem; color:var(--acento); margin:0 0 12px; }
+    section { background:var(--panel); border:1px solid #00e5ff44; border-radius:12px; padding:16px; margin-bottom:16px; }
+    label { display:block; margin:10px 0 4px; color:var(--mut); font-size:.85rem; }
+    input, select { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #00e5ff66; background:#05070c; color:var(--txt); font:inherit; }
+    .fila { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    button { margin-top:14px; padding:10px 16px; border-radius:8px; border:1px solid var(--acento); background:#00e5ff22; color:var(--acento); font:inherit; cursor:pointer; }
+    button:hover:not(:disabled) { background:#00e5ff44; }
+    button:disabled { opacity:.4; cursor:not-allowed; }
+    #bloqueo { max-width:360px; margin:12vh auto 0; }
+    #msg { min-height:1.4em; margin-top:10px; word-break:break-all; }
+    .err { color:var(--err); } .ok { color:var(--ok); }
+    dl { display:grid; grid-template-columns:auto 1fr; gap:4px 16px; margin:0; }
+    dt { color:var(--mut); } dd { margin:0; word-break:break-all; }
+    .nota { color:var(--mut); font-size:.8rem; }
+    [hidden] { display:none !important; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>🛠️ LOOT ARENA · PORTAL ADMIN</h1>
+
+  <section id="bloqueo">
+    <h2>Acceso restringido</h2>
+    <form id="form-pin" autocomplete="off">
+      <label for="pin">PIN / Contraseña de administrador</label>
+      <input id="pin" type="password" autocomplete="off" autofocus>
+      <button type="submit">Entrar</button>
+      <p id="pin-err" class="err" role="alert"></p>
+    </form>
+  </section>
+
+  <div id="panel" hidden>
+    <section>
+      <h2>Cuenta administradora</h2>
+      <p class="nota">Las transacciones las firma tu MetaMask: debe ser la cuenta owner del contrato. Ninguna clave privada pasa por esta página.</p>
+      <button id="btn-conectar" type="button">Conectar MetaMask</button>
+      <button id="btn-salir" type="button">Cerrar sesión</button>
+      <dl id="estado" style="margin-top:12px"></dl>
+    </section>
+
+    <section>
+      <h2>Billetera destino</h2>
+      <label for="destino">Dirección 0x…</label>
+      <input id="destino" placeholder="0x…" spellcheck="false" autocomplete="off">
+    </section>
+
+    <section>
+      <h2>Crear objeto</h2>
+      <div class="fila">
+        <div><label for="tipo">Tipo</label>
+          <select id="tipo"><option>Espada</option><option>Escudo</option><option>Casco</option><option>Armadura</option><option>Botas</option></select></div>
+        <div><label for="rareza">Rareza</label>
+          <select id="rareza"><option value="0">0 · Común</option><option value="1">1 · Raro</option><option value="2">2 · Legendario</option></select></div>
+        <div><label for="ataque">Ataque</label><input id="ataque" type="number" min="0" max="999" value="10"></div>
+        <div><label for="defensa">Defensa</label><input id="defensa" type="number" min="0" max="999" value="10"></div>
+      </div>
+      <button id="btn-mint" type="button" disabled>Mintear y Enviar</button>
+    </section>
+
+    <section>
+      <h2>Enviar ORO</h2>
+      <label for="oro">Cantidad</label>
+      <input id="oro" type="number" min="1" value="1000">
+      <button id="btn-oro" type="button" disabled>Enviar ORO</button>
+    </section>
+
+    <p id="msg" role="status"></p>
+  </div>
+</main>
+<script type="module" src="js/admin-portal.js"></script>
+</body>
+</html>

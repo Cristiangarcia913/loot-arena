@@ -52,7 +52,6 @@
       <select id="sel-red" class="sel-red" aria-label="Cambiar de red" title="Red de prueba en la que juegas"></select>
       <span id="net-badge" class="badge">Cargando…</span>
       <span id="addr" class="addr" hidden></span>
-      <button id="btn-admin" class="btn btn-icono btn-admin" type="button" aria-label="Panel de administración (F2)" title="Panel Admin (F2 / Ctrl+Shift+D)">🛠️ Admin</button>
       <button id="btn-3d"class="btn btn-icono" type="button" aria-pressed="false" aria-label="Cambiar entre 2D y 3D" title="Arena en 3D">🧊</button>
       <button id="btn-sonido" class="btn btn-icono" type="button" aria-pressed="false" aria-label="Silenciar">🔊</button>
       <button id="btn-emociones" class="btn btn-icono" type="button" aria-pressed="false" aria-label="Medidor Emocional (opcional)" title="📷 Medidor Emocional (Opcional): analiza tu expresión 100% en local, nunca se guarda ni envía ninguna foto">📷</button>
@@ -247,41 +246,6 @@
       </section>
     </main>
   </div>
-
-  <dialog id="dlg-admin" class="dialog dlg-admin" aria-label="Panel de administración">
-    <h3>🛠️ Panel Admin / Dev</h3>
-    <div class="adm-tabs" role="tablist">
-      <button type="button" role="tab" data-adm-tab="objetos">Objetos</button>
-      <button type="button" role="tab" data-adm-tab="economia">Economía</button>
-      <button type="button" role="tab" data-adm-tab="combate">Combate</button>
-      <button type="button" role="tab" data-adm-tab="misiones">Misiones</button>
-    </div>
-    <div data-adm-panel="objetos">
-      <label for="adm-tipo">Tipo</label>
-      <select id="adm-tipo"><option>Espada</option><option>Escudo</option><option>Casco</option><option>Armadura</option><option>Botas</option></select>
-      <label for="adm-rareza">Rareza</label>
-      <select id="adm-rareza"><option value="0">Común</option><option value="1">Raro</option><option value="2">Legendario</option></select>
-      <label for="adm-ataque">Ataque</label>
-      <input id="adm-ataque" type="number" min="0" max="999" value="10">
-      <label for="adm-defensa">Defensa</label>
-      <input id="adm-defensa" type="number" min="0" max="999" value="10">
-      <button id="adm-generar" class="btn btn-gold adm-btn" type="button">Generar Objeto</button>
-    </div>
-    <div data-adm-panel="economia" hidden>
-      <button id="adm-oro-1k" class="btn btn-gold adm-btn" type="button">+1.000 ORO</button>
-      <button id="adm-oro-10k" class="btn btn-gold adm-btn" type="button">+10.000 ORO</button>
-    </div>
-    <div data-adm-panel="combate" hidden>
-      <label class="adm-check"><input id="adm-dios" type="checkbox"> Modo Dios (Inmortal)</label>
-      <button id="adm-furia" class="btn adm-btn" type="button">Llenar Furia (100%)</button>
-      <button id="adm-instakill" class="btn adm-btn" type="button">Derrotar Enemigo (Instakill)</button>
-      <button id="adm-dragon" class="btn adm-btn" type="button">Invocar Jefe Dragón</button>
-    </div>
-    <div data-adm-panel="misiones" hidden>
-      <button id="adm-reiniciar-diario" class="btn adm-btn" type="button">Reiniciar Temporizador Diario</button>
-    </div>
-    <div class="dialog-actions"><button id="adm-cerrar" class="btn" type="button">Cerrar</button></div>
-  </dialog>
 
   <dialog id="dlg-transfer" class="dialog">
     <form id="form-transfer" method="dialog">
