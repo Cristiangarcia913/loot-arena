@@ -1411,7 +1411,7 @@ async function iniciar() {
     else if (sec === "cadena") { await montarSeccionCadena(); recuperarFoco(); }
   });
   setInterval(() => R.marcarAviso("expediciones", EXP.hayExpedicionLista(claveExp())), 30_000);
-  $("#btn-explorar").addEventListener("click", explorar);
+  $("#btn-explorar").addEventListener("click", () => explorar());
   $("#btn-atacar").addEventListener("click", () => accion("atacar"));
   $("#btn-defender").addEventListener("click", () => accion("defender"));
   $("#btn-pocion").addEventListener("click", () => accion("pocion"));
